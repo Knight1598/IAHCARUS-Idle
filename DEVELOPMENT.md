@@ -33,3 +33,11 @@ Headless software WebGL is slower than hardware rendering. Browser tests use 2D 
 6. Cosmetic themes with equal gameplay; no paid power changes.
 
 Rooms currently live in a single server's memory. Hosting/snapshots preserve files, not ongoing room sessions. Public deployment is separate from a GitHub push.
+
+## Standalone offline edition
+
+`vite.offline.config.ts` defines `__OFFLINE__` and uses vite-plugin-singlefile to inline all application JS and CSS. The bot worker is imported with `?worker&inline`, embedding its code in both builds. `scripts/package-offline.mjs` copies the built HTML to `offline/Special-Chess-Offline.html`, which is deliberately committed as a ready-to-download test artifact. Do not hand-edit this generated HTML.
+
+Offline defaults to bot play, hides mode switching/room UI, ignores room query parameters and online session storage, and saves its game/difficulty under separate keys. Training temporarily switches to a local sandbox; New Game always returns to bot mode. Easy/Medium/Hard use search depths 1/2/3.
+
+After shared source changes, run `npm run build:offline` and `npm run test:offline`. The default test opens the delivered file via file URL with networking disabled, checks every difficulty, and rejects any attempted WebSocket connection. This cloud machine blocks file navigation by managed Chromium policy; the verified local run used `OFFLINE_TEST_TRANSPORT=memory`, fulfilling only the main document from the delivered HTML in memory while networking remained disabled. Do not claim file-origin behavior verified from that run. CI keeps the default file-URL test. Rebuild the normal app and run its browser suite after changing shared code.

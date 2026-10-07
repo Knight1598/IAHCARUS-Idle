@@ -2,6 +2,17 @@
 
 A playable, procedural 3D chess game with signature attacks, cinematic camera sequences and Thai UI. All piece geometry, textures, effects and synthesized sounds are generated in code. No external art or model downloads.
 
+## Standalone offline test edition
+
+Download [`offline/Special-Chess-Offline.html`](offline/Special-Chess-Offline.html) using GitHub's **Download raw file** button, then open it in desktop Chrome/Edge. This separate single-file edition starts directly against a local bot with Easy/Medium/Hard difficulty. It includes all procedural 3D effects and training scenes, has no multiplayer UI, and requires no Node server or Internet connection. See the [Thai offline guide](offline/README.md).
+
+```sh
+npm run build:offline
+npm run test:offline
+```
+
+Use `npm run dev:offline` and the `/offline.html` page while developing the standalone edition. Rebuild the committed HTML whenever shared source changes. The original multiplayer build below remains available.
+
 ## Play
 
 Use Node.js **24** and npm.

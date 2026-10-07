@@ -667,3 +667,15 @@ dialog p {
     transition: none !important;
   }
 }
+
+.offline-edition #local-actions {
+  flex-wrap: wrap;
+}
+.offline-edition #difficulty {
+  width: 100%;
+  font-size: 14px;
+  border-color: #6b5b3e;
+}
+.offline-edition .match-head p {
+  line-height: 1.8;
+}

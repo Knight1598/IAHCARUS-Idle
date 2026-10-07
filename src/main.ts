@@ -1,6 +1,12 @@
 import "./style.css";
 import { Chess, type Square, type PieceSymbol, type Move } from "chess.js";
 import { ChessScene } from "./scene";
+import BotWorker from "./bot.ts?worker&inline";
+const OFFLINE = __OFFLINE__;
+const saveKey = OFFLINE ? "special-chess-offline-game" : "special-chess-local";
+const difficultyKey = OFFLINE
+  ? "special-chess-offline-difficulty"
+  : "special-chess-difficulty";
 import { training } from "./training";
 import { analyzeMove, type MoveEvent } from "../shared/events.js";
 
@@ -40,7 +46,7 @@ const names = {
 const $ = <T extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<T>(s)!;
 $("#app").innerHTML =
-  `<header><a class="brand" href="#"><span class="brand-mark">♞</span><span>SPECIAL CHESS<small>PROCEDURAL 3D ARENA</small></span></a><div class="header-actions"><span class="tag">PURE CODE</span><button id="help" class="icon" aria-label="วิธีเล่น">?</button></div></header><div class="layout"><main id="stage" aria-label="กระดานหมากรุกสามมิติ"><div class="arena-top"><span id="mode-tag">LOCAL DUEL</span><span id="connection"></span></div><div id="event" aria-live="polite"><strong></strong><span></span></div><div id="cinema-top" class="cinema-bar"></div><div id="cinema-bottom" class="cinema-bar"></div><div class="arena-bottom"><span id="hint">เลือกหมากเพื่อเริ่มการประลอง</span><div><button id="view" class="icon" title="กลับมุมกล้อง" aria-label="กลับมุมกล้อง">◎</button><button id="flip" class="icon" title="สลับมุม" aria-label="สลับมุม">↻</button><button id="skip">ข้ามฉาก</button></div></div></main><aside><section class="match-head"><small>THE ROYAL DUEL</small><h1>ศึกหมากราชัน</h1><p>หมากรุกคลาสสิก · ทุกตาคือฉากต่อสู้</p></section><div class="player" id="black-player"><span class="avatar black">♚</span><div><strong>ฝ่ายดำ</strong><small id="black-label">ผู้เล่น 2</small></div><span class="clock" id="black-clock">—</span></div><div id="status" role="status"></div><div class="player" id="white-player"><span class="avatar white">♔</span><div><strong>ฝ่ายขาว</strong><small id="white-label">ผู้เล่น 1</small></div><span class="clock" id="white-clock">—</span></div><div id="result" hidden></div><div class="tabs" role="group" aria-label="โหมดเกม"><button data-mode="bot">เล่นกับบอต</button><button data-mode="local" class="active">สองคน</button><button data-mode="online">ออนไลน์</button></div><section id="online-panel" hidden><p class="muted">ห้องส่วนตัว · ฝ่ายละ 5 นาที</p><div class="button-row"><button id="create" class="primary">สร้างห้อง</button><button id="leave" hidden>ออกจากห้อง</button></div><form id="join-form"><input id="room-code" aria-label="รหัสห้อง" placeholder="รหัสห้อง 6 ตัว" maxlength="6" autocomplete="off" pattern="[A-Fa-f0-9]{6}" required><button id="join" type="submit">เข้าร่วม</button></form><div id="room-info" hidden><span>รหัสห้อง <strong id="code"></strong></span><button id="copy">คัดลอกลิงก์</button></div></section><div class="button-row" id="local-actions"><button id="reset" class="primary">เกมใหม่</button><button id="undo">ย้อนตา</button><select id="difficulty" aria-label="ระดับบอต" hidden><option value="1">บอตฝึกหัด</option><option value="2" selected>บอตทั่วไป</option><option value="3">บอตคิดลึก</option></select></div><button id="resign" hidden>ยอมแพ้</button><div id="notice" role="status"></div><section class="settings"><label><input type="checkbox" id="cinematic" checked> คัตซีนและกล้องพิเศษ</label><label><input type="checkbox" id="reduced"> ลดเอฟเฟกต์</label><label><input type="checkbox" id="sound"> เสียงสังเคราะห์</label></section><details id="board-details"><summary>กระดาน 2D / เล่นด้วยคีย์บอร์ด</summary><div id="flat-board" role="group" aria-label="กระดานหมากรุกสองมิติ"></div></details><details id="training-panel"><summary>สนามฝึกท่าสเปเชียล</summary><select id="training-select" aria-label="เลือกท่าฝึก"><option value="">เลือกฉากเพื่อทดลอง</option>${Object.entries(
+  `<header><a class="brand" href="#"><span class="brand-mark">♞</span><span>SPECIAL CHESS<small>PROCEDURAL 3D ARENA</small></span></a><div class="header-actions"><span class="tag">PURE CODE</span><button id="help" class="icon" aria-label="วิธีเล่น">?</button></div></header><div class="layout"><main id="stage" aria-label="กระดานหมากรุกสามมิติ"><div class="arena-top"><span id="mode-tag">LOCAL DUEL</span><span id="connection"></span></div><div id="event" aria-live="polite"><strong></strong><span></span></div><div id="cinema-top" class="cinema-bar"></div><div id="cinema-bottom" class="cinema-bar"></div><div class="arena-bottom"><span id="hint">เลือกหมากเพื่อเริ่มการประลอง</span><div><button id="view" class="icon" title="กลับมุมกล้อง" aria-label="กลับมุมกล้อง">◎</button><button id="flip" class="icon" title="สลับมุม" aria-label="สลับมุม">↻</button><button id="skip">ข้ามฉาก</button></div></div></main><aside><section class="match-head"><small>THE ROYAL DUEL</small><h1>ศึกหมากราชัน</h1><p>หมากรุกคลาสสิก · ทุกตาคือฉากต่อสู้</p></section><div class="player" id="black-player"><span class="avatar black">♚</span><div><strong>ฝ่ายดำ</strong><small id="black-label">ผู้เล่น 2</small></div><span class="clock" id="black-clock">—</span></div><div id="status" role="status"></div><div class="player" id="white-player"><span class="avatar white">♔</span><div><strong>ฝ่ายขาว</strong><small id="white-label">ผู้เล่น 1</small></div><span class="clock" id="white-clock">—</span></div><div id="result" hidden></div><div class="tabs" role="group" aria-label="โหมดเกม"><button data-mode="bot">เล่นกับบอต</button><button data-mode="local" class="active">สองคน</button><button data-mode="online">ออนไลน์</button></div><section id="online-panel" hidden><p class="muted">ห้องส่วนตัว · ฝ่ายละ 5 นาที</p><div class="button-row"><button id="create" class="primary">สร้างห้อง</button><button id="leave" hidden>ออกจากห้อง</button></div><form id="join-form"><input id="room-code" aria-label="รหัสห้อง" placeholder="รหัสห้อง 6 ตัว" maxlength="6" autocomplete="off" pattern="[A-Fa-f0-9]{6}" required><button id="join" type="submit">เข้าร่วม</button></form><div id="room-info" hidden><span>รหัสห้อง <strong id="code"></strong></span><button id="copy">คัดลอกลิงก์</button></div></section><div class="button-row" id="local-actions"><button id="reset" class="primary">เกมใหม่</button><button id="undo">ย้อนตา</button><select id="difficulty" aria-label="ระดับบอต" hidden><option value="1">ง่าย</option><option value="2" selected>ปานกลาง</option><option value="3">ยาก</option></select></div><button id="resign" hidden>ยอมแพ้</button><div id="notice" role="status"></div><section class="settings"><label><input type="checkbox" id="cinematic" checked> คัตซีนและกล้องพิเศษ</label><label><input type="checkbox" id="reduced"> ลดเอฟเฟกต์</label><label><input type="checkbox" id="sound"> เสียงสังเคราะห์</label></section><details id="board-details"><summary>กระดาน 2D / เล่นด้วยคีย์บอร์ด</summary><div id="flat-board" role="group" aria-label="กระดานหมากรุกสองมิติ"></div></details><details id="training-panel"><summary>สนามฝึกท่าสเปเชียล</summary><select id="training-select" aria-label="เลือกท่าฝึก"><option value="">เลือกฉากเพื่อทดลอง</option>${Object.entries(
     training,
   )
     .map(([key, t]) => `<option value="${key}">${t.name}</option>`)
@@ -49,7 +55,7 @@ $("#app").innerHTML =
     )}</select><p id="training-hint" class="muted"></p></details><section class="history"><div class="section-title"><h2>บันทึกการประลอง</h2><button id="export" class="text-button">PGN ↓</button></div><div id="moves"></div></section><footer>โมเดล แสง และพลังทั้งหมดสร้างจากโค้ด<br>ไม่มีการเปลี่ยนความสามารถของหมาก</footer></aside></div><dialog id="promotion"><small>ASCENSION</small><h2>เลือกหมากเพื่อเลื่อนขั้น</h2><div class="promotion-options">${(["q", "r", "b", "n"] as const).map((p) => `<button data-piece="${p}"><span>${symbols.w[p]}</span>${names[p]}</button>`).join("")}</div><button id="cancel-promotion" class="text-button">ยกเลิก</button></dialog><dialog id="help-dialog"><small>HOW TO PLAY</small><h2>ทุกตาคือการตัดสินใจ</h2><p>เลือกหมากของฝ่ายที่ถึงตา แล้วเลือกช่องเรืองแสงเพื่อเดิน สีชมพูคือช่องกินหมาก</p><p>ลากเพื่อหมุนกระดาน เลื่อนเพื่อซูม หรือใช้กระดาน 2D ด้วยคีย์บอร์ด</p><p>กติกาหมากรุกมาตรฐาน: คิงจะไม่ถูกกิน เกมจบเมื่อรุกฆาต ท่าสเปเชียลเป็นภาพประกอบการเดิน และข้ามได้เสมอ</p><p>ออนไลน์: สร้างห้องแล้วส่งลิงก์ให้เพื่อน ฝ่ายละ 5 นาที เวลาเดินตามเซิร์ฟเวอร์ รวมเวลาคัตซีน หากรีเฟรชจะกลับเข้าห้องจากเบราว์เซอร์เดิม</p><p>เล่นกับบอต: คุณเป็นฝ่ายขาว บอตเป็นฝ่ายดำ ปรับระดับได้ก่อนตาถัดไป</p><button id="close-help" class="primary">เข้าใจแล้ว</button></dialog>`;
 let initialFen = new Chess().fen();
 let game = new Chess(),
-  mode: Mode = "local",
+  mode: Mode = OFFLINE ? "bot" : "local",
   selected: Square | null = null,
   pending: { from: Square; to: Square } | null = null,
   lastMove: { from: Square; to: Square } | undefined;
@@ -179,7 +185,8 @@ function updateUI() {
       ? (session?.color === "b" ? "คุณ" : "คู่แข่ง") +
         (state?.connected.b ? " · เชื่อมต่อ" : " · ยังไม่เชื่อมต่อ")
       : mode === "bot"
-        ? "บอต"
+        ? "บอต · " +
+          $<HTMLSelectElement>("#difficulty").selectedOptions[0].textContent
         : "ผู้เล่น 2";
   $("#connection").textContent =
     mode === "online"
@@ -357,9 +364,7 @@ function scheduleBot() {
     return;
   botTimer = setTimeout(() => {
     const fen = game.fen();
-    worker = new Worker(new URL("./bot.ts", import.meta.url), {
-      type: "module",
-    });
+    worker = new BotWorker();
     worker.onmessage = (e) => {
       worker?.terminate();
       worker = undefined;
@@ -380,11 +385,13 @@ function scheduleBot() {
 function saveLocal() {
   if (mode !== "online")
     storage.set(
-      "special-chess-local",
+      saveKey,
       JSON.stringify({ mode, initialFen, history: game.history() }),
     );
 }
 function newLocal() {
+  clearTimeout(noticeTimer);
+  $("#notice").textContent = "";
   initialFen = new Chess().fen();
   $<HTMLSelectElement>("#training-select").value = "";
   $("#training-hint").textContent = "";
@@ -401,6 +408,7 @@ function newLocal() {
   updateUI();
 }
 function disconnect() {
+  if (OFFLINE) return;
   clearTimeout(reconnectTimer);
   const socket = ws;
   ws = undefined;
@@ -414,11 +422,12 @@ function disconnect() {
   storage.remove("special-chess-session");
 }
 function setMode(next: Mode) {
+  if (OFFLINE && next === "online") return;
   if (mode === next) return;
   disconnect();
   mode = next;
   newLocal();
-  if (next === "online") connect();
+  if (!OFFLINE && next === "online") connect();
 }
 function send(data: unknown) {
   if (ws?.readyState !== WebSocket.OPEN) {
@@ -429,6 +438,7 @@ function send(data: unknown) {
   return true;
 }
 function connect() {
+  if (OFFLINE) return;
   if (mode !== "online") return;
   clearTimeout(reconnectTimer);
   if (ws) {
@@ -543,10 +553,13 @@ function updateClocks() {
         : "—";
   }
 }
-setInterval(updateClocks, 200);
+if (!OFFLINE) setInterval(updateClocks, 200);
 for (const b of document.querySelectorAll<HTMLButtonElement>("[data-mode]"))
   b.onclick = () => setMode(b.dataset.mode as Mode);
-$("#reset").onclick = newLocal;
+$("#reset").onclick = () => {
+  if (OFFLINE) mode = "bot";
+  newLocal();
+};
 $("#undo").onclick = () => {
   if (mode === "online") return;
   stopBot();
@@ -684,7 +697,7 @@ if (scene) {
   scene.reduced = $<HTMLInputElement>("#reduced").checked;
 }
 try {
-  const saved = JSON.parse(storage.get("special-chess-local") || "null");
+  const saved = JSON.parse(storage.get(saveKey) || "null");
   if (
     saved &&
     ["local", "bot"].includes(saved.mode) &&
@@ -698,24 +711,43 @@ try {
 } catch {
   game = new Chess();
 }
-const invite = new URLSearchParams(location.search).get("room");
-try {
-  const saved = JSON.parse(storage.get("special-chess-session") || "null");
-  if (
-    saved &&
-    /^[A-F0-9]{6}$/.test(saved.code) &&
-    typeof saved.token === "string" &&
-    (!invite || invite === saved.code)
-  ) {
-    session = saved;
-    mode = "online";
-  }
-} catch {}
+const invite = OFFLINE
+  ? null
+  : new URLSearchParams(location.search).get("room");
+if (!OFFLINE)
+  try {
+    const saved = JSON.parse(storage.get("special-chess-session") || "null");
+    if (
+      saved &&
+      /^[A-F0-9]{6}$/.test(saved.code) &&
+      typeof saved.token === "string" &&
+      (!invite || invite === saved.code)
+    ) {
+      session = saved;
+      mode = "online";
+    }
+  } catch {}
 if (invite) {
   mode = "online";
   $<HTMLInputElement>("#room-code").value = invite.toUpperCase();
 }
+if (OFFLINE) {
+  document.body.classList.add("offline-edition");
+  $(".brand small").textContent = "OFFLINE BOT EDITION";
+  $(".match-head p").textContent = "เล่นได้โดยไม่ใช้อินเทอร์เน็ต · บอต 3 ระดับ";
+  $(".tabs").hidden = true;
+  $("#connection").textContent = "OFFLINE";
+  $("#help-dialog").querySelectorAll("p")[3].remove();
+}
+const savedDifficulty = storage.get(difficultyKey);
+if (savedDifficulty && ["1", "2", "3"].includes(savedDifficulty))
+  $<HTMLSelectElement>("#difficulty").value = savedDifficulty;
+$<HTMLSelectElement>("#difficulty").onchange = () => {
+  storage.set(difficultyKey, $<HTMLSelectElement>("#difficulty").value);
+  if (mode === "bot" && game.turn() === "b") scheduleBot();
+  updateUI();
+};
 scene?.renderBoard(game);
 updateUI();
-if (mode === "online") connect();
+if (!OFFLINE && mode === "online") connect();
 else scheduleBot();
