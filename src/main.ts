@@ -8,6 +8,7 @@ import {
 } from "chess.js";
 import { ChessScene, type GraphicsQuality } from "./scene";
 import { TitleScreen, type LaunchSettings } from "./title";
+import { SpaceAudio } from "./sound";
 import { readProfile, claimXP, matchXP, levelProgress, skins, isSkinUnlocked, type SkinId } from "./profile";
 import { matchStory, latestMoment } from "./battle";
 import { matchMaterial, type CinematicScope } from "./gameplay";
@@ -56,7 +57,7 @@ const names = {
 const $ = <T extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<T>(s)!;
 $("#app").innerHTML =
-  `<div id="game-shell" hidden><header><a class="brand" href="#"><span class="brand-mark">♞</span><span>SPECIAL CHESS<small>PROCEDURAL 3D ARENA</small></span></a><div class="header-actions"><button id="title-return">หน้าหลัก</button><span id="player-level" class="tag">Lv.1</span><span class="tag">PURE CODE</span><button id="help" class="icon" aria-label="วิธีเล่น">?</button></div></header><div class="layout"><main id="stage" aria-label="กระดานหมากรุกสามมิติ"><div class="arena-top"><span id="mode-tag">LOCAL DUEL</span><span id="connection"></span></div><div id="event" aria-live="polite"><strong></strong><span></span></div><div id="battle-toast" role="status"><small>ARENA EVENT</small><strong></strong><span></span></div><div id="cinema-top" class="cinema-bar"></div><div id="cinema-bottom" class="cinema-bar"></div><div class="arena-bottom"><span id="hint">เลือกหมากเพื่อเริ่มการประลอง</span><div><button id="view" class="icon" title="กลับมุมกล้อง" aria-label="กลับมุมกล้อง">◎</button><button id="flip" class="icon" title="สลับมุม" aria-label="สลับมุม">↻</button><button id="skip">ข้ามฉาก</button></div></div></main><aside><section class="match-head"><small>THE ROYAL DUEL</small><h1>ศึกหมากราชัน</h1><p>หมากรุกคลาสสิก · ทุกตาคือฉากต่อสู้</p></section><div class="player" id="black-player"><span class="avatar black">♚</span><div><strong>ฝ่ายดำ</strong><small id="black-label">ผู้เล่น 2</small></div><span class="clock" id="black-clock">—</span></div><div id="status" role="status"></div><div class="player" id="white-player"><span class="avatar white">♔</span><div><strong>ฝ่ายขาว</strong><small id="white-label">ผู้เล่น 1</small></div><span class="clock" id="white-clock">—</span></div><div id="result" hidden></div><div id="xp-reward" role="status" hidden></div><div class="tabs" role="group" aria-label="โหมดเกม"><button data-mode="bot">เล่นกับบอต</button><button data-mode="local" class="active">สองคน</button><button data-mode="online">ออนไลน์</button></div><section id="online-panel" hidden><p class="muted">ห้องส่วนตัว · ฝ่ายละ 5 นาที</p><div class="button-row"><button id="create" class="primary">สร้างห้อง</button><button id="leave" hidden>ออกจากห้อง</button></div><form id="join-form"><input id="room-code" aria-label="รหัสห้อง" placeholder="รหัสห้อง 6 ตัว" maxlength="6" autocomplete="off" pattern="[A-Fa-f0-9]{6}" required><button id="join" type="submit">เข้าร่วม</button></form><div id="room-info" hidden><span>รหัสห้อง <strong id="code"></strong></span><button id="copy">คัดลอกลิงก์</button></div></section><div class="button-row" id="local-actions"><button id="reset" class="primary">เกมใหม่</button><button id="undo">ย้อนตา</button><select id="difficulty" aria-label="ระดับบอต" hidden><option value="1">ง่าย</option><option value="2" selected>ปานกลาง</option><option value="3">ยาก</option></select></div><label id="side-control" hidden>ฝ่ายของคุณ<select id="human-side" aria-label="ฝ่ายของคุณ"><option value="w">ฝ่ายขาว · เดินก่อน</option><option value="b">ฝ่ายดำ · เดินทีหลัง</option></select><small>เปลี่ยนฝ่ายจะเริ่มเกมใหม่</small></label><section class="material-panel" aria-label="หมากที่กินและคะแนนกำลัง"><div><span>ขาวกิน</span><span id="white-captured">—</span><strong id="white-material"></strong></div><div><span>ดำกิน</span><span id="black-captured">—</span><strong id="black-material"></strong></div></section><section id="missions" class="missions"><div class="section-title"><h2 id="mission-title">ภารกิจในแมตช์</h2><strong id="mission-stars">☆ ☆ ☆</strong></div><p class="muted">เป้าหมายเสริม · เก็บดาวระหว่างการประลอง</p><div id="mission-list"></div></section><details id="battle-log-panel"><summary>อีเวนท์ในแมตช์</summary><div id="battle-log"></div></details><button id="resign" hidden>ยอมแพ้</button><div id="notice" role="status"></div><section class="settings"><label class="setting-select" for="graphics-quality">กราฟิก<select id="graphics-quality"><option value="auto">อัตโนมัติ · ปรับตามความลื่น</option><option value="low">ลื่นที่สุด · ลดเงาและความละเอียด</option><option value="high">ภาพคมชัด</option></select></label><label><input type="checkbox" id="battle-events" checked> อีเวนท์และภารกิจระหว่างเล่น</label><label><input type="checkbox" id="cinematic" checked> คัตซีนและกล้องพิเศษ</label><label class="setting-select" for="cinematic-scope">จังหวะคัตซีน<select id="cinematic-scope"><option value="key">เฉพาะจังหวะสำคัญ</option><option value="all">ทุกท่าสเปเชียล</option></select></label><label><input type="checkbox" id="reduced"> ลดเอฟเฟกต์</label><label><input type="checkbox" id="sound"> เสียงสังเคราะห์</label></section><details id="board-details"><summary>กระดาน 2D / เล่นด้วยคีย์บอร์ด</summary><div id="flat-board" role="group" aria-label="กระดานหมากรุกสองมิติ"></div></details><details id="training-panel"><summary>สนามฝึกท่าสเปเชียล</summary><select id="training-select" aria-label="เลือกท่าฝึก"><option value="">เลือกฉากเพื่อทดลอง</option>${Object.entries(
+  `<div id="game-shell" hidden><header><a class="brand" href="#"><span class="brand-mark">♞</span><span>SPECIAL CHESS<small>PROCEDURAL 3D ARENA</small></span></a><div class="header-actions"><button id="title-return">หน้าหลัก</button><span id="player-level" class="tag">Lv.1</span><span class="tag">PURE CODE</span><button id="help" class="icon" aria-label="วิธีเล่น">?</button></div></header><div class="layout"><main id="stage" aria-label="กระดานหมากรุกสามมิติ"><div class="arena-top"><span id="mode-tag">LOCAL DUEL</span><span id="connection"></span></div><div id="event" aria-live="polite"><strong></strong><span></span></div><div id="battle-toast" role="status"><small>ARENA EVENT</small><strong></strong><span></span></div><div id="cinema-top" class="cinema-bar"></div><div id="cinema-bottom" class="cinema-bar"></div><div class="arena-bottom"><span id="hint">เลือกหมากเพื่อเริ่มการประลอง</span><div><button id="view" class="icon" title="กลับมุมกล้อง" aria-label="กลับมุมกล้อง">◎</button><button id="flip" class="icon" title="สลับมุม" aria-label="สลับมุม">↻</button><button id="skip">ข้ามฉาก</button></div></div></main><aside><section class="match-head"><small>THE ROYAL DUEL</small><h1>ศึกหมากราชัน</h1><p>หมากรุกคลาสสิก · ทุกตาคือฉากต่อสู้</p></section><div class="player" id="black-player"><span class="avatar black">♚</span><div><strong>ฝ่ายดำ</strong><small id="black-label">ผู้เล่น 2</small></div><span class="clock" id="black-clock">—</span></div><div id="status" role="status"></div><div class="player" id="white-player"><span class="avatar white">♔</span><div><strong>ฝ่ายขาว</strong><small id="white-label">ผู้เล่น 1</small></div><span class="clock" id="white-clock">—</span></div><div id="result" hidden></div><div id="xp-reward" role="status" hidden></div><div class="tabs" role="group" aria-label="โหมดเกม"><button data-mode="bot">เล่นกับบอต</button><button data-mode="local" class="active">สองคน</button><button data-mode="online">ออนไลน์</button></div><section id="online-panel" hidden><p class="muted">ห้องส่วนตัว · ฝ่ายละ 5 นาที</p><div class="button-row"><button id="create" class="primary">สร้างห้อง</button><button id="leave" hidden>ออกจากห้อง</button></div><form id="join-form"><input id="room-code" aria-label="รหัสห้อง" placeholder="รหัสห้อง 6 ตัว" maxlength="6" autocomplete="off" pattern="[A-Fa-f0-9]{6}" required><button id="join" type="submit">เข้าร่วม</button></form><div id="room-info" hidden><span>รหัสห้อง <strong id="code"></strong></span><button id="copy">คัดลอกลิงก์</button></div></section><div class="button-row" id="local-actions"><button id="reset" class="primary">เกมใหม่</button><button id="undo">ย้อนตา</button><select id="difficulty" aria-label="ระดับบอต" hidden><option value="1">ง่าย</option><option value="2" selected>ปานกลาง</option><option value="3">ยาก</option></select></div><label id="side-control" hidden>ฝ่ายของคุณ<select id="human-side" aria-label="ฝ่ายของคุณ"><option value="w">ฝ่ายขาว · เดินก่อน</option><option value="b">ฝ่ายดำ · เดินทีหลัง</option></select><small>เปลี่ยนฝ่ายจะเริ่มเกมใหม่</small></label><section class="material-panel" aria-label="หมากที่กินและคะแนนกำลัง"><div><span>ขาวกิน</span><span id="white-captured">—</span><strong id="white-material"></strong></div><div><span>ดำกิน</span><span id="black-captured">—</span><strong id="black-material"></strong></div></section><section id="missions" class="missions"><div class="section-title"><h2 id="mission-title">ภารกิจในแมตช์</h2><strong id="mission-stars">☆ ☆ ☆</strong></div><p class="muted">เป้าหมายเสริม · เก็บดาวระหว่างการประลอง</p><div id="mission-list"></div></section><details id="battle-log-panel"><summary>อีเวนท์ในแมตช์</summary><div id="battle-log"></div></details><button id="resign" hidden>ยอมแพ้</button><div id="notice" role="status"></div><section class="settings"><label class="setting-select" for="graphics-quality">กราฟิก<select id="graphics-quality"><option value="auto">อัตโนมัติ · ปรับตามความลื่น</option><option value="low">ลื่นที่สุด · ลดเงาและความละเอียด</option><option value="high">ภาพคมชัด</option></select></label><label><input type="checkbox" id="battle-events" checked> อีเวนท์และภารกิจระหว่างเล่น</label><label><input type="checkbox" id="cinematic" checked> คัตซีนและกล้องพิเศษ</label><label class="setting-select" for="cinematic-scope">จังหวะคัตซีน<select id="cinematic-scope"><option value="key">เฉพาะจังหวะสำคัญ</option><option value="all">ทุกท่าสเปเชียล</option></select></label><label><input type="checkbox" id="reduced"> ลดเอฟเฟกต์</label><label><input type="checkbox" id="sound"> เสียงอวกาศ · ไซไฟอนิเมะ</label><label class="setting-select" for="sound-volume">ระดับเสียงเอฟเฟกต์<input id="sound-volume" type="range" min="0" max="100" value="35" aria-label="ระดับเสียงเอฟเฟกต์"></label></section><details id="board-details"><summary>กระดาน 2D / เล่นด้วยคีย์บอร์ด</summary><div id="flat-board" role="group" aria-label="กระดานหมากรุกสองมิติ"></div></details><details id="training-panel"><summary>สนามฝึกท่าสเปเชียล</summary><select id="training-select" aria-label="เลือกท่าฝึก"><option value="">เลือกฉากเพื่อทดลอง</option>${Object.entries(
     training,
   )
     .map(([key, t]) => `<option value="${key}">${t.name}</option>`)
@@ -119,19 +120,8 @@ let ws: WebSocket | undefined,
   serverStamp = Date.now(),
   requestPending = false;
 let audio: AudioContext | undefined;
-const activeSounds = new Set<AudioScheduledSourceNode>();
-function stopSounds() {
-  for (const source of activeSounds) {
-    try {
-      source.stop();
-    } catch {}
-  }
-  activeSounds.clear();
-}
-function trackSound(source: AudioScheduledSourceNode) {
-  activeSounds.add(source);
-  source.onended = () => activeSounds.delete(source);
-}
+let spaceAudio: SpaceAudio | undefined;
+function stopSounds() { spaceAudio?.cancel(); }
 const storage = {
   get(key: string) {
     try {
@@ -419,6 +409,7 @@ function pick(square: Square) {
   } else if (game.get(square)?.color === game.turn()) {
     selected = square;
     scene?.select(game, square, lastMove);
+    soundEngine()?.play(game.get(square)!.type, "lock", 0.08, false, (square.charCodeAt(0) - 100.5) / 5);
   } else if (selected) {
     notice(game.isCheck()
       ? "คิงกำลังถูกรุก ต้องหลบ ขวาง หรือกินหมากที่รุก เลือกช่องเรืองแสง"
@@ -428,80 +419,31 @@ function pick(square: Square) {
   }
   updateUI();
 }
-function playSound(move: Move, event: MoveEvent) {
-  stopSounds();
+function soundEngine() {
   if (!$<HTMLInputElement>("#sound").checked) return;
   try {
     audio ||= new AudioContext();
     void audio.resume();
-    const now = audio.currentTime;
-    if (scene?.animation?.dramatic) {
-      const charge = audio.createOscillator(),
-        gain = audio.createGain();
-      charge.type = "triangle";
-      charge.frequency.setValueAtTime(70, now);
-      charge.frequency.exponentialRampToValueAtTime(720, now + 0.75);
-      gain.gain.setValueAtTime(0, now);
-      gain.gain.linearRampToValueAtTime(0.035, now + 0.15);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.83);
-      charge.connect(gain).connect(audio.destination);
-      trackSound(charge);
-      charge.start(now);
-      charge.stop(now + 0.85);
-      return;
-    }
-    for (let i = 0; i < (event.kind === "move" ? 1 : 3); i++) {
-      const o = audio.createOscillator(),
-        g = audio.createGain();
-      o.type = move.piece === "r" ? "sawtooth" : "sine";
-      const base = move.captured ? 100 : 260;
-      o.frequency.setValueAtTime(base + i * 140, now + i * 0.09);
-      o.frequency.exponentialRampToValueAtTime(50, now + i * 0.09 + 0.3);
-      g.gain.setValueAtTime(0, now + i * 0.09);
-      g.gain.linearRampToValueAtTime(0.06, now + i * 0.09 + 0.015);
-      g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.09 + 0.3);
-      o.connect(g).connect(audio.destination);
-      trackSound(o);
-      o.start(now + i * 0.09);
-      o.stop(now + i * 0.09 + 0.31);
-    }
-  } catch {}
+    spaceAudio ||= new SpaceAudio(audio);
+    spaceAudio.setVolume(Number($<HTMLInputElement>("#sound-volume").value) / 100);
+    return spaceAudio;
+  } catch { return undefined; }
 }
-function impactSound(move: Move, event: MoveEvent) {
-  if (!move.captured && event.kind === "move") return;
-  if (!$<HTMLInputElement>("#sound").checked || !audio || scene?.reduced)
-    return;
-  try {
-    const now = audio.currentTime;
-    const low = audio.createOscillator(),
-      gain = audio.createGain();
-    low.frequency.setValueAtTime(135, now);
-    low.frequency.exponentialRampToValueAtTime(32, now + 0.38);
-    gain.gain.setValueAtTime(0.09, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
-    low.connect(gain).connect(audio.destination);
-    trackSound(low);
-    low.start(now);
-    low.stop(now + 0.46);
-    const buffer = audio.createBuffer(
-        1,
-        Math.floor(audio.sampleRate * 0.18),
-        audio.sampleRate,
-      ),
-      samples = buffer.getChannelData(0);
-    for (let i = 0; i < samples.length; i++)
-      samples[i] = (Math.random() * 2 - 1) * (1 - i / samples.length);
-    const noise = audio.createBufferSource(),
-      volume = audio.createGain(),
-      filter = audio.createBiquadFilter();
-    noise.buffer = buffer;
-    filter.type = "lowpass";
-    filter.frequency.value = 1600;
-    volume.gain.value = 0.055;
-    noise.connect(filter).connect(volume).connect(audio.destination);
-    trackSound(noise);
-    noise.start(now);
-  } catch {}
+function soundPan(move: Move) { return (move.to.charCodeAt(0) - 100.5) / 5; }
+function playSound(move: Move, _event: MoveEvent) {
+  stopSounds();
+  const engine = soundEngine();
+  if (!engine) return;
+  engine.play(move.piece, "lock", 0.08, !!move.captured, soundPan(move));
+  if (!scene?.reduced) engine.play(move.piece, "charge",
+    (scene?.animation?.duration || 780) * (scene?.animation?.dramatic ? 0.3 : 0.22) / 1000,
+    !!move.captured, soundPan(move));
+}
+function dashSound(move: Move, _event: MoveEvent) {
+  if (!scene?.reduced) soundEngine()?.play(move.piece, "dash", 0.3, !!move.captured, soundPan(move));
+}
+function impactSound(move: Move, _event: MoveEvent) {
+  soundEngine()?.play(move.piece, "impact", 0.3, !!move.captured, soundPan(move));
 }
 function animate(before: Chess, move: Move) {
   clearTimeout(noticeTimer);
@@ -546,6 +488,7 @@ if (scene) {
   scene.onPick = pick;
   scene.onFinish = finishAnimation;
   scene.onImpact = impactSound;
+  scene.onDash = dashSound;
   scene.onCancel = stopSounds;
 }
 function submitMove(from: Square, to: Square, promotion: PieceSymbol = "q") {
@@ -938,6 +881,8 @@ for (const key of ["cinematic", "reduced", "sound", "battle-events"]) {
       clearBattleToast();
       updateBattleUI();
     }
+    if (key === "reduced") { scene?.renderBoard(game); scene?.select(game, selected, lastMove); }
+    if (key === "sound" && !input.checked) stopSounds();
     if (key === "sound" && input.checked) {
       try {
         audio ||= new AudioContext();
@@ -1019,6 +964,13 @@ $<HTMLSelectElement>("#difficulty").onchange = () => {
 $<HTMLSelectElement>("#human-side").onchange = () => {
   humanColor = $<HTMLSelectElement>("#human-side").value === "b" ? "b" : "w";
   newLocal();
+};
+const volumeInput = $<HTMLInputElement>("#sound-volume");
+const savedVolume = Number(storage.get("special-chess-sound-volume") ?? 35);
+volumeInput.value = String(Number.isFinite(savedVolume) ? Math.max(0, Math.min(100, savedVolume)) : 35);
+volumeInput.oninput = () => {
+  spaceAudio?.setVolume(Number(volumeInput.value) / 100);
+  storage.set("special-chess-sound-volume", volumeInput.value);
 };
 const scopeInput = $<HTMLSelectElement>("#cinematic-scope");
 scopeInput.value = storage.get("special-chess-cinematic-scope") === "all" ? "all" : "key";

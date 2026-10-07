@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { chromium } from "playwright";
 import { createServer } from "vite";
 
@@ -64,7 +64,7 @@ try {
   assert.deepEqual(after.picks, []);
   console.log("Renderer workload:", JSON.stringify({ initial, orbitDrawCalls: after.calls }));
   if (!process.env.RENDER_BASELINE) {
-    assert.ok(after.calls <= 100, `Orbit still draws ${after.calls} batches`);
+    assert.ok(after.calls <= 102, `Orbit still draws ${after.calls} batches`);
     assert.ok(initial.geometries <= 80, `Board uses ${initial.geometries} geometries`);
     await page.evaluate(() => {
       for (let i = 0; i < 5; i++) fixture.renderBoard(new fixtureChess());
@@ -155,6 +155,98 @@ try {
     await page.waitForTimeout(100);
     assert.ok(await page.evaluate(() => pausedDraws) > 0);
     console.log("PASS: procedural skin changes actual pawn geometry/colors without moving pieces; title pause stops GPU drawing");
+    await page.evaluate(async () => {
+      const { analyzeMove } = await import("/shared/events.js");
+      fixture.setSkin("classic"); fixture.cinematic = false; fixture.reduced = false;
+      fixture.onDash = () => window.launchCount++;
+      fixture.onImpact = () => window.contactCount++;
+      window.launchCount = window.contactCount = 0;
+      const before = new fixtureChess(), after = new fixtureChess();
+      const move = after.move("e4");
+      fixture.play(before, after, move, analyzeMove(before, after, move));
+      fixture.animation.duration = 10000;
+    });
+    await page.waitForFunction(() => document.querySelector("#stage").dataset.movePhase === "charge");
+    assert.equal(await page.evaluate(() => fixture.animation.object.position.distanceTo(fixture.animation.from)), 0);
+    assert.equal(await page.evaluate(() => fixture.animation.lock.name), "destination-lock");
+    await page.evaluate(() => fixture.animation.start = performance.now() - 5000);
+    await page.waitForFunction(() => document.querySelector("#stage").dataset.movePhase === "slowmo");
+    assert.equal(await page.evaluate(() => launchCount), 1);
+    assert.equal(await page.evaluate(() => contactCount), 0);
+    await page.evaluate(() => fixture.setPaused(true));
+    mkdirSync("test-results", { recursive: true });
+    await page.locator("#stage").screenshot({ path: "test-results/space-move-slowmo.png" });
+    await page.evaluate(() => {
+      fixture.animation.start = performance.now() - 6500;
+      fixture.setPaused(false);
+    });
+    await page.waitForFunction(() => document.querySelector("#stage").dataset.movePhase === "impact");
+    assert.equal(await page.evaluate(() => contactCount), 1);
+    await page.evaluate(() => fixture.finish());
+    assert.equal(await page.locator("#stage").getAttribute("data-move-phase"), null);
+    assert.equal(await page.evaluate(() => fixture.fx.children.length), 0);
+    await page.evaluate(async () => {
+      const { training } = await import("/src/training.ts");
+      const { analyzeMove } = await import("/shared/events.js");
+      for (const key of ["pawn", "knight", "bishop", "rook", "queen", "king"]) {
+        const scene = training[key], before = new fixtureChess(scene.fen), after = new fixtureChess(scene.fen);
+        const move = after.move({ from: scene.from, to: scene.to });
+        fixture.play(before, after, move, analyzeMove(before, after, move));
+        if (fixture.animation.aura.name !== `charge-${move.piece}`) throw Error("Lost piece charge identity");
+        if (fixture.animation.lock.name !== "enemy-lock") throw Error("Enemy lock missing");
+        fixture.finish();
+      }
+      fixture.reduced = true; fixture.renderBoard(new fixtureChess());
+      if (fixture.groundAuras.children.length) throw Error("Reduced effects left ambient runes");
+      fixture.reduced = false; fixture.renderBoard(new fixtureChess());
+      if (fixture.groundAuras.children.length !== 2) throw Error("Ground auras must use two batches");
+    });
+    console.log("PASS: normal moves charge/lock/slow approach/contact once, all six attack identities, cancellation and reduced-effects cleanup");
+    const audio = await page.evaluate(async () => {
+      const { SpaceAudio } = await import("/src/sound.ts");
+      const results = [], samples = [];
+      for (const piece of ["p", "n", "b", "r", "q", "k"]) {
+        const context = new OfflineAudioContext(2, 44100 * 1.6, 44100);
+        const sound = new SpaceAudio(context);
+        sound.play(piece, "lock"); sound.play(piece, "charge", 0.35);
+        const suspended = context.suspend(0.35), rendered = context.startRendering();
+        await suspended;
+        sound.play(piece, "dash");
+        const contact = context.suspend(0.65); await context.resume(); await contact;
+        sound.play(piece, "impact", 0.3, true); await context.resume();
+        const buffer = await rendered, data = buffer.getChannelData(0);
+        let peak = 0, energy = 0, fingerprint = 0;
+        for (let i = 0; i < data.length; i++) {
+          peak = Math.max(peak, Math.abs(data[i])); energy += data[i] ** 2;
+          if (i % 100 === 0) fingerprint += data[i] * Math.sin(i);
+        }
+        results.push({ piece, peak, rms: Math.sqrt(energy / data.length), fingerprint, voices: sound.activeVoices });
+        for (let i = 0; i < buffer.length; i++) samples.push((data[i] + buffer.getChannelData(1)[i]) * 0.5);
+        sound.dispose();
+      }
+      const context = new OfflineAudioContext(1, 44100 * 0.8, 44100), sound = new SpaceAudio(context);
+      sound.play("b", "charge", 0.7);
+      const suspended = context.suspend(0.1), rendered = context.startRendering();
+      await suspended; sound.cancel(); await context.resume();
+      const buffer = await rendered;
+      const tail = buffer.getChannelData(0).slice(44100 * 0.4);
+      return { results, samples, canceledVoices: sound.activeVoices, canceledPeak: Math.max(...tail.map(Math.abs)) };
+    });
+    for (const voice of audio.results) {
+      assert.ok(voice.rms > 0.001 && voice.peak < 0.95, `${voice.piece} is silent or clipping: ${voice.peak}`);
+      assert.equal(voice.voices, 0);
+    }
+    assert.equal(new Set(audio.results.map((voice) => voice.fingerprint.toFixed(5))).size, 6);
+    assert.equal(audio.canceledVoices, 0);
+    assert.ok(audio.canceledPeak < 0.0001);
+    const wav = Buffer.alloc(44 + audio.samples.length * 2);
+    wav.write("RIFF", 0); wav.writeUInt32LE(wav.length - 8, 4); wav.write("WAVEfmt ", 8);
+    wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+    wav.writeUInt32LE(44100, 24); wav.writeUInt32LE(88200, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
+    wav.write("data", 36); wav.writeUInt32LE(wav.length - 44, 40);
+    audio.samples.forEach((sample, i) => wav.writeInt16LE(Math.round(Math.max(-1, Math.min(1, sample)) * 32767), 44 + i * 2));
+    writeFileSync("test-results/space-audio-six-pieces.wav", wav);
+    console.log("PASS: six distinct rendered sci-fi sound sequences, bounded output, voice cleanup and canceled audio silence");
   }
   assert.deepEqual(errors, []);
 } finally {

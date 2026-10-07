@@ -780,6 +780,7 @@ dialog p {
   background: radial-gradient(ellipse at 20% 40%, #18334a66, transparent 55%), radial-gradient(ellipse at 90% 5%, #39285844, transparent 45%), #080e18;
   padding: 28px clamp(20px, 5vw, 80px) 40px;
 }
+#sound-volume { width: 100%; min-width: 0; accent-color: var(--gold); cursor: pointer; }
 .title-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: 1260px; margin: 0 auto 36px; }
 .title-logo { color: #f0e8d9; font-size: 19px; font-weight: 800; letter-spacing: 3px; }
 .title-edition { font-size: 10px; letter-spacing: 3px; color: var(--muted); }

@@ -6,6 +6,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { Chess, type Square, type PieceSymbol, type Move } from "chess.js";
 import { kingSquare, type MoveEvent } from "../shared/events.js";
 import { skins, type SkinId } from "./profile";
+import { combatStyles, moveFrame } from "./combat";
 const material = (color: number, metalness = 0.3) =>
   new THREE.MeshStandardMaterial({ color, metalness, roughness: 0.3 });
 const mesh = (
@@ -200,6 +201,9 @@ interface Animation {
   impacted: boolean;
   dramatic: boolean;
   weapons: boolean;
+  launched: boolean;
+  lock?: THREE.Group;
+  trail?: THREE.LineSegments;
   aura?: THREE.Group;
   rotation: number;
   camera: THREE.Vector3;
@@ -215,6 +219,7 @@ export class ChessScene {
   readonly markers = new THREE.Group();
   readonly fx = new THREE.Group();
   readonly board = new THREE.Group();
+  readonly groundAuras = new THREE.Group();
   animation: Animation | null = null;
   reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
   cinematic = true;
@@ -234,6 +239,7 @@ export class ChessScene {
   onPick: (s: Square) => void = () => {};
   onFinish: () => void = () => {};
   onImpact: (move: Move, event: MoveEvent) => void = () => {};
+  onDash: (move: Move, event: MoveEvent) => void = () => {};
   onCancel: () => void = () => {};
   private overlay: BattleOverlay;
   private sparks: {
@@ -289,10 +295,10 @@ export class ChessScene {
     const rim = new THREE.PointLight(0x6b65ff, 18, 15);
     rim.position.set(-5, 3, -4);
     this.scene.add(rim);
-    this.scene.add(this.board, this.pieces, this.markers, this.fx);
+    this.scene.add(this.board, this.pieces, this.markers, this.fx, this.groundAuras);
     const tileGeometry = new THREE.BoxGeometry(0.98, 0.16, 0.98);
     for (const parity of [0, 1]) {
-      const tiles = new THREE.InstancedMesh(tileGeometry, material(parity ? 0x253d51 : 0x9ab5bf), 32);
+      const tiles = new THREE.InstancedMesh(tileGeometry, material(parity ? 0x1a2b40 : 0x58738b), 32);
       const squares: Square[] = [];
       for (let rank = 1; rank <= 8; rank++)
         for (let file = 0; file < 8; file++) {
@@ -412,6 +418,7 @@ export class ChessScene {
     this.cancel();
     clear(this.pieces);
     clear(this.markers);
+    clear(this.groundAuras);
     for (const row of game.board())
       for (const p of row)
         if (p) {
@@ -424,9 +431,32 @@ export class ChessScene {
           }
           this.pieces.add(o);
         }
+    if (!this.reduced) this.buildGroundAuras(game);
     if (game.isCheck()) {
       const k = kingSquare(game, game.turn());
       if (k) this.ring(k, 0xff557a, 0.38);
+    }
+  }
+  private buildGroundAuras(game: Chess) {
+    // All 32 runes are merged into two color batches, with no idle animation loop.
+    for (const color of ["w", "b"] as const) {
+      const geometries: THREE.BufferGeometry[] = [];
+      for (const piece of game.board().flat()) {
+        if (!piece || piece.color !== color) continue;
+        const p = coords(piece.square);
+        const sides = combatStyles[piece.type].sides;
+        for (const [radius, segments] of [[0.39, sides], [0.31, 24]]) {
+          const geometry = new THREE.RingGeometry(radius - 0.014, radius, segments);
+          geometry.rotateX(-Math.PI / 2);
+          geometry.translate(p.x, 0.018, p.z);
+          geometries.push(geometry);
+        }
+      }
+      if (!geometries.length) continue;
+      const merged = mergeGeometries(geometries)!;
+      geometries.forEach((g) => g.dispose());
+      const rune = mesh(merged, this.glow(battleColor(color, undefined, this.skin), 0.42), this.groundAuras);
+      rune.castShadow = rune.receiveShadow = false;
     }
   }
   private ring(s: Square, color: number, radius = 0.27) {
@@ -457,6 +487,13 @@ export class ChessScene {
     if (k && game.isCheck()) this.ring(k, 0xff557a, 0.38);
     if (!s) return;
     this.ring(s, 0xffffff, 0.44);
+    if (!this.reduced) {
+      const piece = game.get(s)!;
+      const halo = mesh(new THREE.RingGeometry(0.46, 0.49, combatStyles[piece.type].sides),
+        this.glow(battleColor(piece.color, undefined, this.skin), 0.7), this.markers);
+      halo.position.copy(coords(s)); halo.position.y = 0.022;
+      halo.rotation.x = -Math.PI / 2;
+    }
     for (const m of game.moves({ square: s, verbose: true }))
       this.ring(m.to, m.captured ? 0xff657c : 0x58e5d1);
   }
@@ -476,6 +513,8 @@ export class ChessScene {
     this.camera.lookAt(this.controls.target);
     this.animation = null;
     this.overlay.clear();
+    delete this.stage.dataset.movePhase;
+    delete this.stage.dataset.attackStyle;
     this.renderer.toneMappingExposure = 1;
     this.onCancel();
     this.controls.enabled = !this.paused;
@@ -530,21 +569,52 @@ export class ChessScene {
           : event.kind !== "move"
             ? dramatic
               ? 2800
-              : 560
-            : 300,
+              : 1150
+            : 780,
       move,
       event,
       after,
       impacted: false,
       dramatic,
       weapons: false,
+      launched: false,
       rotation: object.rotation.y,
       camera: this.camera.position.clone(),
       target: this.controls.target.clone(),
       rook,
     };
     this.controls.enabled = false;
-    if (dramatic) this.animation.aura = this.chargeAura(this.animation);
+    if (!this.reduced) {
+      this.stage.dataset.attackStyle = move.piece;
+      this.animation.aura = this.chargeAura(this.animation);
+      this.animation.lock = this.targetLock(this.animation);
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(24 * 6), 3).setUsage(THREE.DynamicDrawUsage));
+      const trail = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({
+        color: battleColor(move.color, event.story, this.skin), transparent: true,
+        opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending,
+      }));
+      trail.frustumCulled = false;
+      this.fx.add(trail); this.animation.trail = trail;
+    }
+  }
+  private targetLock(a: Animation) {
+    const group = new THREE.Group();
+    group.name = a.victim ? "enemy-lock" : "destination-lock";
+    group.position.copy(a.to); group.position.y = 0.04;
+    const color = a.victim ? 0xff657c : battleColor(a.move.color, undefined, this.skin);
+    const ring = mesh(new THREE.RingGeometry(0.42, 0.45, combatStyles[a.move.piece].sides), this.glow(color, 0.8), group);
+    ring.rotation.x = -Math.PI / 2;
+    const vertices: number[] = [];
+    for (const x of [-1, 1]) for (const z of [-1, 1]) {
+      vertices.push(x * 0.55, 0, z * 0.32, x * 0.55, 0, z * 0.55,
+        x * 0.55, 0, z * 0.55, x * 0.32, 0, z * 0.55);
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+    group.add(new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.8 })));
+    this.fx.add(group);
+    return group;
   }
   private beam(
     from: THREE.Vector3,
@@ -657,7 +727,22 @@ export class ChessScene {
   }
   private impact(a: Animation) {
     const color = battleColor(a.move.color, a.event.story, this.skin);
-    if (a.victim) disposeObject(a.victim);
+    if (a.victim) {
+      if (!this.reduced) {
+        const echo = a.victim.clone(true);
+        echo.name = "hit-echo";
+        echo.userData.hitEcho = true;
+        echo.traverse((o) => {
+          if (o instanceof THREE.Mesh) {
+            o.material = this.glow(0xff8caa, 0.65);
+            o.userData.sharedMaterial = false;
+            o.castShadow = false;
+          }
+        });
+        this.fx.add(echo);
+      }
+      disposeObject(a.victim);
+    }
     this.onImpact(a.move, a.event);
     if (this.reduced) return;
     const count = a.move.captured ? (a.dramatic ? 52 : 32) : 12;
@@ -673,9 +758,9 @@ export class ChessScene {
         position: a.to.clone().add(new THREE.Vector3(0, 0.4, 0)),
         velocity: new THREE.Vector3(
           (Math.random() - 0.5) * (a.dramatic ? 6 : 3),
-          1 + Math.random() * (a.dramatic ? 4 : 2),
+          1 + Math.random() * (a.move.piece === "b" ? 6 : a.move.piece === "r" ? 0.5 : a.dramatic ? 4 : 2),
           (Math.random() - 0.5) * (a.dramatic ? 6 : 3),
-        ),
+        ).add(a.to.clone().sub(a.from).normalize().multiplyScalar(a.move.piece === "n" ? 3 : a.move.piece === "p" ? 1.5 : 0)),
         life: 1,
         size: 0.035 + Math.random() * 0.045,
       });
@@ -737,16 +822,19 @@ export class ChessScene {
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
     });
   }
   private chargeAura(a: Animation) {
     const color = battleColor(a.move.color, a.event.story, this.skin);
+    const style = combatStyles[a.move.piece];
     const group = new THREE.Group();
     this.fx.add(group);
     group.position.copy(a.from);
-    for (let i = 0; i < 3; i++) {
+    group.name = `charge-${a.move.piece}`;
+    for (let i = 0; i < (a.dramatic ? 3 : 2); i++) {
       const ring = mesh(
-        new THREE.TorusGeometry(0.6 + i * 0.22, 0.018, 6, 56),
+        new THREE.TorusGeometry(0.44 + i * 0.16, 0.014, 4, i === 0 ? style.sides : 32),
         this.glow(color, 0.7 - i * 0.12),
         group,
         0,
@@ -755,18 +843,22 @@ export class ChessScene {
       ring.rotation.x = Math.PI / 2;
       ring.userData.auraRing = i;
     }
+    const shellGeometry = a.move.piece === "k" ? new THREE.SphereGeometry(0.65, 12, 8)
+      : a.move.piece === "q" ? new THREE.TorusGeometry(0.65, 0.035, 4, 32)
+      : a.move.piece === "r" ? new THREE.CylinderGeometry(0.5, 0.5, 0.7, 4, 1, true)
+      : new THREE.ConeGeometry(0.45, a.move.piece === "b" ? 2.3 : 1.3, style.sides, 1, true);
     const shell = mesh(
-      new THREE.ConeGeometry(0.58, 2.2, 8, 1, true),
+      shellGeometry,
       this.glow(color, 0.13),
       group,
       0,
-      1,
+      a.move.piece === "r" ? 0.4 : 0.8,
     );
     shell.userData.auraShell = true;
     const lightning: number[] = [];
-    for (let i = 0; i < 8; i++) {
-      const angle = (i * Math.PI) / 4;
-      for (let j = 0; j < 5; j++) {
+    for (let i = 0; i < style.sides; i++) {
+      const angle = (i * Math.PI * 2) / style.sides;
+      for (let j = 0; j < 3; j++) {
         const y = j * 0.45;
         const r = 0.35 + Math.sin(i * 17 + j * 13) * 0.18;
         const next = 0.35 + Math.sin(i * 17 + (j + 1) * 13) * 0.18;
@@ -796,8 +888,8 @@ export class ChessScene {
       }),
     );
     group.add(bolts);
-    for (let i = 0; i < 8; i++) {
-      const angle = (i * Math.PI) / 4;
+    for (let i = 0; i < (a.dramatic ? style.sides : 3); i++) {
+      const angle = (i * Math.PI * 2) / style.sides;
       const shard = mesh(
         new THREE.OctahedronGeometry(0.065),
         this.glow(color),
@@ -810,19 +902,40 @@ export class ChessScene {
     }
     return group;
   }
-  private animateAura(a: Animation, t: number, charge: number) {
+  private animateAura(a: Animation, t: number, charge: number, travel: number) {
     if (!a.aura) return;
-    const f = cinematicFrame(t);
-    a.aura.position.lerpVectors(a.from, a.to, f.travel);
-    a.aura.rotation.y = t * 8;
-    a.aura.scale.setScalar(0.3 + charge * 0.9);
-    a.aura.visible = t < 0.6;
+    a.aura.position.lerpVectors(a.from, a.to, travel);
+    a.aura.rotation.y = t * (a.move.piece === "q" ? 10 : a.move.piece === "r" ? 0 : 4);
+    a.aura.scale.setScalar(0.3 + charge * (a.dramatic ? 0.9 : 0.55));
+    a.aura.visible = t < (a.dramatic ? 0.6 : 0.72);
     for (const o of a.aura.children) {
       if (o.userData.auraShard !== undefined)
         o.position.y = 0.2 + ((t * 5 + o.userData.auraShard * 0.22) % 1) * 2;
     }
-    if (t < 0.3) a.object.scale.setScalar(1 + charge * 0.12);
-    else a.object.scale.setScalar(1 + (1 - f.travel) * 0.12);
+    if (travel === 0) a.object.scale.setScalar(1 + charge * 0.08);
+    else a.object.scale.setScalar(1 + (1 - travel) * 0.08);
+  }
+  private animateTrail(a: Animation, travel: number) {
+    if (!a.trail) return;
+    a.trail.visible = travel > 0 && !a.impacted;
+    const position = a.trail.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const direction = a.to.clone().sub(a.from).normalize();
+    const side = new THREE.Vector3(-direction.z, 0, direction.x);
+    const point = (progress: number, lane: number) => {
+      const p = a.from.clone().lerp(a.to, progress);
+      p.y = 0.12 + Math.sin(progress * Math.PI) * combatStyles[a.move.piece].lift;
+      if (a.move.piece === "q") p.addScaledVector(side, Math.sin(progress * Math.PI * 3 + lane) * 0.2);
+      else p.addScaledVector(side, lane * (a.move.piece === "r" ? 0.15 : 0.045));
+      return p;
+    };
+    for (let i = 0; i < 24; i++) {
+      const lane = Math.floor(i / 8) - 1, segment = i % 8;
+      const start = Math.max(0, travel - 0.5);
+      const p = point(start + (travel - start) * segment / 8, lane);
+      const q = point(start + (travel - start) * (segment + 1) / 8, lane);
+      position.setXYZ(i * 2, p.x, p.y, p.z); position.setXYZ(i * 2 + 1, q.x, q.y, q.z);
+    }
+    position.needsUpdate = true;
   }
   private finalStrike(a: Animation) {
     const color = battleColor(a.move.color, a.event.story, this.skin);
@@ -979,17 +1092,30 @@ export class ChessScene {
     if (a) {
       const t = Math.min((now - a.start) / a.duration, 1);
       const choreography = cinematicFrame(t);
-      const travel = a.dramatic ? choreography.travel : Math.min(t / 0.58, 1);
-      const e = travel * travel * (3 - 2 * travel);
+      const short = moveFrame(t);
+      const travel = this.reduced ? Math.min(t / 0.58, 1) : a.dramatic ? choreography.travel : short.travel;
+      const e = travel;
+      if (!this.reduced) {
+        this.stage.dataset.movePhase = a.dramatic ? t >= 0.44 && t < 0.52 ? "slowmo" : choreography.phase : short.phase;
+        this.animateAura(a, t, a.dramatic ? choreography.charge : short.charge, travel);
+        this.animateTrail(a, travel);
+        if (a.lock) {
+          a.lock.visible = !a.impacted;
+          a.lock.scale.setScalar(1.4 - Math.min(1, (a.dramatic ? choreography.charge : short.charge)) * 0.4);
+          a.lock.rotation.y = a.move.piece === "r" ? 0 : (1 - Math.min(1, t * 4)) * 0.6;
+        }
+      }
+      if (!a.launched && t >= (this.reduced ? 0 : a.dramatic ? 0.3 : 0.22)) {
+        a.launched = true; this.onDash(a.move, a.event);
+      }
       if (a.dramatic) {
         this.overlay.draw(t, a.move.piece, a.move.color, a.event.title);
-        this.animateAura(a, t, choreography.charge);
       }
       if (
         !a.weapons &&
         !this.reduced &&
         a.move.captured &&
-        (!a.dramatic || t >= 0.3)
+        t >= (a.dramatic ? 0.3 : 0.22)
       ) {
         a.weapons = true;
         this.weapon(a.move, a.to);
@@ -997,13 +1123,7 @@ export class ChessScene {
       a.object.position.lerpVectors(a.from, a.to, e);
       a.object.position.y =
         Math.sin(travel * Math.PI) *
-        (a.move.piece === "n"
-          ? 1.5
-          : a.move.piece === "b"
-            ? 0.6
-            : a.move.piece === "q"
-              ? 0.8
-              : 0.2);
+        combatStyles[a.move.piece].lift;
       if (a.move.piece === "b")
         a.object.rotation.y =
           a.rotation + Math.sin(travel * Math.PI) * Math.PI * 2;
@@ -1012,28 +1132,36 @@ export class ChessScene {
       if (a.move.piece === "k")
         a.object.scale.setScalar(1 + Math.sin(travel * Math.PI) * 0.08);
       if (a.rook) a.rook.object.position.lerpVectors(a.rook.from, a.rook.to, e);
-      if (!a.impacted && t >= (a.dramatic ? 0.52 : 0.58)) {
+      const contact = this.reduced ? 0.58 : a.dramatic ? 0.52 : 0.62;
+      if (!a.impacted && t >= contact) {
         a.impacted = true;
         this.impact(a);
       }
       for (const o of this.fx.children)
         if (o.userData.shock) {
-          o.scale.setScalar(1 + Math.max(0, t - 0.58) * 7);
+          o.scale.setScalar(1 + Math.max(0, t - contact) * 7);
           (
             o as THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial>
-          ).material.opacity = Math.max(0, 1 - (t - 0.58) * 2);
+          ).material.opacity = Math.max(0, 1 - (t - contact) * 2);
+        } else if (o.userData.hitEcho) {
+          const release = Math.max(0, (t - contact) / (1 - contact));
+          o.scale.setScalar(1 + release * 0.35);
+          o.position.y = release * 0.5;
+          o.rotation.z = release * 0.5;
+          o.traverse((child) => {
+            if (child instanceof THREE.Mesh) (child.material as THREE.MeshBasicMaterial).opacity = (1 - release) * 0.65;
+          });
         }
       if (a.dramatic) {
         this.directCamera(a, t);
       }
       if (t === 1) this.finish();
     }
-    const particleDt =
-      this.animation?.dramatic &&
-      cinematicFrame((now - this.animation.start) / this.animation.duration)
-        .phase === "impact"
-        ? 0
-        : dt;
+    const progress = this.animation ? (now - this.animation.start) / this.animation.duration : 1;
+    const particleSpeed = !this.animation || this.reduced ? 1 : this.animation.dramatic
+      ? progress >= 0.52 && progress < 0.6 ? 0 : progress < 0.76 ? 0.22 : 1
+      : moveFrame(progress).particleSpeed;
+    const particleDt = dt * particleSpeed;
     for (let i = this.sparks.length - 1; i >= 0; i--) {
       const s = this.sparks[i];
       s.life -= particleDt;

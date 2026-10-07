@@ -16,7 +16,8 @@ export function cinematicFrame(progress: number) {
             ? "aftermath"
             : "return";
   // Hold both attacker and camera at impact, then ease back to the board.
-  const travel = t < 0.3 ? 0 : t < 0.52 ? smooth((t - 0.3) / 0.22) : 1;
+  const travel = t < 0.3 ? 0 : t < 0.44 ? smooth((t - 0.3) / 0.14) * 0.88
+    : t < 0.52 ? 0.88 + smooth((t - 0.44) / 0.08) * 0.12 : 1;
   return {
     phase,
     travel,
