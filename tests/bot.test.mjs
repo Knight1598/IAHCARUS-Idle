@@ -11,3 +11,14 @@ for(const depth of [1,2,3]) {
     assert.ok(reply);game.move(reply);assert.equal(game.isCheckmate(),true);
   });
 }
+for(const depth of [1,2,3]) {
+  test(`bot depth ${depth} also finds mate when playing white`,()=>{
+    const game=new Chess();for(const move of ['e4','f6','d4','g5'])game.move(move);
+    reply=null;self.onmessage({data:{fen:game.fen(),depth}});
+    assert.ok(reply);game.move(reply);assert.equal(game.isCheckmate(),true);
+  });
+}
+test('bot does not suggest a move after a terminal draw',()=>{
+  reply=null;self.onmessage({data:{fen:'7k/8/8/8/8/8/8/7K w - - 0 1',depth:3}});
+  assert.equal(reply,undefined);
+});

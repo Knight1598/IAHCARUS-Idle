@@ -6,8 +6,9 @@ Use the existing checkout in the isolated workspace. Do not create a worktree un
 
 - `src/main.ts`: local/bot/online state, Thai interface, move submission, settings/storage, promotion, accessible board and room reconnect.
 - `src/cinematic.ts`: pure phase timing and procedural 2D manga overlay. No chess mutation; charge/dash/impact/aftermath/return phases.
-- `src/scene.ts`: procedural models, renderer, board interaction, per-piece capture effects and camera timelines. Idle scenes render on demand; active effects are capped at 30 rendered frames per second.
-- `src/bot.ts`: worker-based minimax with alpha-beta pruning. Terminate the worker on mode/reset/undo changes.
+- `src/scene.ts`: procedural models, renderer, board interaction, per-piece capture effects and camera timelines. Idle scenes render on demand; movement/camera interaction targets 60 FPS, with heavy cinematic sequences capped at 30 on narrow stages. Camera motion reuses the board shadow map; moves/board rebuilds invalidate it. These are render targets, not measured hardware guarantees.
+- `src/gameplay.ts`: capture history, material balance and cinematic pacing decisions. Material comes from the current board, so promotions and custom training positions work correctly; captured pieces come only from actual history.
+- `src/bot.ts`: worker-based iterative minimax with alpha-beta pruning, depths 1/2/3 and thinking budgets 150/700/1,800 ms. Keep the last completed depth when the deadline interrupts a deeper search. Terminate the worker on mode/reset/undo/side/difficulty changes.
 - `src/training.ts`: eleven reproducible special-move scenarios, including the white-knight/black-king rescue requested in the design.
 - `shared/events.js`: pure before/after move classifier; typed declaration in `shared/events.d.ts`. Capturing an actual previous checker is required for royal rescue. Check/mate takes precedence over defensive events.
 - `server/index.mjs`: same-origin HTTP/static and WebSocket service. Owns room games, turn validation, revision numbers, clocks and outcomes; credentials are generated reconnect tokens, not external API keys.
@@ -16,7 +17,11 @@ Use the existing checkout in the isolated workspace. Do not create a worktree un
 
 Commit only legal moves. In online mode, wait for server-confirmed state; rebuild Chess from the full history to preserve repetition detection. Use the supplied previous FEN to animate the last confirmed move. Periodic clock snapshots with unchanged revision must not restart animation. Reconnect receives a fresh snapshot with no replay requirement.
 
+Unchanged revision/presence snapshots update clocks without rebuilding the UI, preserving keyboard focus and avoiding needless history/board work once per second. Presence changes still refresh player labels.
+
 Animation displays the previous board, moves the attacker, resolves capture at impact, then rebuilds from the authoritative board. Castling also moves the rook. Promotion geometry is replaced at completion. Skipping any sequence restores the camera and authoritative board immediately. A mated king falls cosmetically but is retained in chess state.
+
+Bot searches start during the human move's animation. Replies carry the position FEN and wait until the animation completes; worker identity and FEN checks prevent stale replies. Finish callbacks queue the next action in a microtask so camera/settings handlers can complete before another animation begins. Human color is saved with local history; old saves default to white. A black-side opening cannot be undone until a human move exists, and normal bot undo removes the human turn plus any bot reply.
 
 ## Validation
 
@@ -39,17 +44,17 @@ Rooms currently live in a single server's memory. Hosting/snapshots preserve fil
 
 `vite.offline.config.ts` defines `__OFFLINE__` and uses vite-plugin-singlefile to inline all application JS and CSS. The bot worker is imported with `?worker&inline`, embedding its code in both builds. `scripts/package-offline.mjs` copies the built HTML to `offline/Special-Chess-Offline.html`, which is deliberately committed as a ready-to-download test artifact. Do not hand-edit this generated HTML.
 
-Offline defaults to bot play, hides mode switching/room UI, ignores room query parameters and online session storage, and saves its game/difficulty under separate keys. Training temporarily switches to a local sandbox; New Game always returns to bot mode. Easy/Medium/Hard use search depths 1/2/3.
+Offline defaults to bot play, hides mode switching/room UI, ignores room query parameters and online session storage, and saves its game/difficulty under separate keys. Training temporarily switches to a local sandbox; New Game always returns to bot mode. Easy/Medium/Hard target search depths 1/2/3 with bounded thinking time.
 
 After shared source changes, run `npm run build:offline` and `npm run test:offline`. The default test opens the delivered file via file URL with networking disabled, checks every difficulty, and rejects any attempted WebSocket connection. This cloud machine blocks file navigation by managed Chromium policy; the verified local run used `OFFLINE_TEST_TRANSPORT=memory`, fulfilling only the main document from the delivered HTML in memory while networking remained disabled. Do not claim file-origin behavior verified from that run. CI keeps the default file-URL test. Rebuild the normal app and run its browser suite after changing shared code.
 
 ## Anime cinematic update
 
-Dramatic capture/special-event sequences last 2.8 seconds (mate 3.8); normal moves stay brief. The attacker remains stationary while charging, dashes to its destination, freezes at impact, then releases particles/rings and returns the saved camera. `onImpact` triggers synthesized hit audio at actual impact. `onCancel` stops outstanding sounds. Skip, reset, resize and effect-setting changes must restore the authoritative board, camera, overlay and controls.
+Dramatic capture/special-event sequences last 2.8 seconds (mate 3.8); normal moves take 300 ms and non-dramatic specials 560 ms. Default key-moment pacing keeps ordinary captures and king escapes short; checks, royal defense, major captures, forks, promotion, castling and en passant retain dramatic scenes. The all-events setting restores dramatic scenes for every special event. The attacker remains stationary while charging, dashes to its destination, freezes at impact, then releases particles/rings and returns the saved camera. `onImpact` triggers synthesized hit audio at actual impact. `onCancel` stops outstanding sounds. Skip, reset, resize and effect-setting changes must restore the authoritative board, camera, overlay and controls.
 
 Only cinematic + non-reduced mode enables camera cuts, shaking and manga overlays. Reduced mode stays at 180 ms with no overlay. The single soft impact pulse is tested to avoid repeating flashes. Disposal handles mesh, line and point geometry; particles belong to `fx` and are disposed there on cancellation.
 
-Offline browser tests execute a full charge-to-return sequence with sound enabled, capture screenshots, make a real 3D move after camera return, and exercise skip plus non-cinematic/reduced modes. Keep the WebGL canvas selector specific (`canvas.first()`) because the manga layer adds a second canvas.
+Offline browser tests execute black-side play, undo/save restoration, illegal-move feedback, capture tracking, pacing and thinking during animation, plus a full charge-to-return sequence with sound enabled. They capture screenshots, make a real 3D move after camera return, and exercise skip plus non-cinematic/reduced modes. Keep the WebGL canvas selector specific (`canvas.first()`) because the manga layer adds a second canvas.
 
 ## Static web deployment
 

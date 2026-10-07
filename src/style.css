@@ -702,3 +702,38 @@ dialog p {
   text-shadow: 0 0 25px #e4b16c88;
   letter-spacing: 6px;
 }
+
+#side-control {
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 12px 0;
+}
+#side-control small { font-size: 10px; }
+.material-panel {
+  margin: 14px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.material-panel > div {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 26px;
+  font-size: 11px;
+  color: var(--muted);
+}
+#white-captured, #black-captured {
+  font-size: 21px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  color: #c5d8e9;
+}
+.material-panel strong { color: var(--mint); }
+.settings .setting-select {
+  display: grid;
+  gap: 7px;
+}

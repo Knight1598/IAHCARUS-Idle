@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { BattleOverlay, cinematicFrame } from "./cinematic";
+import { useDramaticCamera, type CinematicScope } from "./gameplay";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Chess, type Square, type PieceSymbol, type Move } from "chess.js";
 import { kingSquare, type MoveEvent } from "../shared/events.js";
@@ -162,6 +163,7 @@ export class ChessScene {
   animation: Animation | null = null;
   reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
   cinematic = true;
+  cinematicScope: CinematicScope = "key";
   flipped = false;
   onPick: (s: Square) => void = () => {};
   onFinish: () => void = () => {};
@@ -182,6 +184,7 @@ export class ChessScene {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.7));
     this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.autoUpdate = false;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.stage.prepend(this.renderer.domElement);
     this.overlay = new BattleOverlay(stage);
@@ -314,6 +317,7 @@ export class ChessScene {
   }
   renderBoard(game: Chess) {
     this.dirty = true;
+    this.renderer.shadowMap.needsUpdate = true;
     this.cancel();
     clear(this.pieces);
     clear(this.markers);
@@ -411,7 +415,9 @@ export class ChessScene {
       const o = this.pieces.children.find((o) => o.userData.square === from);
       if (o) rook = { object: o, from: coords(from), to: coords(to) };
     }
-    const dramatic = this.cinematic && !this.reduced && event.kind !== "move";
+    const dramatic =
+      this.cinematic && !this.reduced &&
+      useDramaticCamera(move, event, this.cinematicScope);
     this.animation = {
       object,
       victim,
@@ -427,8 +433,8 @@ export class ChessScene {
           : event.kind !== "move"
             ? dramatic
               ? 2800
-              : 850
-            : 420,
+              : 560
+            : 300,
       move,
       event,
       after,
@@ -929,7 +935,11 @@ export class ChessScene {
       }
     }
     if (this.animation || this.sparks.length) this.dirty = true;
-    if (this.dirty && now - this.lastRender > 1000 / 30) {
+    // Keep camera interaction and short moves responsive; bound heavy mobile cuts.
+    const targetFps = this.animation?.dramatic && this.stage.clientWidth < 700 ? 30 : 60;
+    if (this.dirty && now - this.lastRender >= 1000 / targetFps - 1) {
+      // Camera movement can reuse the board's shadow map; moving pieces cannot.
+      if (this.animation) this.renderer.shadowMap.needsUpdate = true;
       this.renderer.render(this.scene, this.camera);
       this.lastRender = now;
       this.dirty = false;

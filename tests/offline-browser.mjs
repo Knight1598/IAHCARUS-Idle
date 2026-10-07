@@ -25,6 +25,14 @@ try {
     if (/^https?:/.test(r.url())) network.push(r.url());
   });
   await page.addInitScript(() => {
+    window.__botStarts = 0;
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      postMessage(...args) {
+        window.__botStarts++;
+        return super.postMessage(...args);
+      }
+    };
     window.WebSocket = class {
       constructor() {
         throw Error("Offline build attempted WebSocket");
@@ -91,6 +99,72 @@ try {
   await page.locator("#reset").click();
   await page.waitForTimeout(600);
   assert.equal(await page.locator("#moves .san").count(), 0);
+  // Bad destinations preserve the selected piece and provide useful feedback.
+  await page.locator('[data-square="e2"]').click();
+  await page.locator('[data-square="e5"]').click();
+  assert.match(await page.locator("#notice").innerText(), /เดินไม่ได้/);
+  assert.equal(await page.locator('[data-square="e2"]').evaluate((el) => el.classList.contains("selected")), true);
+  assert.equal(await page.locator("#moves .san").count(), 0);
+  // Black-side games: bot opens, orientation, undo, persistence and cancellation.
+  await page.locator("#difficulty").selectOption("1");
+  await page.locator("#human-side").selectOption("b");
+  await page.waitForFunction(() => document.querySelectorAll("#moves .san").length === 1);
+  await page.locator("#skip").click();
+  assert.match(await page.locator("#white-label").innerText(), /บอต/);
+  assert.equal(await page.locator("#black-label").innerText(), "คุณ");
+  assert.equal(await page.locator("#flat-board button").first().getAttribute("data-square"), "h1");
+  assert.equal(await page.locator("#undo").isDisabled(), true);
+  await move("h7", "h6");
+  await page.waitForFunction(() => document.querySelectorAll("#moves .san").length === 3);
+  await page.locator("#skip").click();
+  await page.locator("#undo").click();
+  assert.equal(await page.locator("#moves .san").count(), 1);
+  await page.reload();
+  await page.waitForSelector("canvas");
+  assert.equal(await page.locator("#human-side").inputValue(), "b");
+  assert.equal(await page.locator("#moves .san").count(), 1);
+  await page.locator("#board-details summary").click();
+  await move("h7", "h6");
+  await page.locator("#human-side").selectOption("w");
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator("#moves .san").count(), 0);
+  // An ordinary pawn capture stays short; all-events mode restores its cutscene.
+  await page.locator("#training-panel summary").click();
+  await page.locator("#training-select").selectOption("pawn");
+  await page.locator("#reduced").uncheck();
+  await page.locator('[data-square="c4"]').click();
+  await page.locator('[data-square="d5"]').click();
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator("#stage").getAttribute("data-battle-phase"), null);
+  assert.equal(await page.locator("#stage").evaluate((el) => el.classList.contains("cinematic")), false);
+  await page.waitForFunction(() => !document.querySelector("#event").classList.contains("visible"));
+  assert.equal(await page.locator("#white-captured").innerText(), "♟");
+  assert.equal(await page.locator("#white-material").innerText(), "+1");
+  await page.locator("#undo").click();
+  assert.equal(await page.locator("#white-captured").innerText(), "—");
+  await page.locator("#cinematic-scope").selectOption("all");
+  await page.locator('[data-square="c4"]').click();
+  await page.locator('[data-square="d5"]').click();
+  await page.waitForFunction(() => !!document.querySelector("#stage").dataset.battlePhase);
+  await page.locator("#skip").click();
+  await page.locator("#cinematic-scope").selectOption("key");
+  // Bot search starts during a long capture, but cannot mutate the animated board.
+  await page.evaluate(() => localStorage.setItem("special-chess-offline-game", JSON.stringify({
+    mode: "bot", humanColor: "w", initialFen: "7k/8/8/3r4/8/8/8/K2Q4 w - - 0 1", history: [],
+  })));
+  await page.reload();
+  await page.waitForSelector("canvas");
+  await page.locator("#board-details summary").click();
+  await page.locator('[data-square="d1"]').click();
+  await page.locator('[data-square="d5"]').click();
+  await page.waitForFunction(() => window.__botStarts === 1);
+  assert.ok(await page.locator("#stage").getAttribute("data-battle-phase"));
+  await page.waitForTimeout(350);
+  assert.equal(await page.locator("#moves .san").count(), 1);
+  await page.locator("#skip").click();
+  await page.waitForFunction(() => document.querySelectorAll("#moves .san").length === 2);
+  await page.locator("#skip").click();
+  console.log("PASS: black-side play/undo/persistence, illegal-move feedback, captures, cinematic pacing and bot thinking during animation");
   // Exercise the full anime sequence, then ensure skip and reduced mode clean up.
   await page.locator("#training-panel summary").click();
   await page.locator("#training-select").selectOption("knight");

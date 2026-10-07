@@ -1,6 +1,13 @@
 import "./style.css";
-import { Chess, type Square, type PieceSymbol, type Move } from "chess.js";
+import {
+  Chess,
+  type Square,
+  type PieceSymbol,
+  type Move,
+  type Color,
+} from "chess.js";
 import { ChessScene } from "./scene";
+import { matchMaterial, type CinematicScope } from "./gameplay";
 import BotWorker from "./bot.ts?worker&inline";
 const OFFLINE = __OFFLINE__;
 const saveKey = OFFLINE ? "special-chess-offline-game" : "special-chess-local";
@@ -46,13 +53,14 @@ const names = {
 const $ = <T extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<T>(s)!;
 $("#app").innerHTML =
-  `<header><a class="brand" href="#"><span class="brand-mark">♞</span><span>SPECIAL CHESS<small>PROCEDURAL 3D ARENA</small></span></a><div class="header-actions"><span class="tag">PURE CODE</span><button id="help" class="icon" aria-label="วิธีเล่น">?</button></div></header><div class="layout"><main id="stage" aria-label="กระดานหมากรุกสามมิติ"><div class="arena-top"><span id="mode-tag">LOCAL DUEL</span><span id="connection"></span></div><div id="event" aria-live="polite"><strong></strong><span></span></div><div id="cinema-top" class="cinema-bar"></div><div id="cinema-bottom" class="cinema-bar"></div><div class="arena-bottom"><span id="hint">เลือกหมากเพื่อเริ่มการประลอง</span><div><button id="view" class="icon" title="กลับมุมกล้อง" aria-label="กลับมุมกล้อง">◎</button><button id="flip" class="icon" title="สลับมุม" aria-label="สลับมุม">↻</button><button id="skip">ข้ามฉาก</button></div></div></main><aside><section class="match-head"><small>THE ROYAL DUEL</small><h1>ศึกหมากราชัน</h1><p>หมากรุกคลาสสิก · ทุกตาคือฉากต่อสู้</p></section><div class="player" id="black-player"><span class="avatar black">♚</span><div><strong>ฝ่ายดำ</strong><small id="black-label">ผู้เล่น 2</small></div><span class="clock" id="black-clock">—</span></div><div id="status" role="status"></div><div class="player" id="white-player"><span class="avatar white">♔</span><div><strong>ฝ่ายขาว</strong><small id="white-label">ผู้เล่น 1</small></div><span class="clock" id="white-clock">—</span></div><div id="result" hidden></div><div class="tabs" role="group" aria-label="โหมดเกม"><button data-mode="bot">เล่นกับบอต</button><button data-mode="local" class="active">สองคน</button><button data-mode="online">ออนไลน์</button></div><section id="online-panel" hidden><p class="muted">ห้องส่วนตัว · ฝ่ายละ 5 นาที</p><div class="button-row"><button id="create" class="primary">สร้างห้อง</button><button id="leave" hidden>ออกจากห้อง</button></div><form id="join-form"><input id="room-code" aria-label="รหัสห้อง" placeholder="รหัสห้อง 6 ตัว" maxlength="6" autocomplete="off" pattern="[A-Fa-f0-9]{6}" required><button id="join" type="submit">เข้าร่วม</button></form><div id="room-info" hidden><span>รหัสห้อง <strong id="code"></strong></span><button id="copy">คัดลอกลิงก์</button></div></section><div class="button-row" id="local-actions"><button id="reset" class="primary">เกมใหม่</button><button id="undo">ย้อนตา</button><select id="difficulty" aria-label="ระดับบอต" hidden><option value="1">ง่าย</option><option value="2" selected>ปานกลาง</option><option value="3">ยาก</option></select></div><button id="resign" hidden>ยอมแพ้</button><div id="notice" role="status"></div><section class="settings"><label><input type="checkbox" id="cinematic" checked> คัตซีนและกล้องพิเศษ</label><label><input type="checkbox" id="reduced"> ลดเอฟเฟกต์</label><label><input type="checkbox" id="sound"> เสียงสังเคราะห์</label></section><details id="board-details"><summary>กระดาน 2D / เล่นด้วยคีย์บอร์ด</summary><div id="flat-board" role="group" aria-label="กระดานหมากรุกสองมิติ"></div></details><details id="training-panel"><summary>สนามฝึกท่าสเปเชียล</summary><select id="training-select" aria-label="เลือกท่าฝึก"><option value="">เลือกฉากเพื่อทดลอง</option>${Object.entries(
+  `<header><a class="brand" href="#"><span class="brand-mark">♞</span><span>SPECIAL CHESS<small>PROCEDURAL 3D ARENA</small></span></a><div class="header-actions"><span class="tag">PURE CODE</span><button id="help" class="icon" aria-label="วิธีเล่น">?</button></div></header><div class="layout"><main id="stage" aria-label="กระดานหมากรุกสามมิติ"><div class="arena-top"><span id="mode-tag">LOCAL DUEL</span><span id="connection"></span></div><div id="event" aria-live="polite"><strong></strong><span></span></div><div id="cinema-top" class="cinema-bar"></div><div id="cinema-bottom" class="cinema-bar"></div><div class="arena-bottom"><span id="hint">เลือกหมากเพื่อเริ่มการประลอง</span><div><button id="view" class="icon" title="กลับมุมกล้อง" aria-label="กลับมุมกล้อง">◎</button><button id="flip" class="icon" title="สลับมุม" aria-label="สลับมุม">↻</button><button id="skip">ข้ามฉาก</button></div></div></main><aside><section class="match-head"><small>THE ROYAL DUEL</small><h1>ศึกหมากราชัน</h1><p>หมากรุกคลาสสิก · ทุกตาคือฉากต่อสู้</p></section><div class="player" id="black-player"><span class="avatar black">♚</span><div><strong>ฝ่ายดำ</strong><small id="black-label">ผู้เล่น 2</small></div><span class="clock" id="black-clock">—</span></div><div id="status" role="status"></div><div class="player" id="white-player"><span class="avatar white">♔</span><div><strong>ฝ่ายขาว</strong><small id="white-label">ผู้เล่น 1</small></div><span class="clock" id="white-clock">—</span></div><div id="result" hidden></div><div class="tabs" role="group" aria-label="โหมดเกม"><button data-mode="bot">เล่นกับบอต</button><button data-mode="local" class="active">สองคน</button><button data-mode="online">ออนไลน์</button></div><section id="online-panel" hidden><p class="muted">ห้องส่วนตัว · ฝ่ายละ 5 นาที</p><div class="button-row"><button id="create" class="primary">สร้างห้อง</button><button id="leave" hidden>ออกจากห้อง</button></div><form id="join-form"><input id="room-code" aria-label="รหัสห้อง" placeholder="รหัสห้อง 6 ตัว" maxlength="6" autocomplete="off" pattern="[A-Fa-f0-9]{6}" required><button id="join" type="submit">เข้าร่วม</button></form><div id="room-info" hidden><span>รหัสห้อง <strong id="code"></strong></span><button id="copy">คัดลอกลิงก์</button></div></section><div class="button-row" id="local-actions"><button id="reset" class="primary">เกมใหม่</button><button id="undo">ย้อนตา</button><select id="difficulty" aria-label="ระดับบอต" hidden><option value="1">ง่าย</option><option value="2" selected>ปานกลาง</option><option value="3">ยาก</option></select></div><label id="side-control" hidden>ฝ่ายของคุณ<select id="human-side" aria-label="ฝ่ายของคุณ"><option value="w">ฝ่ายขาว · เดินก่อน</option><option value="b">ฝ่ายดำ · เดินทีหลัง</option></select><small>เปลี่ยนฝ่ายจะเริ่มเกมใหม่</small></label><section class="material-panel" aria-label="หมากที่กินและคะแนนกำลัง"><div><span>ขาวกิน</span><span id="white-captured">—</span><strong id="white-material"></strong></div><div><span>ดำกิน</span><span id="black-captured">—</span><strong id="black-material"></strong></div></section><button id="resign" hidden>ยอมแพ้</button><div id="notice" role="status"></div><section class="settings"><label><input type="checkbox" id="cinematic" checked> คัตซีนและกล้องพิเศษ</label><label class="setting-select" for="cinematic-scope">จังหวะคัตซีน<select id="cinematic-scope"><option value="key">เฉพาะจังหวะสำคัญ</option><option value="all">ทุกท่าสเปเชียล</option></select></label><label><input type="checkbox" id="reduced"> ลดเอฟเฟกต์</label><label><input type="checkbox" id="sound"> เสียงสังเคราะห์</label></section><details id="board-details"><summary>กระดาน 2D / เล่นด้วยคีย์บอร์ด</summary><div id="flat-board" role="group" aria-label="กระดานหมากรุกสองมิติ"></div></details><details id="training-panel"><summary>สนามฝึกท่าสเปเชียล</summary><select id="training-select" aria-label="เลือกท่าฝึก"><option value="">เลือกฉากเพื่อทดลอง</option>${Object.entries(
     training,
   )
     .map(([key, t]) => `<option value="${key}">${t.name}</option>`)
     .join(
       "",
-    )}</select><p id="training-hint" class="muted"></p></details><section class="history"><div class="section-title"><h2>บันทึกการประลอง</h2><button id="export" class="text-button">PGN ↓</button></div><div id="moves"></div></section><footer>โมเดล แสง และพลังทั้งหมดสร้างจากโค้ด<br>ไม่มีการเปลี่ยนความสามารถของหมาก</footer></aside></div><dialog id="promotion"><small>ASCENSION</small><h2>เลือกหมากเพื่อเลื่อนขั้น</h2><div class="promotion-options">${(["q", "r", "b", "n"] as const).map((p) => `<button data-piece="${p}"><span>${symbols.w[p]}</span>${names[p]}</button>`).join("")}</div><button id="cancel-promotion" class="text-button">ยกเลิก</button></dialog><dialog id="help-dialog"><small>HOW TO PLAY</small><h2>ทุกตาคือการตัดสินใจ</h2><p>เลือกหมากของฝ่ายที่ถึงตา แล้วเลือกช่องเรืองแสงเพื่อเดิน สีชมพูคือช่องกินหมาก</p><p>ลากเพื่อหมุนกระดาน เลื่อนเพื่อซูม หรือใช้กระดาน 2D ด้วยคีย์บอร์ด</p><p>กติกาหมากรุกมาตรฐาน: คิงจะไม่ถูกกิน เกมจบเมื่อรุกฆาต ท่าสเปเชียลเป็นภาพประกอบการเดิน และข้ามได้เสมอ</p><p>ออนไลน์: สร้างห้องแล้วส่งลิงก์ให้เพื่อน ฝ่ายละ 5 นาที เวลาเดินตามเซิร์ฟเวอร์ รวมเวลาคัตซีน หากรีเฟรชจะกลับเข้าห้องจากเบราว์เซอร์เดิม</p><p>เล่นกับบอต: คุณเป็นฝ่ายขาว บอตเป็นฝ่ายดำ ปรับระดับได้ก่อนตาถัดไป</p><button id="close-help" class="primary">เข้าใจแล้ว</button></dialog>`;
+    )}</select><p id="training-hint" class="muted"></p></details><section class="history"><div class="section-title"><h2>บันทึกการประลอง</h2><button id="export" class="text-button">PGN ↓</button></div><div id="moves"></div></section><footer>โมเดล แสง และพลังทั้งหมดสร้างจากโค้ด<br>ไม่มีการเปลี่ยนความสามารถของหมาก</footer></aside></div><dialog id="promotion"><small>ASCENSION</small><h2>เลือกหมากเพื่อเลื่อนขั้น</h2><div class="promotion-options">${(["q", "r", "b", "n"] as const).map((p) => `<button data-piece="${p}"><span>${symbols.w[p]}</span>${names[p]}</button>`).join("")}</div><button id="cancel-promotion" class="text-button">ยกเลิก</button></dialog><dialog id="help-dialog"><small>HOW TO PLAY</small><h2>ทุกตาคือการตัดสินใจ</h2><p>เลือกหมากของฝ่ายที่ถึงตา แล้วเลือกช่องเรืองแสงเพื่อเดิน สีชมพูคือช่องกินหมาก</p><p>ลากเพื่อหมุนกระดาน เลื่อนเพื่อซูม หรือใช้กระดาน 2D ด้วยคีย์บอร์ด</p><p>กติกาหมากรุกมาตรฐาน: คิงจะไม่ถูกกิน เกมจบเมื่อรุกฆาต ท่าสเปเชียลเป็นภาพประกอบการเดิน และข้ามได้เสมอ</p><p>ออนไลน์: สร้างห้องแล้วส่งลิงก์ให้เพื่อน ฝ่ายละ 5 นาที เวลาเดินตามเซิร์ฟเวอร์ รวมเวลาคัตซีน หากรีเฟรชจะกลับเข้าห้องจากเบราว์เซอร์เดิม</p><p>เล่นกับบอต: เลือกเล่นขาวหรือดำได้ เปลี่ยนฝ่ายจะเริ่มเกมใหม่ ย้อนตาจะกลับไปก่อนตาของคุณ ปรับระดับได้ก่อนตาถัดไป</p><button id="close-help" class="primary">เข้าใจแล้ว</button></dialog>`;
+let humanColor: Color = "w";
 let initialFen = new Chess().fen();
 let game = new Chess(),
   mode: Mode = OFFLINE ? "bot" : "local",
@@ -73,6 +81,10 @@ try {
 let localResult: Result = null;
 let worker: Worker | undefined;
 let botTimer: ReturnType<typeof setTimeout> | undefined;
+let botJobFen: string | undefined;
+let botReply:
+  | { fen: string; move: { from: Square; to: Square; promotion?: PieceSymbol } }
+  | undefined;
 let noticeTimer: ReturnType<typeof setTimeout>;
 let ws: WebSocket | undefined,
   state: State | null = null,
@@ -120,6 +132,9 @@ function notice(message: string) {
 }
 function stopBot() {
   clearTimeout(botTimer);
+  botTimer = undefined;
+  botJobFen = undefined;
+  botReply = undefined;
   worker?.terminate();
   worker = undefined;
 }
@@ -135,7 +150,7 @@ function isBusy() {
 }
 function canPlay() {
   if (isBusy() || game.isGameOver() || localResult) return false;
-  if (mode === "bot" && game.turn() === "b") return false;
+  if (mode === "bot" && game.turn() !== humanColor) return false;
   if (mode === "online")
     return (
       !!state?.started &&
@@ -171,7 +186,7 @@ function updateUI() {
         ? "เกมเสมอ"
         : mode === "online" && !state?.started
           ? "รอเพื่อนเข้าร่วม"
-          : `ตาฝ่าย${turn === "w" ? "ขาว" : "ดำ"}${game.isCheck() ? " · รุก!" : ""}${mode === "bot" && turn === "b" ? " · กำลังคิด" : ""}`;
+          : `ตาฝ่าย${turn === "w" ? "ขาว" : "ดำ"}${game.isCheck() ? " · รุก!" : ""}${mode === "bot" && turn !== humanColor ? " · กำลังคิด" : ""}`;
   $("#white-player").classList.toggle(
     "current",
     turn === "w" && !game.isGameOver() && !result,
@@ -191,15 +206,18 @@ function updateUI() {
       ? (session?.color === "w" ? "คุณ" : "คู่แข่ง") +
         (state?.connected.w ? " · เชื่อมต่อ" : " · หลุด")
       : mode === "bot"
-        ? "คุณ"
+        ? humanColor === "w"
+          ? "คุณ"
+          : "บอต · " + $<HTMLSelectElement>("#difficulty").selectedOptions[0].textContent
         : "ผู้เล่น 1";
   $("#black-label").textContent =
     mode === "online"
       ? (session?.color === "b" ? "คุณ" : "คู่แข่ง") +
         (state?.connected.b ? " · เชื่อมต่อ" : " · ยังไม่เชื่อมต่อ")
       : mode === "bot"
-        ? "บอต · " +
-          $<HTMLSelectElement>("#difficulty").selectedOptions[0].textContent
+        ? humanColor === "b"
+          ? "คุณ"
+          : "บอต · " + $<HTMLSelectElement>("#difficulty").selectedOptions[0].textContent
         : "ผู้เล่น 2";
   $("#connection").textContent =
     mode === "online"
@@ -223,6 +241,21 @@ function updateUI() {
   $("#local-actions").hidden = mode === "online";
   $("#resign").hidden = mode !== "online" || !state?.started || !!state.result;
   $("#difficulty").hidden = mode !== "bot";
+  $("#side-control").hidden = mode !== "bot";
+  $<HTMLSelectElement>("#human-side").value = humanColor;
+  $<HTMLButtonElement>("#undo").disabled =
+    mode === "bot"
+      ? !game.history({ verbose: true }).some((move) => move.color === humanColor)
+      : !game.history().length;
+  const { captured, balance } = matchMaterial(game);
+  for (const color of ["w", "b"] as const) {
+    const label = color === "w" ? "white" : "black";
+    const enemy = color === "w" ? "b" : "w";
+    $(`#${label}-captured`).textContent = captured[color].map((piece) => symbols[enemy][piece]).join(" ") || "—";
+    $(`#${label}-captured`).setAttribute("aria-label", captured[color].map((piece) => names[piece]).join(", ") || "ยังไม่ได้กินหมาก");
+    const lead = (color === "w" ? 1 : -1) * balance;
+    $(`#${label}-material`).textContent = lead > 0 ? `+${lead}` : "";
+  }
   $("#room-info").hidden = !session;
   $("#leave").hidden = !session;
   $("#create").hidden = !!session;
@@ -251,10 +284,11 @@ function updateFlatBoard() {
   const legal = selected
     ? game.moves({ square: selected, verbose: true }).map((m) => m.to)
     : [];
-  const order = scene?.flipped
+  const flipped = scene?.flipped ?? (mode === "bot" && humanColor === "b");
+  const order = flipped
     ? [1, 2, 3, 4, 5, 6, 7, 8]
     : [8, 7, 6, 5, 4, 3, 2, 1];
-  const files = scene?.flipped ? "hgfedcba" : "abcdefgh";
+  const files = flipped ? "hgfedcba" : "abcdefgh";
   let html = "";
   for (const rank of order)
     for (const file of files) {
@@ -277,6 +311,9 @@ $("#flat-board").addEventListener("click", (e) => {
 function pick(square: Square) {
   if (!canPlay()) {
     if (scene?.animation) notice("ข้ามฉากเพื่อเดินต่อได้");
+    else if (game.isGameOver() || localResult) notice("เกมจบแล้ว กดเกมใหม่หรือย้อนตาเพื่อเล่นต่อ");
+    else if (mode === "bot") notice("รอบอตเดินก่อน แล้วเลือกหมากของคุณ");
+    else notice("รอถึงตาของคุณก่อน");
     return;
   }
   audio?.resume().catch(() => {});
@@ -292,12 +329,17 @@ function pick(square: Square) {
       return;
     }
   }
-  if (game.get(square)?.color === game.turn()) {
+  if (selected === square) {
+    clearSelection();
+  } else if (game.get(square)?.color === game.turn()) {
     selected = square;
     scene?.select(game, square, lastMove);
-  } else {
-    selected = null;
-    scene?.select(game, null, lastMove);
+  } else if (selected) {
+    notice(game.isCheck()
+      ? "คิงกำลังถูกรุก ต้องหลบ ขวาง หรือกินหมากที่รุก เลือกช่องเรืองแสง"
+      : "ช่องนี้เดินไม่ได้: ตรวจรูปเดิน หมากที่ขวาง และความปลอดภัยของคิง เลือกช่องเรืองแสง");
+  } else if (game.get(square)) {
+    notice("เลือกหมากของฝ่ายที่ถึงตาก่อน");
   }
   updateUI();
 }
@@ -308,7 +350,7 @@ function playSound(move: Move, event: MoveEvent) {
     audio ||= new AudioContext();
     void audio.resume();
     const now = audio.currentTime;
-    if (scene?.cinematic && !scene.reduced && event.kind !== "move") {
+    if (scene?.animation?.dramatic) {
       const charge = audio.createOscillator(),
         gain = audio.createGain();
       charge.type = "triangle";
@@ -377,27 +419,28 @@ function impactSound(move: Move, event: MoveEvent) {
   } catch {}
 }
 function animate(before: Chess, move: Move) {
+  clearTimeout(noticeTimer);
+  $("#notice").textContent = "";
   lastMove = { from: move.from, to: move.to };
   clearSelection();
   const ev = analyzeMove(before, game, move);
   $("#event strong").textContent = ev.title;
   $("#event span").textContent = ev.subtitle;
   $("#event").classList.toggle("visible", !!ev.title);
-  $("#stage").classList.toggle(
-    "cinematic",
-    !!ev.title && !!scene?.cinematic && !scene.reduced,
-  );
   scene?.play(before, game, move, ev);
+  $("#stage").classList.toggle("cinematic", !!scene?.animation?.dramatic);
   playSound(move, ev);
   updateUI();
   if (!scene) finishAnimation();
+  else scheduleBot();
 }
 function finishAnimation() {
   $("#event").classList.remove("visible");
   $("#stage").classList.remove("cinematic");
   scene?.select(game, null, lastMove);
   updateUI();
-  scheduleBot();
+  // Let finish/reset/settings handlers complete before starting another animation.
+  queueMicrotask(scheduleBot);
 }
 if (scene) {
   scene.onPick = pick;
@@ -426,35 +469,54 @@ function commitMove(from: Square, to: Square, promotion: PieceSymbol = "q") {
   saveLocal();
   animate(before, move);
 }
+function applyBotReply() {
+  if (!botReply || scene?.animation) return;
+  const reply = botReply;
+  botReply = undefined;
+  if (mode === "bot" && game.turn() !== humanColor && game.fen() === reply.fen)
+    commitMove(reply.move.from, reply.move.to, reply.move.promotion);
+}
 function scheduleBot() {
-  stopBot();
-  if (mode !== "bot" || game.turn() !== "b" || game.isGameOver() || localResult)
+  if (mode !== "bot" || game.turn() === humanColor || game.isGameOver() || localResult) {
+    stopBot();
     return;
+  }
+  const fen = game.fen();
+  if (botJobFen === fen) {
+    applyBotReply();
+    return;
+  }
+  stopBot();
+  botJobFen = fen;
+  // Think during the player's animation; apply only after the board is ready.
   botTimer = setTimeout(() => {
-    const fen = game.fen();
-    worker = new BotWorker();
-    worker.onmessage = (e) => {
-      worker?.terminate();
+    botTimer = undefined;
+    const taskWorker = new BotWorker();
+    worker = taskWorker;
+    taskWorker.onmessage = (e) => {
+      if (worker !== taskWorker || botJobFen !== fen) return;
+      taskWorker.terminate();
       worker = undefined;
-      if (mode === "bot" && game.fen() === fen && e.data)
-        commitMove(e.data.from, e.data.to, e.data.promotion);
+      if (mode === "bot" && game.fen() === fen && e.data) {
+        botReply = { fen, move: e.data };
+        applyBotReply();
+      }
+      updateUI();
     };
-    worker.onerror = () => {
+    taskWorker.onerror = () => {
+      if (worker !== taskWorker) return;
       stopBot();
       notice("บอตคิดไม่สำเร็จ ลองปรับระดับหรือเริ่มใหม่");
+      updateUI();
     };
-    worker.postMessage({
-      fen,
-      depth: Number($<HTMLSelectElement>("#difficulty").value),
-    });
-    updateUI();
-  }, 250);
+    taskWorker.postMessage({ fen, depth: Number($<HTMLSelectElement>("#difficulty").value) });
+  }, 80);
 }
 function saveLocal() {
   if (mode !== "online")
     storage.set(
       saveKey,
-      JSON.stringify({ mode, initialFen, history: game.history() }),
+      JSON.stringify({ mode, humanColor, initialFen, history: game.history() }),
     );
 }
 function newLocal() {
@@ -472,8 +534,10 @@ function newLocal() {
   scene?.renderBoard(game);
   $("#event").classList.remove("visible");
   $("#stage").classList.remove("cinematic");
+  scene?.resetView(mode === "bot" && humanColor === "b");
   saveLocal();
   updateUI();
+  scheduleBot();
 }
 function disconnect() {
   if (OFFLINE) return;
@@ -576,6 +640,8 @@ function connect() {
 }
 function receiveState(next: State) {
   const changed = !state || next.revision !== state.revision;
+  const presenceChanged = !state || next.started !== state.started ||
+    next.connected.w !== state.connected.w || next.connected.b !== state.connected.b;
   state = next;
   serverStamp = Date.now();
   if (changed) {
@@ -602,7 +668,9 @@ function receiveState(next: State) {
       $("#stage").classList.remove("cinematic");
     }
   }
-  updateUI();
+  // Clock snapshots should not rebuild/focus the accessible board every second.
+  if (changed || presenceChanged) updateUI();
+  else updateClocks();
 }
 function updateClocks() {
   for (const color of ["w", "b"] as const) {
@@ -632,9 +700,9 @@ $("#undo").onclick = () => {
   if (mode === "online") return;
   stopBot();
   scene?.cancel();
-  const wasBlack = game.turn() === "b";
+  const wasHumanTurn = game.turn() === humanColor;
   game.undo();
-  if (mode === "bot" && !wasBlack && game.history().length) game.undo();
+  if (mode === "bot" && wasHumanTurn && game.history().length) game.undo();
   localResult = null;
   lastMove = undefined;
   clearSelection();
@@ -775,6 +843,7 @@ try {
     initialFen = game.fen();
     for (const m of saved.history) game.move(m);
     mode = saved.mode;
+    humanColor = saved.humanColor === "b" ? "b" : "w";
   }
 } catch {
   game = new Chess();
@@ -812,10 +881,28 @@ if (savedDifficulty && ["1", "2", "3"].includes(savedDifficulty))
   $<HTMLSelectElement>("#difficulty").value = savedDifficulty;
 $<HTMLSelectElement>("#difficulty").onchange = () => {
   storage.set(difficultyKey, $<HTMLSelectElement>("#difficulty").value);
-  if (mode === "bot" && game.turn() === "b") scheduleBot();
+  if (mode === "bot" && game.turn() !== humanColor) {
+    stopBot();
+    scheduleBot();
+  }
   updateUI();
 };
+$<HTMLSelectElement>("#human-side").onchange = () => {
+  humanColor = $<HTMLSelectElement>("#human-side").value === "b" ? "b" : "w";
+  newLocal();
+};
+const scopeInput = $<HTMLSelectElement>("#cinematic-scope");
+scopeInput.value = storage.get("special-chess-cinematic-scope") === "all" ? "all" : "key";
+scopeInput.onchange = () => {
+  if (scene) {
+    scene.finish();
+    scene.cinematicScope = scopeInput.value as CinematicScope;
+  }
+  storage.set("special-chess-cinematic-scope", scopeInput.value);
+};
+if (scene) scene.cinematicScope = scopeInput.value as CinematicScope;
 scene?.renderBoard(game);
+scene?.resetView(mode === "bot" && humanColor === "b");
 updateUI();
 if (!OFFLINE && mode === "online") connect();
 else scheduleBot();

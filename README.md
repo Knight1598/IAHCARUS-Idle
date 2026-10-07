@@ -49,6 +49,9 @@ The server serves the built game on port **3000**. Open that port's address in y
 - **ออนไลน์**: create a private room and share its invite link/code. The creator is white; the guest is black. Both players need to reach the same running server.
 - Select a piece, then a highlighted destination. Drag to orbit and scroll to zoom. Use the 2D board for keyboard play or when WebGL is unavailable.
 - Every capture has a piece-specific effect. Special events have cinematic camera movement. Skip any sequence or reduce effects; sound is opt-in.
+- Bot play supports either color, automatic camera orientation, saved side selection and undo back to your previous turn. Capture lists and material advantage help you read the match; illegal destinations keep your piece selected and explain what to check.
+- Cinematic pacing defaults to key moments (checks, royal defense, major captures, forks, castling and promotion). Choose **ทุกท่าสเปเชียล** for the full anime treatment on every special event. Ordinary moves take 300 ms; short attacks take 560 ms, while full cinematic sequences retain their charge and impact.
+- Bots think during your animation and apply their reply when it finishes. Iterative searches target depths 1/2/3 with thinking budgets of 150/700/1,800 ms; a slow device uses the last completed depth. Idle boards render on demand, with a 60 FPS render target for movement/camera interaction and 30 for heavy cinematic sequences on narrow screens. Actual frame rate depends on hardware.
 - **สนามฝึกท่าสเปเชียล** provides eleven scenarios to try every attack, royal rescue, blocking check, double check, a knight fork and promotion immediately.
 - Local games and settings resume from browser storage. Online sessions reconnect from the same browser using a private reconnect token. A shared invite link never includes that token.
 
