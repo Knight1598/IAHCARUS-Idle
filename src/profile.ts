@@ -1,11 +1,11 @@
-import type { Color } from "chess.js";
+import type { Color, Square } from "chess.js";
 
 export const skins = {
-  classic: { name: "Royal Origin", label: "ราชันต้นกำเนิด", level: 1, white: [0xe4edf4, 0x39d9e8], black: [0x222937, 0xae70ff], glow: "#39d9e8" },
-  ember: { name: "Ember Knights", label: "อัศวินเพลิง", level: 1, white: [0xffead0, 0xffae42], black: [0x342229, 0xff654f], glow: "#ffae42" },
-  frost: { name: "Frost Guard", label: "ผู้พิทักษ์เหมันต์", level: 1, white: [0xe1f5ff, 0x78d9ff], black: [0x1b2b43, 0x699eff], glow: "#78d9ff" },
-  astral: { name: "Astral Order", label: "ภาคีดวงดาว", level: 2, white: [0xf2e5ff, 0xe2a0ff], black: [0x2b2240, 0xb389ff], glow: "#e2a0ff" },
-  royal: { name: "Golden Sovereign", label: "ราชันทองคำ", level: 4, white: [0xffefd3, 0xf4c66d], black: [0x233731, 0x78e6b2], glow: "#f4c66d" },
+  classic: { name: "Royal Origin", label: "ราชันต้นกำเนิด", level: 1, rarity: "มาตรฐาน", tier: 1, effect: "origin", description: "เกราะราชสำนักและคมพลังงาน เน้นจังหวะโจมตีที่ชัดเจน", white: [0xe4edf4, 0x39d9e8], black: [0x222937, 0xae70ff], glow: "#39d9e8" },
+  ember: { name: "Ember Knights", label: "อัศวินเพลิง", level: 1, rarity: "หายาก", tier: 2, effect: "ember", description: "นักรบเตาหลอม อาวุธเพลิงและสะเก็ดไฟตามรอยโจมตี", white: [0xffead0, 0xffae42], black: [0x342229, 0xff654f], glow: "#ffae42" },
+  frost: { name: "Frost Guard", label: "ผู้พิทักษ์เหมันต์", level: 1, rarity: "หายาก", tier: 2, effect: "frost", description: "ผู้พิทักษ์น้ำแข็ง เกราะผลึกและรอยแตกที่เย็นจัด", white: [0xe1f5ff, 0x78d9ff], black: [0x1b2b43, 0x699eff], glow: "#78d9ff" },
+  astral: { name: "Astral Order", label: "ภาคีดวงดาว", level: 2, rarity: "มหากาพย์", tier: 3, effect: "astral", description: "อวตารอวกาศ วงโคจรดวงดาวและรอยแยกมิติ", white: [0xf2e5ff, 0xe2a0ff], black: [0x2b2240, 0xb389ff], glow: "#e2a0ff" },
+  royal: { name: "Golden Sovereign", label: "ราชันทองคำ", level: 4, rarity: "ตำนาน", tier: 4, effect: "royal", description: "อวตารจักรพรรดิ อาวุธพิพากษาและตราราชันหลายชั้น", white: [0xffefd3, 0xf4c66d], black: [0x233731, 0x78e6b2], glow: "#f4c66d" },
 } as const;
 export type SkinId = keyof typeof skins;
 export interface Profile {
@@ -14,6 +14,8 @@ export interface Profile {
   matches: number;
   wins: number;
   skin: SkinId;
+  /** Each physical piece keeps the square where it began the match as its slot. */
+  loadouts: Record<Color, Partial<Record<Square, SkinId>>>;
   claimed: string[];
 }
 export function levelProgress(xp: number) {
@@ -24,15 +26,44 @@ export function levelProgress(xp: number) {
 export function isSkinUnlocked(profile: Profile, skin: SkinId) {
   return levelProgress(profile.xp).level >= skins[skin].level;
 }
+export function validSquare(value: unknown): value is Square {
+  return typeof value === "string" && /^[a-h][1-8]$/.test(value);
+}
+export function pieceSkin(profile: Profile, color: Color, origin: Square): SkinId {
+  return profile.loadouts[color][origin] ?? profile.skin;
+}
+function requireSkin(profile: Profile, skin: SkinId) {
+  if (!Object.hasOwn(skins, skin)) throw Error("Unknown skin");
+  if (!isSkinUnlocked(profile, skin)) throw Error("Skin is locked");
+}
+export function equipPiece(profile: Profile, color: Color, origin: Square, skin: SkinId): Profile {
+  if ((color !== "w" && color !== "b") || !validSquare(origin)) throw Error("Invalid piece slot");
+  requireSkin(profile, skin);
+  return { ...profile, loadouts: { ...profile.loadouts, [color]: { ...profile.loadouts[color], [origin]: skin } } };
+}
+/** An army preset explicitly replaces all individual assignments. */
+export function equipArmy(profile: Profile, skin: SkinId): Profile {
+  requireSkin(profile, skin);
+  return { ...profile, skin, loadouts: { w: {}, b: {} } };
+}
 export function readProfile(value: string | null): Profile {
   let raw;
   try { raw = JSON.parse(value || "null"); } catch {}
   const integer = (n: unknown) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0 ? Math.min(n, 10000000) : 0;
   const profile: Profile = {
-    version: 1, xp: integer(raw?.xp), matches: integer(raw?.matches), wins: integer(raw?.wins), skin: "classic",
+    version: 1, xp: integer(raw?.xp), matches: integer(raw?.matches), wins: integer(raw?.wins), skin: "classic", loadouts: { w: {}, b: {} },
     claimed: Array.isArray(raw?.claimed) ? [...new Set<string>(raw.claimed.filter((id: unknown) => typeof id === "string" && id.length <= 100))] : [],
   };
   if (raw?.skin && Object.hasOwn(skins, raw.skin) && isSkinUnlocked(profile, raw.skin)) profile.skin = raw.skin;
+  for (const color of ["w", "b"] as const) {
+    const saved = raw?.loadouts?.[color];
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) continue;
+    for (const [origin, skin] of Object.entries(saved)) {
+      if (validSquare(origin) && typeof skin === "string" && Object.hasOwn(skins, skin) && isSkinUnlocked(profile, skin as SkinId)) {
+        profile.loadouts[color][origin] = skin as SkinId;
+      }
+    }
+  }
   return profile;
 }
 export function matchXP(winner: Color | null, color: Color, depth: number, stars: number) {

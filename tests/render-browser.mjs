@@ -88,11 +88,15 @@ try {
       const move = game.move("Nxd5");
       fixture.resetPacing();
       fixture.play(before, game, move, analyzeMove(before, game, move));
+      const now = performance.now();
+      fixture.animation.duration = 10000;
+      fixture.animation.start = now - 7400;
+      fixture.frame(now); fixture.setPaused(true);
     });
-    await page.waitForFunction(() => document.querySelector("#stage").dataset.battlePhase === "aftermath");
+    assert.equal(await page.evaluate(() => fixture.animation.died), true);
     assert.equal(await page.evaluate(() => fixture.fx.children.filter((o) => o.isInstancedMesh).length), 1);
     await page.evaluate(() => fixture.finish());
-    await page.evaluate(() => fixture.renderBoard(new fixtureChess()));
+    await page.evaluate(() => { fixture.renderBoard(new fixtureChess()); fixture.setPaused(false); });
     await page.waitForTimeout(150);
     assert.equal(await page.evaluate(() => fixture.pieces.children.every((piece) => piece.children.every((mesh) => mesh.material.opacity === 1))), true);
     assert.equal(await page.evaluate(() => fixture.renderer.info.memory.geometries), initial.geometries);
@@ -216,6 +220,54 @@ try {
     assert.ok(await page.evaluate(() => fixture.groundAuras.children[0].material.uniforms.uTime.value) > auraTime);
     await page.evaluate(() => fixture.setPaused(true));
     console.log("PASS: normal moves charge/lock/slow approach/contact once, all six attack identities, bounded floor fractures, idle aura pulse, cancellation and reduced-effects cleanup");
+    const executions = await page.evaluate(async () => {
+      const { training } = await import("/src/training.ts");
+      const { analyzeMove } = await import("/shared/events.js");
+      const memory = [];
+      fixture.cinematic = false; fixture.reduced = false;
+      for (let cycle = 0; cycle < 3; cycle++) {
+        for (const key of ["pawn", "knight", "bishop", "rook", "queen", "king"]) {
+          const sample = training[key], before = new fixtureChess(sample.fen), after = new fixtureChess(sample.fen);
+          const move = after.move({ from: sample.from, to: sample.to });
+          let impact = 0, death = 0;
+          fixture.onImpact = () => impact++; fixture.onDeath = () => death++;
+          fixture.setAppearances({ [move.from]: "ember", [move.to]: "frost" }, { [move.to]: "ember" });
+          fixture.play(before, after, move, analyzeMove(before, after, move));
+          const animation = fixture.animation;
+          if (animation.avatar.name !== `avatar-${move.piece}-ember`) throw Error("Lost summoned avatar identity");
+          function frame(t) {
+            const now = performance.now(); fixture.setPaused(false);
+            animation.duration = 100000; animation.start = now - t * animation.duration;
+            fixture.frame(now); fixture.setPaused(true);
+          }
+          frame(0.4);
+          if (animation.object.position.distanceTo(animation.to) < 0.7) throw Error("Attacker overlaps during windup");
+          if (impact || death) throw Error("Execution contacts before its strike");
+          frame(0.6);
+          if (impact !== 1 || death !== 0 || !animation.victim.visible) throw Error("Defender vanished at contact");
+          frame(0.75); frame(0.76);
+          if (impact !== 1 || death !== 1) throw Error("Execution callbacks are repeated or missing");
+          frame(0.95);
+          if (animation.object.position.distanceTo(animation.to) > 0.01) throw Error("Attacker failed to occupy final square");
+          fixture.finish();
+          if (fixture.fx.children.length) throw Error("Finisher left temporary FX");
+          const piece = fixture.pieces.children.find(piece => piece.userData.square === move.to);
+          if (piece.userData.skin !== "ember" || piece.children.some(mesh => mesh.material.opacity !== 1)) throw Error("Capture lost skin or damaged cached material");
+        }
+        fixture.setAppearances({}); fixture.renderBoard(new fixtureChess());
+        fixture.renderer.render(fixture.scene, fixture.camera);
+        memory.push(fixture.renderer.info.memory.geometries);
+      }
+      const host = document.createElement("div"); host.style.cssText = "width:900px;height:700px"; document.body.append(host);
+      const canvas = fixture.renderer.domElement, context = fixture.renderer.getContext();
+      fixture.setShowcase(host); fixture.showcasePiece("b1"); fixture.frame(performance.now());
+      if (canvas.parentElement !== host || fixture.renderer.getContext() !== context) throw Error("Lobby created or lost WebGL context");
+      fixture.setShowcase(null); host.remove();
+      if (canvas.parentElement.id !== "stage") throw Error("Canvas did not return to arena");
+      return memory;
+    });
+    assert.equal(new Set(executions).size, 1, `Finisher geometry leaks: ${executions}`);
+    console.log("PASS: all six staged executions, living defender at contact, once-only impact/death, skin continuity, replayed FX cleanup and single-context lobby; geometries", executions);
     const audio = await page.evaluate(async () => {
       const { SpaceAudio } = await import("/src/sound.ts");
       const results = [], samples = [];

@@ -22,3 +22,21 @@ export function moveFrame(progress: number) {
     particleSpeed: t >= 0.62 && t < 0.72 ? 0 : t < 0.86 ? 0.25 : 1,
   };
 }
+
+export function captureFrame(progress: number) {
+  const t = Math.max(0, Math.min(1, progress));
+  const smooth = (x: number) => { const p = Math.max(0, Math.min(1, x)); return p * p * (3 - 2 * p); };
+  // A capture reaches a combat position first. Occupying the legal destination
+  // happens after the defender falls, rather than sliding through their mesh.
+  const approach = smooth((t - 0.18) / 0.18);
+  return {
+    phase: t < 0.18 ? "charge" : t < 0.36 ? "approach" : t < 0.48 ? "windup"
+      : t < 0.56 ? "strike" : t < 0.64 ? "impact" : t < 0.78 ? "defeat" : "occupy",
+    charge: smooth(t / 0.18), approach,
+    strike: smooth((t - 0.48) / 0.08),
+    defeat: smooth((t - 0.64) / 0.14),
+    occupy: smooth((t - 0.78) / 0.17),
+    impact: t >= 0.56, death: t >= 0.72,
+    particleSpeed: t >= 0.56 && t < 0.64 ? 0 : t < 0.8 ? 0.3 : 1,
+  };
+}

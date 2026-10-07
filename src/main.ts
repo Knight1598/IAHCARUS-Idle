@@ -10,7 +10,11 @@ import { ChessScene, type GraphicsQuality } from "./scene";
 import { TitleScreen, type LaunchSettings } from "./title";
 import { SpaceAudio } from "./sound";
 import { ArenaHUD } from "./hud";
-import { readProfile, claimXP, matchXP, levelProgress, skins, isSkinUnlocked, type SkinId } from "./profile";
+import { readProfile, claimXP, matchXP, levelProgress, skins, isSkinUnlocked, equipArmy, equipPiece, type SkinId, type Profile } from "./profile";
+import { appearanceMap, avatarNames, skillNames, scenarioLoadout } from "./cosmetics";
+import { rivals, trials, evaluateTrial, battleMVP } from "./progression";
+import { BattlePresentation } from "./presentation";
+import type { ArmyCosmetics } from "../shared/cosmetics.js";
 import { matchStory, latestMoment } from "./battle";
 import { matchMaterial, type CinematicScope } from "./gameplay";
 import BotWorker from "./bot.ts?worker&inline";
@@ -42,6 +46,7 @@ interface State {
   result: Result;
   connected: { w: boolean; b: boolean };
   revision: number;
+  cosmetics?: { w: ArmyCosmetics; b: ArmyCosmetics };
 }
 const symbols = {
   w: { k: "♔", q: "♕", r: "♖", b: "♗", n: "♘", p: "♙" },
@@ -72,6 +77,12 @@ function newMatchId() { return globalThis.crypto?.randomUUID?.() || `match-${Dat
 let matchId = newMatchId();
 let hasSavedLocalGame = false;
 let activeTraining: keyof typeof training | null = null;
+let activeTrial: keyof typeof trials | null = null;
+let presentation: BattlePresentation | undefined;
+let resultPresentationKey = "";
+let visualReplay = false;
+let armoryAudition = false;
+let auditionTimer: ReturnType<typeof setTimeout> | undefined;
 let matchReward: { amount: number; message: string } | null = null;
 let humanColor: Color = "w";
 let initialFen = new Chess().fen();
@@ -148,8 +159,47 @@ let profile = readProfile(storage.get("special-chess-profile"));
 function saveProfile() { storage.set("special-chess-profile", JSON.stringify(profile)); }
 function selectSkin(skin: SkinId) {
   if (!isSkinUnlocked(profile, skin)) return;
-  profile = { ...profile, skin };
+  profile = equipArmy(profile, skin);
   saveProfile();
+}
+function selectPiece(color: Color, origin: Square, skin: SkinId) {
+  profile = equipPiece(profile, color, origin, skin);
+  saveProfile();
+}
+function armyAppearances(history = game.history({ verbose: true }), fen = initialFen) {
+  const owner = mode === "bot" ? humanColor : undefined;
+  let appearanceProfile: Profile = activeTrial || activeTraining ? scenarioLoadout(profile, fen) : profile;
+  if (mode === "online" && state?.cosmetics) {
+    const setup = new Chess(fen);
+    const loadouts: Profile["loadouts"] = { w: {}, b: {} };
+    for (const piece of setup.board().flat()) {
+      if (!piece) continue;
+      const army = state.cosmetics[piece.color];
+      loadouts[piece.color][piece.square] = army.loadout[piece.square] || army.skin;
+    }
+    appearanceProfile = { ...profile, skin: "classic", loadouts };
+  }
+  const map = appearanceMap(fen, history, appearanceProfile, owner);
+  if (mode === "bot") {
+    const position = new Chess(fen);
+    for (const move of history) position.move({ from: move.from, to: move.to, promotion: move.promotion });
+    const rival = currentRival();
+    for (const piece of position.board().flat()) if (piece && piece.color !== humanColor) map[piece.square] = rival.skin;
+  }
+  return map;
+}
+function currentRival() {
+  return activeTrial ? rivals[activeTrial === "rescue" ? 1 : activeTrial === "fork" ? 2 : 3]
+    : rivals[Number($<HTMLSelectElement>("#difficulty").value) as 1 | 2 | 3] || rivals[2];
+}
+function renderGameBoard() {
+  scene?.setAppearances(armyAppearances());
+  scene?.renderBoard(game);
+}
+function resetPresentation() {
+  resultPresentationKey = "";
+  visualReplay = false;
+  presentation?.clear();
 }
 function grantReward(id: string, amount: number, win = false, match = false) {
   const reward = claimXP(profile, id, amount, win, match);
@@ -162,7 +212,17 @@ function grantReward(id: string, amount: number, win = false, match = false) {
 function checkRewards() {
   let rewardVisible = false;
   const stars = (color: Color) => Object.values(story().missions[color]).filter(Boolean).length;
-  if (activeTraining) {
+  if (activeTrial) {
+    const trial = trials[activeTrial];
+    const outcome = evaluateTrial(trial, game);
+    if (outcome !== "active") {
+      localResult = { winner: outcome === "won" ? trial.side : trial.side === "w" ? "b" : "w", reason: "objective" };
+      if (outcome === "won") {
+        rewardVisible = true;
+        grantReward("trial:" + activeTrial, activeTrial === "boss" ? 100 : activeTrial === "fork" ? 80 : 60);
+      }
+    } else localResult = null;
+  } else if (activeTraining) {
     const target = training[activeTraining];
     const last = game.history({ verbose: true }).at(-1);
     if (last?.from === target.from && last.to === target.to) {
@@ -225,6 +285,7 @@ function resultText(result: Result) {
         draw: "เสมอ",
         timeout: "หมดเวลา",
         resign: "ยอมแพ้",
+        objective: "ภารกิจจบแล้ว",
       } as Record<string, string>
     )[result.reason] || result.reason;
   return result.winner
@@ -283,7 +344,7 @@ function updateUI() {
         : "○ กำลังเชื่อมต่อ"
       : "OFFLINE READY";
   $("#mode-tag").textContent =
-    mode === "bot"
+    activeTrial ? "TACTICAL CHAPTER" : mode === "bot"
       ? "SOLO CHALLENGE"
       : mode === "online"
         ? "ONLINE DUEL"
@@ -292,13 +353,18 @@ function updateUI() {
     ? `${names[game.get(selected)!.type]} · ${selected.toUpperCase()} — เลือกช่องปลายทาง`
     : mode === "online" && !state?.started
       ? "ส่งรหัสห้องให้เพื่อนเพื่อเริ่ม"
-      : "แตะหมาก · ลากหมุน · เลื่อนซูม";
+      : activeTrial ? trials[activeTrial].hint : "แตะหมาก · ลากหมุน · เลื่อนซูม";
+  if (mode === "bot") {
+    const rival = currentRival();
+    $(`#${humanColor === "w" ? "black" : "white"}-label`).textContent = `${rival.name} · ${rival.title}`;
+  }
   $("#training-panel").hidden = mode === "online";
   $("#online-panel").hidden = mode !== "online";
   $("#local-actions").hidden = mode === "online";
   $("#resign").hidden = mode !== "online" || !state?.started || !!state.result;
-  $("#difficulty").hidden = mode !== "bot";
-  $("#side-control").hidden = mode !== "bot";
+  $("#difficulty").hidden = mode !== "bot" || !!activeTrial;
+  $("#side-control").hidden = mode !== "bot" || !!activeTrial;
+  $("#reset").textContent = activeTrial ? "เริ่มบทใหม่" : "เกมใหม่";
   $<HTMLSelectElement>("#human-side").value = humanColor;
   $<HTMLButtonElement>("#undo").disabled =
     mode === "bot"
@@ -333,10 +399,39 @@ function updateUI() {
   updateBattleUI();
   updateFlatBoard();
   updateClocks();
+  const replayControl = document.querySelector<HTMLButtonElement>("#replay-capture");
+  if (replayControl) replayControl.disabled = !game.history({ verbose: true }).some((move) => move.captured) || isBusy() || mode === "online" && !state?.result;
+  updatePresentation();
+}
+function updatePresentation() {
+  if (!presentation || menuOpen || scene?.animation || visualReplay || armoryAudition) return;
+  const result = mode === "online" ? state?.result : localResult;
+  const trainingWon = activeTraining && game.history({ verbose: true }).some((move) => move.from === training[activeTraining!].from && move.to === training[activeTraining!].to);
+  if (!result && !game.isGameOver() && !trainingWon) return;
+  const key = `${matchId}:${game.fen()}:${result?.reason || ""}`;
+  if (resultPresentationKey === key) return;
+  resultPresentationKey = key;
+  const owner = mode === "online" ? session?.color : mode === "bot" || activeTrial ? humanColor : undefined;
+  const winner = result?.winner ?? (game.isCheckmate() ? game.turn() === "w" ? "b" : "w" : null);
+  const mvp = battleMVP(initialFen, game.history({ verbose: true }), owner);
+  const mvpSkin = mvp ? armyAppearances([])[mvp.origin] || profile.skin : profile.skin;
+  const titleText = trainingWon ? "ฝึกสำเร็จ" : activeTrial ? winner === humanColor ? "ภารกิจสำเร็จ" : "ลองวางแผนใหม่" : winner === null ? "ศึกเสมอ" : owner ? winner === owner ? "ชัยชนะของกองทัพคุณ" : "ราชันรอการกลับมา" : `ชัยชนะฝ่าย${winner === "w" ? "ขาว" : "ดำ"}`;
+  presentation.showResult({
+    title: titleText,
+    subtitle: activeTrial ? trials[activeTrial].name : result ? resultText(result) : game.isCheckmate() ? "รุกฆาต · ราชันคู่แข่งพ่ายแพ้" : trainingWon ? "ลองท่าอื่นในสนามฝึก หรือเข้าสู่ศึกจริง" : "ทุกตาสร้างเรื่องราวของกองทัพ",
+    xp: matchReward?.amount || 0,
+    mvp: mvp ? `${avatarNames[mvpSkin][mvp.piece]} · ${mvp.origin.toUpperCase()} · สังหาร ${mvp.kills} ตัว` : undefined,
+    unlocks: matchReward?.message.includes("ปลดล็อก") ? [matchReward.message.split("ปลดล็อก ")[1]] : [],
+    replay: game.history({ verbose: true }).some((move) => !!move.captured),
+    continueLabel: mode === "online" ? "กลับค่าย" : activeTrial && winner !== humanColor ? "ลองบทนี้อีกครั้ง" : activeTrial ? "บทถัดไป" : trainingWon ? "ฝึกท่าถัดไป" : "ประลองอีกครั้ง",
+  });
+  scene?.celebrate(trainingWon ? game.history({ verbose: true }).at(-1)?.color || null : winner, mvp?.square);
+  soundEngine()?.playEvent(trainingWon || winner === owner || !owner && winner ? "victory" : winner === null ? "mission" : "defeat");
 }
 function updateBattleUI() {
   const enabled = $<HTMLInputElement>("#battle-events").checked;
-  $("#missions").hidden = !enabled;
+  $("#missions").hidden = !enabled && !activeTrial;
+  $("#missions p").textContent = activeTrial ? "เป้าหมายของบท · จำนวนตานับเฉพาะฝ่ายของคุณ" : "เป้าหมายเสริม · เก็บดาวระหว่างการประลอง";
   $("#battle-log-panel").hidden = !enabled;
   const color = mode === "bot" ? humanColor : mode === "online" ? session?.color || "w" : game.turn();
   const data = story();
@@ -350,6 +445,14 @@ function updateBattleUI() {
     ["capture", "กินม้า บิชอป รุก หรือควีน"],
     ["castle", "เข้าป้อมปกป้องคิง"],
   ] as const).map(([key, label]) => `<div class="mission ${missions[key] ? "complete" : ""}"><span>${missions[key] ? "★" : "☆"}</span>${label}</div>`).join("");
+  if (activeTrial) {
+    const trial = trials[activeTrial];
+    const outcome = evaluateTrial(trial, game);
+    const used = game.history({ verbose: true }).filter((move) => move.color === trial.side).length;
+    $("#mission-title").textContent = trial.name;
+    $("#mission-stars").textContent = `${used} / ${trial.maxMoves} ตา`;
+    $("#mission-list").innerHTML = `<div class="mission ${outcome === "won" ? "complete" : ""}"><span>${outcome === "won" ? "★" : "☆"}</span>${trial.hint}</div>`;
+  }
   $("#battle-log").innerHTML = data.moments.length ? data.moments.slice(-8).reverse().map((moment) =>
     `<div data-battle-kind="${moment.kind}"><strong>${moment.title}</strong><small>${moment.description}</small></div>`).join("")
     : '<p class="muted">อีเวนท์จะเกิดตามจังหวะของการต่อสู้</p>';
@@ -445,8 +548,23 @@ function playSound(move: Move, _event: MoveEvent) {
 function dashSound(move: Move, _event: MoveEvent) {
   if (!scene?.reduced) soundEngine()?.play(move.piece, "dash", 0.3, !!move.captured, soundPan(move));
 }
-function impactSound(move: Move, _event: MoveEvent) {
+function impactSound(move: Move, event: MoveEvent) {
   soundEngine()?.play(move.piece, "impact", 0.3, !!move.captured, soundPan(move));
+  if (["check", "double-check", "discovered-check"].includes(event.kind)) soundEngine()?.play("k", "check", 0.3, false, soundPan(move));
+  if (!["move", "capture", "check"].includes(event.kind)) soundEngine()?.playEvent(event.kind, soundPan(move));
+  else if (event.story && $<HTMLInputElement>("#battle-events").checked) soundEngine()?.playEvent(event.story, soundPan(move));
+}
+function deathSound(move: Move, _event: MoveEvent) {
+  if (move.captured) soundEngine()?.play(move.captured, "death", 0.4, true, soundPan(move));
+}
+function attackEvent(before: Chess, after: Chess, move: Move, skin?: SkinId) {
+  const event = analyzeMove(before, after, move);
+  if (event.kind === "capture") {
+    const theme = skin || armyAppearances(game.history({ verbose: true }).slice(0, -1))[move.from] || profile.skin;
+    event.title = skillNames[theme][move.piece];
+    event.subtitle = `${avatarNames[theme][move.piece]} · ${skins[theme].rarity}`;
+  }
+  return event;
 }
 function animate(before: Chess, move: Move) {
   clearTimeout(noticeTimer);
@@ -455,7 +573,7 @@ function animate(before: Chess, move: Move) {
   eventTimer = setTimeout(() => $("#event").classList.remove("visible"), 1600);
   lastMove = { from: move.from, to: move.to };
   clearSelection();
-  const ev = analyzeMove(before, game, move);
+  const ev = attackEvent(before, game, move);
   const moment = latestMoment(story().moments, game.history().length);
   if ($<HTMLInputElement>("#battle-events").checked && moment) {
     clearBattleToast();
@@ -474,14 +592,17 @@ function animate(before: Chess, move: Move) {
   $("#event strong").textContent = ev.title;
   $("#event span").textContent = ev.subtitle;
   $("#event").classList.toggle("visible", !!ev.title);
+  scene?.setAppearances(armyAppearances(game.history({ verbose: true }).slice(0, -1)), armyAppearances());
   scene?.play(before, game, move, ev);
   $("#stage").classList.toggle("cinematic", !!scene?.animation?.dramatic);
   playSound(move, ev);
   updateUI();
-  if (!scene) finishAnimation();
+  if (!scene) { impactSound(move, ev); deathSound(move, ev); finishAnimation(); }
   else scheduleBot();
 }
 function finishAnimation() {
+  if (armoryAudition) { armoryAudition = false; restorePreview(); return; }
+  if (visualReplay) { visualReplay = false; renderGameBoard(); }
   clearTimeout(eventTimer);
   $("#event").classList.remove("visible");
   $("#stage").classList.remove("cinematic");
@@ -494,6 +615,7 @@ if (scene) {
   scene.onPick = pick;
   scene.onFinish = finishAnimation;
   scene.onImpact = impactSound;
+  scene.onDeath = deathSound;
   scene.onDash = dashSound;
   scene.onCancel = stopSounds;
 }
@@ -558,14 +680,14 @@ function scheduleBot() {
       notice("บอตคิดไม่สำเร็จ ลองปรับระดับหรือเริ่มใหม่");
       updateUI();
     };
-    taskWorker.postMessage({ fen, depth: Number($<HTMLSelectElement>("#difficulty").value) });
+    taskWorker.postMessage({ fen, depth: activeTrial ? 2 : Number($<HTMLSelectElement>("#difficulty").value) });
   }, 80);
 }
 function saveLocal() {
   if (mode !== "online") {
     storage.set(
       saveKey,
-      JSON.stringify({ mode, humanColor, initialFen, history: game.history(), matchId, activeTraining, matchReward }),
+      JSON.stringify({ mode, humanColor, initialFen, history: game.history(), matchId, activeTraining, activeTrial, matchReward }),
     );
     hasSavedLocalGame = true;
   }
@@ -573,6 +695,8 @@ function saveLocal() {
 function newLocal() {
   matchId = newMatchId();
   activeTraining = null;
+  activeTrial = null;
+  resetPresentation();
   matchReward = null;
   clearBattleToast();
   scene?.resetPacing();
@@ -587,7 +711,7 @@ function newLocal() {
   localResult = null;
   lastMove = undefined;
   clearSelection();
-  scene?.renderBoard(game);
+  renderGameBoard();
   $("#event").classList.remove("visible");
   $("#stage").classList.remove("cinematic");
   scene?.resetView(mode === "bot" && humanColor === "b");
@@ -703,6 +827,8 @@ function receiveState(next: State) {
   if (changed) {
     initialFen = new Chess().fen();
     activeTraining = null;
+    activeTrial = null;
+    resetPresentation();
     matchReward = null;
     stopBot();
     scene?.cancel();
@@ -722,7 +848,7 @@ function receiveState(next: State) {
       animate(beforeGame, move);
     } else {
       lastMove = undefined;
-      scene?.renderBoard(game);
+      renderGameBoard();
       $("#event").classList.remove("visible");
       $("#stage").classList.remove("cinematic");
     }
@@ -752,11 +878,13 @@ if (!OFFLINE) setInterval(updateClocks, 200);
 for (const b of document.querySelectorAll<HTMLButtonElement>("[data-mode]"))
   b.onclick = () => setMode(b.dataset.mode as Mode);
 $("#reset").onclick = () => {
+  if (activeTrial) { launchTrial(activeTrial); return; }
   if (OFFLINE && activeTraining) mode = "bot";
   newLocal();
 };
 $("#undo").onclick = () => {
   if (mode === "online") return;
+  resetPresentation();
   clearBattleToast();
   scene?.resetPacing();
   stopBot();
@@ -767,7 +895,7 @@ $("#undo").onclick = () => {
   localResult = null;
   lastMove = undefined;
   clearSelection();
-  scene?.renderBoard(game);
+  renderGameBoard();
   $("#event").classList.remove("visible");
   $("#stage").classList.remove("cinematic");
   saveLocal();
@@ -803,7 +931,7 @@ $("#cancel-promotion").onclick = () => {
   $<HTMLDialogElement>("#promotion").close();
 };
 $("#create").onclick = () => {
-  if (!requestPending && send({ type: "create" })) requestPending = true;
+  if (!requestPending && send({ type: "create", cosmetics: { skin: profile.skin, loadout: profile.loadouts.w } })) requestPending = true;
 };
 $("#join-form").onsubmit = (e) => {
   e.preventDefault();
@@ -811,7 +939,7 @@ $("#join-form").onsubmit = (e) => {
   if (
     /^[A-F0-9]{6}$/.test(code) &&
     !requestPending &&
-    send({ type: "join", code })
+    send({ type: "join", code, cosmetics: { skin: profile.skin, loadout: profile.loadouts.b } })
   )
     requestPending = true;
 };
@@ -848,11 +976,13 @@ $("#training-select").onchange = () => {
   game = new Chess(t.fen);
   initialFen = t.fen;
   activeTraining = key;
+  activeTrial = null;
+  resetPresentation();
   matchReward = null;
   localResult = null;
   lastMove = undefined;
   clearSelection();
-  scene?.renderBoard(game);
+  renderGameBoard();
   $("#event").classList.remove("visible");
   $("#stage").classList.remove("cinematic");
   $<HTMLSelectElement>("#training-select").value = key;
@@ -887,7 +1017,7 @@ for (const key of ["cinematic", "reduced", "sound", "battle-events"]) {
       clearBattleToast();
       updateBattleUI();
     }
-    if (key === "reduced") { scene?.renderBoard(game); scene?.select(game, selected, lastMove); }
+    if (key === "reduced") { renderGameBoard(); scene?.select(game, selected, lastMove); }
     if (key === "sound") hud.syncSound();
     if (key === "sound" && !input.checked) stopSounds();
     if (key === "sound" && input.checked) {
@@ -922,6 +1052,10 @@ try {
     if (activeTraining) {
       $<HTMLSelectElement>("#training-select").value = activeTraining;
       $("#training-hint").textContent = training[activeTraining].hint;
+    }
+    if (typeof saved.activeTrial === "string" && Object.hasOwn(trials, saved.activeTrial)) {
+      const key = saved.activeTrial as keyof typeof trials;
+      if (trials[key].fen === initialFen) { activeTrial = key; activeTraining = null; humanColor = trials[key].side; }
     }
     if (saved.matchReward && typeof saved.matchReward.message === "string" && Number.isSafeInteger(saved.matchReward.amount)) matchReward = saved.matchReward;
     hasSavedLocalGame = true;
@@ -963,6 +1097,7 @@ if (savedDifficulty && ["1", "2", "3"].includes(savedDifficulty))
   $<HTMLSelectElement>("#difficulty").value = savedDifficulty;
 $<HTMLSelectElement>("#difficulty").onchange = () => {
   storage.set(difficultyKey, $<HTMLSelectElement>("#difficulty").value);
+  if (mode === "bot") { scene?.finish(); renderGameBoard(); }
   if (mode === "bot" && game.turn() !== humanColor) {
     stopBot();
     scheduleBot();
@@ -1000,40 +1135,139 @@ graphicsInput.onchange = () => {
 };
 scene?.setQuality(graphicsInput.value as GraphicsQuality);
 scene?.setSkin(profile.skin);
-scene?.renderBoard(game);
+renderGameBoard();
 scene?.resetView(mode === "bot" && humanColor === "b");
 updateUI();
 const title = new TitleScreen($("#app"), OFFLINE, {
-  selectSkin,
+  selectSkin: (skin) => { selectSkin(skin); title.refresh(profile); },
+  selectPiece: (color, origin, skin) => { selectPiece(color, origin, skin); title.refresh(profile); },
+  preview: previewArmy,
+  audition: auditionSkill,
   start: launchGame,
   resume: (skin) => {
-    selectSkin(skin);
+    if (profile.skin !== skin) selectSkin(skin);
     enterBoard();
     scene?.setSkin(profile.skin);
-    scene?.renderBoard(game);
+    renderGameBoard();
     updateUI();
     if (mode === "online") { connect(); hud.open("room"); } else scheduleBot();
   },
 });
+presentation = new BattlePresentation($("#stage"), {
+  continue: () => {
+    resetPresentation();
+    if (mode === "online") { openTitle(); return; }
+    if (activeTrial) {
+      const keys = Object.keys(trials) as (keyof typeof trials)[];
+      const next = localResult?.winner === humanColor ? keys[(keys.indexOf(activeTrial) + 1) % keys.length] : activeTrial;
+      launchTrial(next);
+    } else if (activeTraining) {
+      const keys = Object.keys(training) as (keyof typeof training)[];
+      $<HTMLSelectElement>("#training-select").value = keys[(keys.indexOf(activeTraining) + 1) % keys.length];
+      $("#training-select").dispatchEvent(new Event("change"));
+    } else newLocal();
+  },
+  home: openTitle,
+  replay: replayLastCapture,
+});
+const replayButton = document.createElement("button");
+replayButton.id = "replay-capture";
+replayButton.textContent = "↺ ดูฉากสังหารล่าสุด";
+replayButton.onclick = replayLastCapture;
+$(".history").prepend(replayButton);
+let previewHost: HTMLElement | null = null;
+let previewColor: Color = "w";
+let previewOrigin: Square | undefined;
+function previewArmy(host: HTMLElement | null, color: Color, origin?: Square) {
+  clearTimeout(auditionTimer);
+  armoryAudition = false;
+  stopSounds();
+  scene?.cancel();
+  previewHost = host; previewColor = color; previewOrigin = origin;
+  scene?.setShowcase(host);
+  if (host) restorePreview();
+}
+function restorePreview() {
+  if (!previewHost) return;
+  const army = new Chess();
+  scene?.setSkin(profile.skin);
+  scene?.setAppearances(appearanceMap(army.fen(), [], profile));
+  scene?.renderBoard(army);
+  scene?.resetView(previewColor === "b");
+  scene?.showcasePiece(previewOrigin || null);
+}
+function auditionSkill(piece: PieceSymbol, skin: SkinId) {
+  if (!scene || !previewHost || !isSkinUnlocked(profile, skin)) return;
+  clearTimeout(auditionTimer);
+  scene.cancel();
+  const key = ({ p: "pawn", n: "knight", b: "bishop", r: "rook", q: "queen", k: "king" } as const)[piece];
+  const sample = training[key];
+  const before = new Chess(sample.fen), after = new Chess(sample.fen);
+  const move = after.move({ from: sample.from, to: sample.to });
+  const event = attackEvent(before, after, move, skin);
+  scene.setAppearances({ [move.from]: skin }, { [move.to]: skin });
+  scene.resetPacing(); scene.showcasePiece(null);
+  armoryAudition = true;
+  // The explicit audition gesture also unlocks browser audio.
+  const sound = $<HTMLInputElement>("#sound");
+  sound.checked = true; sound.dispatchEvent(new Event("change"));
+  scene.play(before, after, move, event);
+  playSound(move, event);
+  auditionTimer = setTimeout(() => {
+    if (armoryAudition) scene?.finish();
+  }, (scene.animation?.duration || 1400) + 100);
+}
+function replayLastCapture() {
+  if (menuOpen || isBusy() || mode === "online" && !state?.result) return;
+  const history = game.history({ verbose: true });
+  let index = history.length - 1;
+  while (index >= 0 && !history[index].captured) index--;
+  if (index < 0) { notice("ยังไม่มีฉากสังหารในศึกนี้"); return; }
+  const move = history[index];
+  const before = new Chess(move.before), after = new Chess(move.before);
+  const replayMove = after.move({ from: move.from, to: move.to, promotion: move.promotion });
+  presentation?.clear();
+  resultPresentationKey = "";
+  visualReplay = true;
+  scene?.setAppearances(armyAppearances(history.slice(0, index)), armyAppearances(history.slice(0, index + 1)));
+  const event = attackEvent(before, after, replayMove, armyAppearances(history.slice(0, index))[move.from]);
+  scene?.play(before, after, replayMove, event);
+  playSound(replayMove, event);
+  if (!scene) { visualReplay = false; updateUI(); }
+}
+function launchTrial(key: keyof typeof trials) {
+  const trial = trials[key];
+  resetPresentation(); stopBot(); scene?.cancel(); clearBattleToast();
+  matchId = newMatchId(); matchReward = null; activeTraining = null; activeTrial = key;
+  game = new Chess(trial.fen); initialFen = trial.fen; mode = "bot"; humanColor = trial.side;
+  $<HTMLSelectElement>("#difficulty").value = "2";
+  localResult = null; lastMove = undefined; clearSelection();
+  renderGameBoard(); scene?.resetView(humanColor === "b");
+  $("#training-hint").textContent = trial.hint;
+  saveLocal(); updateUI(); notice(trial.hint);
+  presentation?.showIntro({ opponent: trial.name, title: trial.story, player: "กองทัพของคุณ" });
+  soundEngine()?.playEvent("intro"); scheduleBot();
+}
 function enterBoard() {
   menuOpen = false;
   document.body.classList.add("arena-playing");
   hud.close();
-  title.root.hidden = true;
+  title.hide();
   $("#game-shell").hidden = false;
   scene?.setPaused(false);
   scrollTo(0, 0);
 }
 function launchGame(settings: LaunchSettings) {
-  selectSkin(settings.skin);
+  if (profile.skin !== settings.skin) selectSkin(settings.skin);
   stopBot();
   disconnect();
   humanColor = settings.side;
   $<HTMLSelectElement>("#difficulty").value = settings.depth;
   storage.set(difficultyKey, settings.depth);
   scene?.setSkin(profile.skin);
-  mode = settings.mode === "training" ? "local" : settings.mode;
+  mode = settings.mode === "training" ? "local" : settings.mode === "campaign" ? "bot" : settings.mode;
   enterBoard();
+  if (settings.mode === "campaign") { launchTrial((settings.trial || "rescue") as keyof typeof trials); return; }
   newLocal();
   if (settings.mode === "training") {
     $("#training-panel").setAttribute("open", "");
@@ -1041,6 +1275,11 @@ function launchGame(settings: LaunchSettings) {
     $("#training-select").dispatchEvent(new Event("change"));
   }
   if (mode === "online") { connect(); hud.open("room"); }
+  else if (mode === "bot") {
+    const rival = rivals[Number(settings.depth) as 1 | 2 | 3] || rivals[2];
+    presentation?.showIntro({ opponent: rival.name, title: rival.title, player: "กองทัพของคุณ" });
+    soundEngine()?.playEvent("intro");
+  }
 }
 function openTitle() {
   if (mode === "online" && state?.started && !state.result) {
@@ -1048,6 +1287,7 @@ function openTitle() {
     return;
   }
   scene?.finish();
+  resetPresentation();
   stopBot();
   stopSounds();
   clearSelection();
@@ -1059,14 +1299,15 @@ function openTitle() {
   scene?.setPaused(true);
   $("#game-shell").hidden = true;
   title.show(profile, {
-    mode: mode === "online" && !OFFLINE ? "online" : activeTraining ? "training" : mode,
+    mode: mode === "online" && !OFFLINE ? "online" : activeTrial ? "campaign" : activeTraining ? "training" : mode,
     side: humanColor,
     depth: $<HTMLSelectElement>("#difficulty").value,
     resume: mode === "online" ? !!session : hasSavedLocalGame,
     training: activeTraining || "pawn",
+    trial: activeTrial || "rescue",
   });
   title.root.querySelector<HTMLButtonElement>("#launch-start")?.focus({ preventScroll: true });
   scrollTo(0, 0);
 }
 $("#title-return").onclick = openTitle;
-title.show(profile, { mode: mode === "online" && !OFFLINE ? "online" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot", side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn" });
+title.show(profile, { mode: mode === "online" && !OFFLINE ? "online" : activeTrial ? "campaign" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot", side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn", trial: activeTrial || "rescue" });

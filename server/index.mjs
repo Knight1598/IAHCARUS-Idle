@@ -4,6 +4,7 @@ import { resolve, extname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { Chess } from "chess.js";
+import { normalizeCosmetics } from "../shared/cosmetics.js";
 
 const root = resolve("dist");
 const mime = {
@@ -76,6 +77,10 @@ function snapshot(room, ws, latest = null) {
     connected: {
       w: room.players.w?.ws?.readyState === 1,
       b: room.players.b?.ws?.readyState === 1,
+    },
+    cosmetics: {
+      w: room.players.w?.cosmetics || normalizeCosmetics(null, "w"),
+      b: room.players.b?.cosmetics || normalizeCosmetics(null, "b"),
     },
     revision: room.revision,
   });
@@ -164,7 +169,10 @@ wss.on("connection", (ws) => {
           }
         }
         token ||= randomBytes(24).toString("hex");
-        room.players[color] = { ws, token };
+        const cosmetics = m.type === "resume"
+          ? room.players[color].cosmetics
+          : normalizeCosmetics(m.cosmetics, color);
+        room.players[color] = { ws, token, cosmetics };
         peers.set(ws, { code: room.code, color });
         room.touched = Date.now();
         if (room.players.w && room.players.b && !room.started) {

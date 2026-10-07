@@ -121,7 +121,7 @@ try {
   await page.locator("#human-side").selectOption("b");
   await page.waitForFunction(() => document.querySelectorAll("#moves .san").length === 1);
   await page.locator("#skip").click();
-  assert.match(await page.locator("#white-label").innerText(), /บอต/);
+  assert.match(await page.locator("#white-label").innerText(), /อิกนิส/);
   assert.equal(await page.locator("#black-label").innerText(), "คุณ");
   assert.equal(await page.locator("#flat-board button").first().getAttribute("data-square"), "h1");
   assert.equal(await page.locator("#undo").isDisabled(), true);

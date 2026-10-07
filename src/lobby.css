@@ -1,0 +1,188 @@
+/* The lobby and arena share one renderer; menus stay inside the viewport. */
+#title-screen#title-screen { height: 100dvh; min-height: 0; overflow: hidden; padding: 0; background: radial-gradient(ellipse at 25% 40%, #123044, transparent 58%), radial-gradient(ellipse at 85% 0, #35274455, transparent 50%), #080e18; display: flex; flex-direction: column; }
+#title-screen[hidden] { display: none !important; }
+#title-screen .lobby-top { position: static; height: 82px; flex-shrink: 0; padding: 14px clamp(18px, 3vw, 42px); display: flex; align-items: center; gap: 28px; border-bottom: 1px solid #55697930; background: #080f18aa; }
+#title-screen .lobby-brand { display: flex; align-items: center; gap: 12px; color: #eadcbb; }
+#title-screen .lobby-brand > span { font-size: 43px; }
+#title-screen .lobby-brand strong { display: block; font-size: 18px; letter-spacing: 3px; }
+#title-screen .lobby-brand small { display: block; margin-top: 3px; color: #859db0; font-size: 10px; }
+#title-screen .lobby-edition { color: #678596; letter-spacing: 3px; font-size: 9px; }
+#title-screen .commander-card { margin-left: auto; min-width: 220px; }
+#title-screen .commander-emblem { width: 36px; height: 36px; font-size: 25px; }
+#title-screen .commander-card strong { font-size: 13px; }
+#title-screen #commander-record { font-size: 9px; }
+#title-screen .lobby-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(330px, 390px); gap: 24px; padding: 22px clamp(18px, 3vw, 42px) 24px; max-width: 1600px; width: 100%; margin: auto; }
+#title-screen .lobby-showcase { min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; }
+#title-screen .lobby-hero { flex: 0 0 auto; }
+#title-screen .lobby-hero > small { font-size: 9px; letter-spacing: 5px; color: #d8b47b; }
+#title-screen .lobby-hero h1 { color: #efe4cb; font-size: clamp(25px, 3vw, 46px); line-height: 1.25; margin: 10px 0 6px; }
+#title-screen .lobby-hero p { color: #91a8bb; margin: 0; font-size: 12px; }
+#title-screen .skin-preview { flex: 1; min-height: 140px; height: auto; width: 100%; margin: 14px 0 0; border-radius: 12px; overflow: hidden; position: relative; isolation: isolate; background: radial-gradient(ellipse at 50% 90%, color-mix(in srgb, var(--skin-glow) 10%, transparent), transparent 70%); }
+#lobby-preview canvas { position: absolute !important; inset: 0; width: 100%; height: 100%; touch-action: none; }
+#title-screen .preview-fallback { position: absolute; inset: 0; display: grid; place-items: center; font-size: 140px; color: var(--skin-glow); opacity: .16; }
+#lobby-preview:has(canvas) .preview-fallback { display: none; }
+#title-screen .lobby-avatar { display: flex; align-items: center; gap: 12px; min-height: 67px; flex-shrink: 0; margin: 0 0 14px; padding: 10px 16px; border: 1px solid #55768750; border-radius: 8px; background: #0e1a26b3; }
+#title-screen .lobby-avatar > span { font-size: 37px; color: #f5d298; }
+#title-screen .lobby-avatar > div { min-width: 0; }
+#title-screen .lobby-avatar small { color: #8ca7b9; display: block; font-size: 9px; }
+#title-screen .lobby-avatar strong { display: block; margin: 3px 0; color: #edddbc; font-size: 15px; }
+#title-screen #preview-skill { color: #a1b4c8; font-size: 10px; display: block; }
+#title-screen #preview-attack { margin-left: auto; white-space: nowrap; font-size: 10px; padding: 9px; }
+#title-screen .lobby-collection { flex: 0 0 auto; }
+#title-screen .collection-heading { display: flex; justify-content: space-between; gap: 10px; margin: 0 0 9px; }
+#title-screen .collection-heading strong { color: #e5d4b7; font-size: 11px; }
+#title-screen .collection-heading > span { font-size: 9px; color: #7c94a9; }
+#title-screen .skin-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+#title-screen .skin-options button { display: block; min-width: 0; padding: 11px 5px 8px; text-align: center; position: relative; border-radius: 7px; background: linear-gradient(160deg, color-mix(in srgb, var(--skin-glow) 9%, #11202b), #0c1620); }
+#title-screen .skin-options button > i { display: block; width: 12px; height: 17px; margin: 0 auto 8px; }
+#title-screen .skin-options strong { font-size: 9px; line-height: 1.5; overflow-wrap: anywhere; }
+#title-screen .skin-options small { font-size: 8px; margin-top: 5px; }
+#title-screen .skin-options em { display: block; color: var(--skin-glow); margin: 6px 0 0; font-size: 7px; }
+#title-screen .skin-options button.selected { border-color: var(--skin-glow); box-shadow: 0 0 18px color-mix(in srgb, var(--skin-glow) 12%, transparent); }
+#title-screen .lobby-command { display: flex; flex-direction: column; min-height: 0; min-width: 0; border: 1px solid #395064; border-radius: 12px; background: linear-gradient(160deg, #132331ed, #0b1420f5); overflow: hidden; box-shadow: 0 20px 60px #0003; }
+#title-screen .lobby-tabs { display: grid; grid-template-columns: 1fr 1fr; flex-shrink: 0; border-bottom: 1px solid #354858; padding: 7px; gap: 5px; }
+#title-screen .lobby-tabs button { border-color: transparent; border-radius: 6px; background: none; color: #8198ad; padding: 11px 8px; font-size: 12px; }
+#title-screen .lobby-tabs button.active { background: #b9924918; border-color: #b9945155; color: #f1d29f; }
+#title-screen .lobby-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 19px; scrollbar-width: thin; }
+#title-screen .lobby-section-title { margin: 0 0 13px; }
+#title-screen .lobby-section-title > small { font-size: 8px; letter-spacing: 3px; color: #829aae; }
+#title-screen .lobby-section-title h2 { color: #e5d8c0; font-size: 17px; margin: 7px 0 0; }
+#title-screen .lobby-section-title h3 { color: #c3cfda; font-size: 11px; margin: 18px 0 8px; }
+#title-screen .lobby-section-title p { color: #8da2b7; font-size: 10px; margin: 7px 0 0; line-height: 1.6; }
+#title-screen .title-modes { gap: 7px; }
+#title-screen .title-modes button { padding: 10px; }
+#title-screen .title-modes strong { font-size: 11px; }
+#title-screen .title-modes small { font-size: 9px; }
+#title-screen .rival-options { display: grid; gap: 6px; }
+#title-screen .rival-options button { display: flex; align-items: center; gap: 10px; min-width: 0; text-align: left; padding: 8px 10px; background: #0e1a26; }
+#title-screen .rival-options button > span { width: 35px; font-size: 30px; color: #dcae65; }
+#title-screen .rival-options button[data-rival-skin="frost"] > span { color: #8dd9f6; }
+#title-screen .rival-options button[data-rival-skin="astral"] > span { color: #d5a4ec; }
+#title-screen .rival-options button.active { border-color: #dcb273; background: #ba944015; }
+#title-screen .rival-options strong { display: block; color: #dbe5eb; font-size: 12px; line-height: 1.4; }
+#title-screen .rival-options small { display: block; font-size: 9px; color: #9aaec1; margin-top: 2px; line-height: 1.4; }
+#title-screen .rival-options em { display: block; font-style: normal; color: #6e879a; font-size: 8px; margin-top: 4px; line-height: 1.4; }
+#title-screen .rival-options b { margin-left: auto; font-weight: 400; font-size: 8px; color: #a9bbc7; }
+#title-screen .launch-options { margin-top: 12px; gap: 8px; }
+#title-screen .launch-options label { font-size: 9px; }
+#title-screen .launch-options select { width: 100%; font-size: 10px; padding: 7px 4px; }
+#title-screen #launch-training, #title-screen #launch-campaign { font-size: 10px; display: block; margin-top: 14px; color: #92a9bd; }
+#title-screen #launch-training select, #title-screen #launch-campaign select { width: 100%; display: block; margin-top: 6px; }
+#title-screen .lobby-mode-note { color: #8ca5b9; line-height: 1.7; font-size: 9px; margin: 15px 0 0; }
+#title-screen .lobby-launch { flex-shrink: 0; padding: 12px 19px 14px; border-top: 1px solid #334456; background: #0b1420c7; }
+#title-screen .xp-line { margin: 0 0 6px; font-size: 9px; }
+#title-screen .title-start { margin-top: 12px; gap: 7px; }
+#title-screen .title-start button { padding: 11px; font-size: 12px; }
+#title-screen #launch-start { background: linear-gradient(110deg, #d6b47d, #e9cc9c); color: #1e1e21; font-weight: 700; border-color: #ffe1a9; box-shadow: 0 0 22px #d6b47d20; }
+#title-screen .lobby-save-note { display: block; text-align: center; margin-top: 8px; font-size: 8px; color: #667e94; }
+#title-screen .armory-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+#title-screen .armory-sides button { padding: 8px; font-size: 10px; }
+#title-screen .armory-sides button.active { color: #f0cf9b; border-color: #c5a060; }
+#title-screen .piece-slots { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+#title-screen .piece-slots button { min-width: 0; padding: 4px 1px 6px; border-radius: 5px; position: relative; background: #0a1620; }
+#title-screen .piece-slots button.selected { border-color: var(--slot-glow); background: color-mix(in srgb, var(--slot-glow) 12%, #0a1620); }
+#title-screen .piece-slots button > span { display: block; font-size: 23px; color: #ccd6df; }
+#title-screen .piece-slots button > small { display: block; color: #8ba3b5; font-size: 8px; }
+#title-screen .piece-slots button > i { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: var(--slot-glow); top: 4px; right: 3px; }
+#title-screen .armory-detail { margin: 14px 0; display: flex; align-items: center; gap: 10px; }
+#title-screen .armory-detail > span { font-size: 33px; color: #ead0a7; }
+#title-screen .armory-detail small { display: block; color: #89a1b3; font-size: 9px; }
+#title-screen .armory-detail strong { display: block; color: #edd8b6; margin: 3px 0; font-size: 13px; }
+#title-screen .armory-detail div > span { color: #9bb1c2; font-size: 9px; }
+#title-screen .piece-skin-options { display: grid; gap: 6px; }
+#title-screen .piece-skin-options button { text-align: left; display: flex; align-items: center; gap: 9px; min-width: 0; padding: 10px; background: #0c1824; }
+#title-screen .piece-skin-options button.selected { border-color: var(--skin-glow); background: color-mix(in srgb, var(--skin-glow) 10%, #0c1824); }
+#title-screen .piece-skin-avatar { color: var(--skin-glow); font-size: 29px; width: 32px; text-align: center; }
+#title-screen .piece-skin-options strong { display: block; color: #d9e1e8; font-size: 11px; }
+#title-screen .piece-skill-name { display: block; color: #94a9bd; font-size: 9px; margin-top: 3px; }
+#title-screen .piece-skin-rarity { color: var(--skin-glow); font-size: 8px; display: block; margin-top: 3px; }
+#title-screen .piece-skin-options em { margin-left: auto; color: #93a9ba; font-style: normal; font-size: 9px; white-space: nowrap; }
+#title-screen .armory-rule-note { color: #748d9f; font-size: 9px; line-height: 1.7; margin-top: 13px; }
+.battle-presentation { position: absolute; z-index: 14; pointer-events: none; inset: 0; overflow: hidden; }
+.battle-intro { position: absolute; top: 20%; left: 50%; transform: translateX(-50%); max-width: min(500px, 88%); padding: 16px 30px; text-align: center; background: linear-gradient(110deg, #0c1526ed, #163146eb, #0c1526ed); border-block: 1px solid #ddbd7655; animation: battle-intro-in .25s ease both; }
+.battle-intro small { color: #d4b779; font-size: 9px; letter-spacing: 4px; }
+.battle-intro strong { display: block; font-size: clamp(17px, 3vw, 30px); color: #e8ddc5; margin: 8px 0; }
+.battle-intro span { color: #94b3c6; font-size: 11px; }
+.battle-intro button { pointer-events: auto; display: block; margin: 12px auto 0; padding: 4px 12px; font-size: 9px; background: #0a122066; }
+.battle-result { pointer-events: auto; position: absolute; left: 16px; bottom: 76px; width: min(320px, calc(100% - 32px)); padding: 19px; border: 1px solid #dfbd6c66; border-radius: 10px; background: linear-gradient(145deg, #102533f2, #0c1423f5); box-shadow: 0 12px 40px #0005; animation: battle-intro-in .25s ease both; }
+.battle-result > small { font-size: 9px; letter-spacing: 3px; color: #c5a977; }
+.battle-result h2 { color: #ead8b2; margin: 9px 0 5px; font-size: 23px; }
+.battle-result p { font-size: 11px; line-height: 1.7; color: #9bb4c7; margin: 0 0 12px; }
+.battle-result-xp { color: #8be9ba; font-size: 17px; margin-bottom: 10px; }
+.battle-result-mvp { border-top: 1px solid #4b697c50; padding-top: 10px; color: #e1caa1; font-size: 11px; }
+.battle-result-unlocks { font-size: 10px; color: #c3a1ed; margin-top: 9px; }
+.battle-result-actions { display: flex; gap: 6px; margin-top: 14px; }
+.battle-result-actions button { padding: 8px; font-size: 10px; flex: 1; }
+.battle-result-close { position: absolute; right: 7px; top: 7px; font-size: 14px; padding: 3px 7px; background: none; border: 0; }
+@keyframes battle-intro-in { from { opacity: 0; translate: 0 12px; } to { opacity: 1; translate: 0 0; } }
+@media (max-width: 760px) {
+  #title-screen .lobby-top { height: 58px; padding: 8px 13px; gap: 8px; }
+  #title-screen .lobby-brand { gap: 6px; }
+  #title-screen .lobby-brand > span { font-size: 28px; }
+  #title-screen .lobby-brand strong { font-size: 11px; letter-spacing: 1.4px; }
+  #title-screen .lobby-brand small { display: none; }
+  #title-screen .lobby-edition, #title-screen #commander-record, #title-screen .commander-emblem { display: none; }
+  #title-screen .commander-card { min-width: 0; }
+  #title-screen .commander-card small { font-size: 8px; margin-bottom: 2px; letter-spacing: 1px; }
+  #title-screen .commander-card strong { font-size: 10px; }
+  #title-screen .lobby-layout { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 12px; }
+  #title-screen .lobby-showcase { flex: 0 0 32%; min-height: 185px; display: grid; grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+  #title-screen .lobby-hero { position: absolute; top: 5px; left: 5px; z-index: 1; pointer-events: none; }
+  #title-screen .lobby-hero > small { font-size: 6px; letter-spacing: 2px; }
+  #title-screen .lobby-hero h1 { font-size: 18px; margin-top: 5px; }
+  #title-screen .lobby-hero p { display: none; }
+  #title-screen .skin-preview { min-height: 0; margin: 0; height: 100%; }
+  #title-screen .lobby-avatar { position: absolute; right: 0; top: 1px; z-index: 1; padding: 4px 5px; border: none; background: none; margin: 0; min-height: 0; max-width: 47%; gap: 5px; text-align: right; }
+  #title-screen .lobby-avatar > span, #title-screen .lobby-avatar small, #title-screen #preview-skill { display: none; }
+  #title-screen .lobby-avatar strong { font-size: 9px; }
+  #title-screen #preview-attack { font-size: 8px; padding: 6px; }
+  #title-screen .lobby-collection { padding-top: 4px; }
+  #title-screen .collection-heading { display: none; }
+  #title-screen .skin-options { gap: 4px; }
+  #title-screen .skin-options button { padding: 5px 3px; }
+  #title-screen .skin-options button > i { display: none; }
+  #title-screen .skin-options strong { font-size: 7px; line-height: 1.4; }
+  #title-screen .skin-options small { font-size: 7px; margin-top: 3px; }
+  #title-screen .skin-options em { font-size: 6px; margin-top: 3px; }
+  #title-screen .lobby-command { flex: 1; min-height: 0; }
+  #title-screen .lobby-tabs { padding: 5px; }
+  #title-screen .lobby-tabs button { padding: 8px; font-size: 11px; }
+  #title-screen .lobby-scroll { padding: 12px; }
+  #title-screen .lobby-section-title { margin-bottom: 9px; }
+  #title-screen .lobby-section-title h2 { font-size: 14px; margin-top: 5px; }
+  #title-screen .lobby-section-title > small { font-size: 7px; }
+  #title-screen .title-modes button { padding: 8px; }
+  #title-screen .title-modes strong { font-size: 10px; }
+  #title-screen .title-modes small { font-size: 8px; }
+  #title-screen .rival-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #title-screen .rival-options button { display: flex; flex-direction: column; gap: 5px; padding: 8px 3px; text-align: center; }
+  #title-screen .rival-options button > span { font-size: 24px; line-height: 1; width: auto; }
+  #title-screen .rival-options strong { font-size: 10px; }
+  #title-screen .rival-options small { font-size: 7px; }
+  #title-screen .rival-options em { display: none; }
+  #title-screen .rival-options b { font-size: 7px; margin: 0; }
+  #title-screen .lobby-launch { padding: 9px 12px 10px; }
+  #title-screen .title-start { margin-top: 9px; }
+  #title-screen .title-start button { padding: 9px; font-size: 11px; }
+  #title-screen .lobby-save-note { font-size: 7px; margin-top: 6px; }
+  .battle-result { bottom: 122px; left: 10px; padding: 15px; width: min(290px, calc(100% - 20px)); }
+  .battle-result h2 { font-size: 20px; }
+}
+@media (max-height: 540px) and (min-width: 600px) {
+  #title-screen .lobby-top { height: 48px; }
+  #title-screen .lobby-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 42%); gap: 12px; padding: 9px 14px; }
+  #title-screen .lobby-showcase { display: flex; min-height: 0; }
+  #title-screen .lobby-hero { position: static; }
+  #title-screen .lobby-hero h1 { font-size: 22px; }
+  #title-screen .lobby-hero p { display: none; }
+  #title-screen .skin-preview { min-height: 0; margin-top: 4px; }
+  #title-screen .lobby-avatar { position: static; min-height: 0; margin-bottom: 5px; padding: 4px 8px; max-width: 100%; }
+  #title-screen .lobby-avatar > span { font-size: 22px; }
+  #title-screen .lobby-avatar strong { font-size: 11px; }
+  #title-screen .lobby-collection .collection-heading { display: none; }
+  #title-screen .skin-options button { padding: 5px 3px; }
+  #title-screen .skin-options button > i { display: none; }
+  #title-screen .lobby-launch { padding: 8px 12px; }
+  #title-screen .lobby-save-note { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .battle-intro, .battle-result { animation: none; } }

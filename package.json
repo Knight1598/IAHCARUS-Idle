@@ -18,7 +18,9 @@
     "test:pages": "node tests/pages-browser.mjs",
     "test:render": "node tests/render-browser.mjs",
     "test:title": "node tests/title-browser.mjs",
-    "test:hud": "node tests/hud-browser.mjs"
+    "test:hud": "node tests/hud-browser.mjs",
+    "test:army": "node tests/army-browser.mjs",
+    "test:audio": "node tests/audio-browser.mjs"
   },
   "dependencies": {
     "chess.js": "^1.4.0",
