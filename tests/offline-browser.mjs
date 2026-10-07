@@ -233,6 +233,53 @@ try {
   await page.locator("#training-select").selectOption("rescue");
   await move("g7", "f6");
   assert.match(await page.locator("#moves").innerText(), /gxf6/);
+  // Contextual events are reconstructed from real history and undo with the move.
+  await page.evaluate(() => localStorage.setItem("special-chess-offline-game", JSON.stringify({
+    mode: "local", humanColor: "w", history: ["e4", "d5", "exd5"],
+  })));
+  await page.reload();
+  await page.waitForSelector("canvas");
+  await page.locator("#board-details summary").click();
+  await page.locator("#battle-log-panel summary").click();
+  assert.equal(await page.locator('[data-battle-kind="first-blood"]').count(), 1);
+  await move("d8", "d5");
+  assert.equal(await page.locator("#stage").getAttribute("data-battle-moment"), "recapture");
+  assert.match(await page.locator("#battle-toast strong").innerText(), /COUNTER STRIKE/);
+  await page.locator("#undo").click();
+  assert.equal(await page.locator('[data-battle-kind="recapture"]').count(), 0);
+  assert.equal(await page.locator("#battle-toast").evaluate((el) => el.classList.contains("visible")), false);
+  await move("d8", "d5");
+  await page.locator("#graphics-quality").selectOption("low");
+  await page.reload();
+  await page.waitForSelector("canvas");
+  assert.equal(await page.locator("#graphics-quality").inputValue(), "low");
+  assert.equal(await page.locator("#stage").getAttribute("data-graphics"), "low");
+  await page.locator("#battle-log-panel summary").click();
+  assert.equal(await page.locator('[data-battle-kind="recapture"]').count(), 1);
+  assert.equal(await page.locator("#battle-toast").evaluate((el) => el.classList.contains("visible")), false);
+  // A queen capture from behind changes the battle, awards a mission star and cuts in gold.
+  await page.evaluate(() => localStorage.setItem("special-chess-offline-game", JSON.stringify({
+    mode: "bot", humanColor: "w", initialFen: "7k/8/7r/3q4/8/8/8/K2Q4 w - - 0 1", history: [],
+  })));
+  await page.reload();
+  await page.waitForSelector("canvas");
+  await page.locator("#board-details summary").click();
+  await page.locator("#reduced").uncheck();
+  await page.locator('[data-square="d1"]').click();
+  await page.locator('[data-square="d5"]').click();
+  assert.equal(await page.locator("#stage").getAttribute("data-battle-moment"), "comeback");
+  assert.match(await page.locator("#event strong").innerText(), /TURNING POINT/);
+  assert.equal(await page.locator("#mission-list .complete").count(), 1);
+  await page.waitForFunction(() => document.querySelector("#stage").dataset.battlePhase === "aftermath");
+  await page.screenshot({ path: "test-results/comeback-event.png" });
+  await page.locator("#undo").click();
+  assert.equal(await page.locator("#mission-list .complete").count(), 0);
+  assert.equal(await page.locator("#moves .san").count(), 0);
+  await page.locator("#battle-events").uncheck();
+  assert.equal(await page.locator("#missions").isVisible(), false);
+  assert.equal(await page.locator("#battle-log-panel").isVisible(), false);
+  await page.locator("#battle-events").check();
+  console.log("PASS: counterattacks, comeback cinematic, mission stars, undo/history restoration, event toggle and saved graphics quality");
   await page.locator("#reset").click();
   assert.equal(await page.locator("#difficulty").isVisible(), true);
   assert.match(await page.locator("#mode-tag").innerText(), /SOLO/);

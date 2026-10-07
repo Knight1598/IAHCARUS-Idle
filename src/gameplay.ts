@@ -19,6 +19,7 @@ export function matchMaterial(game: Chess) {
 export function useDramaticCamera(move: Move, event: MoveEvent, scope: CinematicScope) {
   if (event.kind === "move") return false;
   if (scope === "all") return true;
+  if (["recapture", "queen-fallen", "comeback", "capture-streak"].includes(event.story || "")) return true;
   // Short attacks still use each piece's special effect; big moments get camera cuts.
   if (event.kind === "capture") return move.captured === "q" || move.captured === "r";
   return event.kind !== "escape";

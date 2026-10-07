@@ -15,7 +15,8 @@
     "build:offline": "tsc && vite build --config vite.offline.config.ts && node scripts/package-offline.mjs",
     "test:offline": "node tests/offline-browser.mjs",
     "build:pages": "npm run build:offline && node scripts/package-pages.mjs",
-    "test:pages": "node tests/pages-browser.mjs"
+    "test:pages": "node tests/pages-browser.mjs",
+    "test:render": "node tests/render-browser.mjs"
   },
   "dependencies": {
     "chess.js": "^1.4.0",

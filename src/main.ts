@@ -6,7 +6,8 @@ import {
   type Move,
   type Color,
 } from "chess.js";
-import { ChessScene } from "./scene";
+import { ChessScene, type GraphicsQuality } from "./scene";
+import { matchStory, latestMoment } from "./battle";
 import { matchMaterial, type CinematicScope } from "./gameplay";
 import BotWorker from "./bot.ts?worker&inline";
 const OFFLINE = __OFFLINE__;
@@ -53,7 +54,7 @@ const names = {
 const $ = <T extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<T>(s)!;
 $("#app").innerHTML =
-  `<header><a class="brand" href="#"><span class="brand-mark">♞</span><span>SPECIAL CHESS<small>PROCEDURAL 3D ARENA</small></span></a><div class="header-actions"><span class="tag">PURE CODE</span><button id="help" class="icon" aria-label="วิธีเล่น">?</button></div></header><div class="layout"><main id="stage" aria-label="กระดานหมากรุกสามมิติ"><div class="arena-top"><span id="mode-tag">LOCAL DUEL</span><span id="connection"></span></div><div id="event" aria-live="polite"><strong></strong><span></span></div><div id="cinema-top" class="cinema-bar"></div><div id="cinema-bottom" class="cinema-bar"></div><div class="arena-bottom"><span id="hint">เลือกหมากเพื่อเริ่มการประลอง</span><div><button id="view" class="icon" title="กลับมุมกล้อง" aria-label="กลับมุมกล้อง">◎</button><button id="flip" class="icon" title="สลับมุม" aria-label="สลับมุม">↻</button><button id="skip">ข้ามฉาก</button></div></div></main><aside><section class="match-head"><small>THE ROYAL DUEL</small><h1>ศึกหมากราชัน</h1><p>หมากรุกคลาสสิก · ทุกตาคือฉากต่อสู้</p></section><div class="player" id="black-player"><span class="avatar black">♚</span><div><strong>ฝ่ายดำ</strong><small id="black-label">ผู้เล่น 2</small></div><span class="clock" id="black-clock">—</span></div><div id="status" role="status"></div><div class="player" id="white-player"><span class="avatar white">♔</span><div><strong>ฝ่ายขาว</strong><small id="white-label">ผู้เล่น 1</small></div><span class="clock" id="white-clock">—</span></div><div id="result" hidden></div><div class="tabs" role="group" aria-label="โหมดเกม"><button data-mode="bot">เล่นกับบอต</button><button data-mode="local" class="active">สองคน</button><button data-mode="online">ออนไลน์</button></div><section id="online-panel" hidden><p class="muted">ห้องส่วนตัว · ฝ่ายละ 5 นาที</p><div class="button-row"><button id="create" class="primary">สร้างห้อง</button><button id="leave" hidden>ออกจากห้อง</button></div><form id="join-form"><input id="room-code" aria-label="รหัสห้อง" placeholder="รหัสห้อง 6 ตัว" maxlength="6" autocomplete="off" pattern="[A-Fa-f0-9]{6}" required><button id="join" type="submit">เข้าร่วม</button></form><div id="room-info" hidden><span>รหัสห้อง <strong id="code"></strong></span><button id="copy">คัดลอกลิงก์</button></div></section><div class="button-row" id="local-actions"><button id="reset" class="primary">เกมใหม่</button><button id="undo">ย้อนตา</button><select id="difficulty" aria-label="ระดับบอต" hidden><option value="1">ง่าย</option><option value="2" selected>ปานกลาง</option><option value="3">ยาก</option></select></div><label id="side-control" hidden>ฝ่ายของคุณ<select id="human-side" aria-label="ฝ่ายของคุณ"><option value="w">ฝ่ายขาว · เดินก่อน</option><option value="b">ฝ่ายดำ · เดินทีหลัง</option></select><small>เปลี่ยนฝ่ายจะเริ่มเกมใหม่</small></label><section class="material-panel" aria-label="หมากที่กินและคะแนนกำลัง"><div><span>ขาวกิน</span><span id="white-captured">—</span><strong id="white-material"></strong></div><div><span>ดำกิน</span><span id="black-captured">—</span><strong id="black-material"></strong></div></section><button id="resign" hidden>ยอมแพ้</button><div id="notice" role="status"></div><section class="settings"><label><input type="checkbox" id="cinematic" checked> คัตซีนและกล้องพิเศษ</label><label class="setting-select" for="cinematic-scope">จังหวะคัตซีน<select id="cinematic-scope"><option value="key">เฉพาะจังหวะสำคัญ</option><option value="all">ทุกท่าสเปเชียล</option></select></label><label><input type="checkbox" id="reduced"> ลดเอฟเฟกต์</label><label><input type="checkbox" id="sound"> เสียงสังเคราะห์</label></section><details id="board-details"><summary>กระดาน 2D / เล่นด้วยคีย์บอร์ด</summary><div id="flat-board" role="group" aria-label="กระดานหมากรุกสองมิติ"></div></details><details id="training-panel"><summary>สนามฝึกท่าสเปเชียล</summary><select id="training-select" aria-label="เลือกท่าฝึก"><option value="">เลือกฉากเพื่อทดลอง</option>${Object.entries(
+  `<header><a class="brand" href="#"><span class="brand-mark">♞</span><span>SPECIAL CHESS<small>PROCEDURAL 3D ARENA</small></span></a><div class="header-actions"><span class="tag">PURE CODE</span><button id="help" class="icon" aria-label="วิธีเล่น">?</button></div></header><div class="layout"><main id="stage" aria-label="กระดานหมากรุกสามมิติ"><div class="arena-top"><span id="mode-tag">LOCAL DUEL</span><span id="connection"></span></div><div id="event" aria-live="polite"><strong></strong><span></span></div><div id="battle-toast" role="status"><small>ARENA EVENT</small><strong></strong><span></span></div><div id="cinema-top" class="cinema-bar"></div><div id="cinema-bottom" class="cinema-bar"></div><div class="arena-bottom"><span id="hint">เลือกหมากเพื่อเริ่มการประลอง</span><div><button id="view" class="icon" title="กลับมุมกล้อง" aria-label="กลับมุมกล้อง">◎</button><button id="flip" class="icon" title="สลับมุม" aria-label="สลับมุม">↻</button><button id="skip">ข้ามฉาก</button></div></div></main><aside><section class="match-head"><small>THE ROYAL DUEL</small><h1>ศึกหมากราชัน</h1><p>หมากรุกคลาสสิก · ทุกตาคือฉากต่อสู้</p></section><div class="player" id="black-player"><span class="avatar black">♚</span><div><strong>ฝ่ายดำ</strong><small id="black-label">ผู้เล่น 2</small></div><span class="clock" id="black-clock">—</span></div><div id="status" role="status"></div><div class="player" id="white-player"><span class="avatar white">♔</span><div><strong>ฝ่ายขาว</strong><small id="white-label">ผู้เล่น 1</small></div><span class="clock" id="white-clock">—</span></div><div id="result" hidden></div><div class="tabs" role="group" aria-label="โหมดเกม"><button data-mode="bot">เล่นกับบอต</button><button data-mode="local" class="active">สองคน</button><button data-mode="online">ออนไลน์</button></div><section id="online-panel" hidden><p class="muted">ห้องส่วนตัว · ฝ่ายละ 5 นาที</p><div class="button-row"><button id="create" class="primary">สร้างห้อง</button><button id="leave" hidden>ออกจากห้อง</button></div><form id="join-form"><input id="room-code" aria-label="รหัสห้อง" placeholder="รหัสห้อง 6 ตัว" maxlength="6" autocomplete="off" pattern="[A-Fa-f0-9]{6}" required><button id="join" type="submit">เข้าร่วม</button></form><div id="room-info" hidden><span>รหัสห้อง <strong id="code"></strong></span><button id="copy">คัดลอกลิงก์</button></div></section><div class="button-row" id="local-actions"><button id="reset" class="primary">เกมใหม่</button><button id="undo">ย้อนตา</button><select id="difficulty" aria-label="ระดับบอต" hidden><option value="1">ง่าย</option><option value="2" selected>ปานกลาง</option><option value="3">ยาก</option></select></div><label id="side-control" hidden>ฝ่ายของคุณ<select id="human-side" aria-label="ฝ่ายของคุณ"><option value="w">ฝ่ายขาว · เดินก่อน</option><option value="b">ฝ่ายดำ · เดินทีหลัง</option></select><small>เปลี่ยนฝ่ายจะเริ่มเกมใหม่</small></label><section class="material-panel" aria-label="หมากที่กินและคะแนนกำลัง"><div><span>ขาวกิน</span><span id="white-captured">—</span><strong id="white-material"></strong></div><div><span>ดำกิน</span><span id="black-captured">—</span><strong id="black-material"></strong></div></section><section id="missions" class="missions"><div class="section-title"><h2 id="mission-title">ภารกิจในแมตช์</h2><strong id="mission-stars">☆ ☆ ☆</strong></div><p class="muted">เป้าหมายเสริม · เก็บดาวระหว่างการประลอง</p><div id="mission-list"></div></section><details id="battle-log-panel"><summary>อีเวนท์ในแมตช์</summary><div id="battle-log"></div></details><button id="resign" hidden>ยอมแพ้</button><div id="notice" role="status"></div><section class="settings"><label class="setting-select" for="graphics-quality">กราฟิก<select id="graphics-quality"><option value="auto">อัตโนมัติ · ปรับตามความลื่น</option><option value="low">ลื่นที่สุด · ลดเงาและความละเอียด</option><option value="high">ภาพคมชัด</option></select></label><label><input type="checkbox" id="battle-events" checked> อีเวนท์และภารกิจระหว่างเล่น</label><label><input type="checkbox" id="cinematic" checked> คัตซีนและกล้องพิเศษ</label><label class="setting-select" for="cinematic-scope">จังหวะคัตซีน<select id="cinematic-scope"><option value="key">เฉพาะจังหวะสำคัญ</option><option value="all">ทุกท่าสเปเชียล</option></select></label><label><input type="checkbox" id="reduced"> ลดเอฟเฟกต์</label><label><input type="checkbox" id="sound"> เสียงสังเคราะห์</label></section><details id="board-details"><summary>กระดาน 2D / เล่นด้วยคีย์บอร์ด</summary><div id="flat-board" role="group" aria-label="กระดานหมากรุกสองมิติ"></div></details><details id="training-panel"><summary>สนามฝึกท่าสเปเชียล</summary><select id="training-select" aria-label="เลือกท่าฝึก"><option value="">เลือกฉากเพื่อทดลอง</option>${Object.entries(
     training,
   )
     .map(([key, t]) => `<option value="${key}">${t.name}</option>`)
@@ -86,6 +87,22 @@ let botReply:
   | { fen: string; move: { from: Square; to: Square; promotion?: PieceSymbol } }
   | undefined;
 let noticeTimer: ReturnType<typeof setTimeout>;
+let battleTimer: ReturnType<typeof setTimeout> | undefined;
+let cachedStoryKey = "";
+let cachedStory = matchStory([]);
+function story() {
+  const key = `${initialFen}|${game.fen()}|${game.history().join(" ")}`;
+  if (key !== cachedStoryKey) {
+    cachedStory = matchStory(game.history({ verbose: true }));
+    cachedStoryKey = key;
+  }
+  return cachedStory;
+}
+function clearBattleToast() {
+  clearTimeout(battleTimer);
+  $("#battle-toast").classList.remove("visible");
+  delete $("#stage").dataset.battleMoment;
+}
 let ws: WebSocket | undefined,
   state: State | null = null,
   session: { code: string; color: "w" | "b"; token: string } | null = null,
@@ -273,8 +290,29 @@ function updateUI() {
         .join("")
     : '<p class="muted">การเดินแรกเริ่มเรื่องราวของคุณ</p>';
   $("#moves").scrollTop = $("#moves").scrollHeight;
+  updateBattleUI();
   updateFlatBoard();
   updateClocks();
+}
+function updateBattleUI() {
+  const enabled = $<HTMLInputElement>("#battle-events").checked;
+  $("#missions").hidden = !enabled;
+  $("#battle-log-panel").hidden = !enabled;
+  const color = mode === "bot" ? humanColor : mode === "online" ? session?.color || "w" : game.turn();
+  const data = story();
+  const missions = data.missions[color];
+  $("#mission-title").textContent = `ภารกิจฝ่าย${color === "w" ? "ขาว" : "ดำ"}`;
+  const count = Object.values(missions).filter(Boolean).length;
+  $("#mission-stars").textContent = "★ ".repeat(count) + "☆ ".repeat(3 - count);
+  $("#mission-stars").setAttribute("aria-label", `สำเร็จ ${count} จาก 3 ภารกิจ`);
+  $("#mission-list").innerHTML = ([
+    ["check", "รุกคิงคู่แข่งหนึ่งครั้ง"],
+    ["capture", "กินม้า บิชอป รุก หรือควีน"],
+    ["castle", "เข้าป้อมปกป้องคิง"],
+  ] as const).map(([key, label]) => `<div class="mission ${missions[key] ? "complete" : ""}"><span>${missions[key] ? "★" : "☆"}</span>${label}</div>`).join("");
+  $("#battle-log").innerHTML = data.moments.length ? data.moments.slice(-8).reverse().map((moment) =>
+    `<div data-battle-kind="${moment.kind}"><strong>${moment.title}</strong><small>${moment.description}</small></div>`).join("")
+    : '<p class="muted">อีเวนท์จะเกิดตามจังหวะของการต่อสู้</p>';
 }
 function updateFlatBoard() {
   const focused =
@@ -424,6 +462,21 @@ function animate(before: Chess, move: Move) {
   lastMove = { from: move.from, to: move.to };
   clearSelection();
   const ev = analyzeMove(before, game, move);
+  const moment = latestMoment(story().moments, game.history().length);
+  if ($<HTMLInputElement>("#battle-events").checked && moment) {
+    clearBattleToast();
+    $("#battle-toast strong").textContent = moment.title;
+    $("#battle-toast span").textContent = moment.description;
+    $("#battle-toast").classList.add("visible");
+    $("#stage").dataset.battleMoment = moment.kind;
+    battleTimer = setTimeout(clearBattleToast, 3200);
+    ev.story = moment.kind;
+    if (["recapture", "queen-fallen", "comeback", "capture-streak"].includes(moment.kind) &&
+      !["mate", "check", "double-check", "discovered-check", "rescue", "promotion"].includes(ev.kind)) {
+      ev.title = moment.title;
+      ev.subtitle = moment.description;
+    }
+  }
   $("#event strong").textContent = ev.title;
   $("#event span").textContent = ev.subtitle;
   $("#event").classList.toggle("visible", !!ev.title);
@@ -520,6 +573,8 @@ function saveLocal() {
     );
 }
 function newLocal() {
+  clearBattleToast();
+  scene?.resetPacing();
   clearTimeout(noticeTimer);
   $("#notice").textContent = "";
   initialFen = new Chess().fen();
@@ -698,6 +753,8 @@ $("#reset").onclick = () => {
 };
 $("#undo").onclick = () => {
   if (mode === "online") return;
+  clearBattleToast();
+  scene?.resetPacing();
   stopBot();
   scene?.cancel();
   const wasHumanTurn = game.turn() === humanColor;
@@ -780,6 +837,8 @@ $("#training-select").onchange = () => {
     .value as keyof typeof training;
   const t = training[key];
   if (!t) return;
+  clearBattleToast();
+  scene?.resetPacing();
   if (mode !== "local") setMode("local");
   stopBot();
   game = new Chess(t.fen);
@@ -807,7 +866,7 @@ $("#export").onclick = () => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 $<HTMLInputElement>("#reduced").checked = scene?.reduced || false;
-for (const key of ["cinematic", "reduced", "sound"]) {
+for (const key of ["cinematic", "reduced", "sound", "battle-events"]) {
   const input = $<HTMLInputElement>("#" + key);
   const saved = storage.get("special-chess-" + key);
   if (saved !== null) input.checked = saved === "true";
@@ -817,6 +876,10 @@ for (const key of ["cinematic", "reduced", "sound"]) {
       scene.finish();
       scene.cinematic = $<HTMLInputElement>("#cinematic").checked;
       scene.reduced = $<HTMLInputElement>("#reduced").checked;
+    }
+    if (key === "battle-events") {
+      clearBattleToast();
+      updateBattleUI();
     }
     if (key === "sound" && input.checked) {
       try {
@@ -901,6 +964,14 @@ scopeInput.onchange = () => {
   storage.set("special-chess-cinematic-scope", scopeInput.value);
 };
 if (scene) scene.cinematicScope = scopeInput.value as CinematicScope;
+const graphicsInput = $<HTMLSelectElement>("#graphics-quality");
+const savedGraphics = storage.get("special-chess-graphics-quality");
+graphicsInput.value = savedGraphics === "low" || savedGraphics === "high" ? savedGraphics : "auto";
+graphicsInput.onchange = () => {
+  scene?.setQuality(graphicsInput.value as GraphicsQuality);
+  storage.set("special-chess-graphics-quality", graphicsInput.value);
+};
+scene?.setQuality(graphicsInput.value as GraphicsQuality);
 scene?.renderBoard(game);
 scene?.resetView(mode === "bot" && humanColor === "b");
 updateUI();

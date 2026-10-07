@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { BattleOverlay, cinematicFrame } from "./cinematic";
 import { useDramaticCamera, type CinematicScope } from "./gameplay";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { Chess, type Square, type PieceSymbol, type Move } from "chess.js";
 import { kingSquare, type MoveEvent } from "../shared/events.js";
 const material = (color: number, metalness = 0.3) =>
@@ -32,11 +33,12 @@ function disposeObject(o: THREE.Object3D) {
       child instanceof THREE.Line ||
       child instanceof THREE.Points
     ) {
-      geometries.add(child.geometry);
+      if (child instanceof THREE.InstancedMesh) child.dispose();
+      if (!child.userData.sharedGeometry) geometries.add(child.geometry);
       for (const m of Array.isArray(child.material)
         ? child.material
         : [child.material])
-        materials.add(m);
+        if (!child.userData.sharedMaterial) materials.add(m);
     }
   });
   geometries.forEach((g) => g.dispose());
@@ -49,7 +51,7 @@ function disposeObject(o: THREE.Object3D) {
 function clear(group: THREE.Group) {
   for (const child of [...group.children]) disposeObject(child);
 }
-function makePiece(type: PieceSymbol, color: "w" | "b") {
+function buildPiece(type: PieceSymbol, color: "w" | "b") {
   const group = new THREE.Group();
   const body = material(color === "w" ? 0xe4edf4 : 0x222937, 0.55);
   const accent = material(color === "w" ? 0x39d9e8 : 0xae70ff, 0.6);
@@ -132,6 +134,43 @@ function makePiece(type: PieceSymbol, color: "w" | "b") {
   }
   return group;
 }
+const pieceAssets = new Map<string, { geometry: THREE.BufferGeometry; material: THREE.Material }[]>();
+function makePiece(type: PieceSymbol, color: "w" | "b") {
+  const key = type + color;
+  let assets = pieceAssets.get(key);
+  if (!assets) {
+    const source = buildPiece(type, color);
+    source.rotation.y = 0;
+    source.updateMatrixWorld(true);
+    const batches = new Map<THREE.Material, THREE.BufferGeometry[]>();
+    source.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      const mat = child.material as THREE.Material;
+      const geometries = batches.get(mat) || [];
+      geometries.push(child.geometry.clone().applyMatrix4(child.matrixWorld));
+      batches.set(mat, geometries);
+    });
+    assets = [...batches].map(([mat, geometries]) => {
+      const geometry = mergeGeometries(geometries)!;
+      geometries.forEach((g) => g.dispose());
+      return { geometry, material: mat.clone() };
+    });
+    disposeObject(source);
+    pieceAssets.set(key, assets);
+  }
+  const group = new THREE.Group();
+  for (const asset of assets) {
+    const part = mesh(asset.geometry, asset.material, group);
+    part.userData.sharedGeometry = true;
+    part.userData.sharedMaterial = true;
+  }
+  if (type === "n" && color === "b") group.rotation.y = Math.PI;
+  return group;
+}
+export type GraphicsQuality = "auto" | "low" | "high";
+function battleColor(color: "w" | "b", story?: string) {
+  return story === "comeback" ? 0xffc06b : story === "queen-fallen" ? 0xbb8dff : color === "w" ? 0x68f9e0 : 0xb787ff;
+}
 interface Animation {
   object: THREE.Group;
   victim?: THREE.Object3D;
@@ -171,26 +210,35 @@ export class ChessScene {
   onCancel: () => void = () => {};
   private overlay: BattleOverlay;
   private sparks: {
-    object: THREE.Mesh;
+    position: THREE.Vector3;
     velocity: THREE.Vector3;
     life: number;
+    size: number;
   }[] = [];
+  private particleMesh: THREE.InstancedMesh | undefined;
+  private particleMatrix = new THREE.Matrix4();
   private previous = performance.now();
   private dirty = true;
   private lastRender = 0;
+  private quality: GraphicsQuality = "auto";
+  private resolution = 1;
+  private slowFrames = 0;
+  private lastDramaticPly = -100;
+  resetPacing() { this.lastDramaticPly = -100; }
   constructor(private stage: HTMLElement) {
     this.scene.background = new THREE.Color("#080d16");
     this.scene.fog = new THREE.Fog("#080d16", 19, 35);
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.7));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.autoUpdate = false;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.setQuality("auto");
     this.stage.prepend(this.renderer.domElement);
     this.overlay = new BattleOverlay(stage);
     this.camera.position.set(0, 10, 10);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.12;
     this.controls.minDistance = 7;
     this.controls.maxDistance = 32;
     this.controls.maxPolarAngle = Math.PI / 2.25;
@@ -215,20 +263,22 @@ export class ChessScene {
     rim.position.set(-5, 3, -4);
     this.scene.add(rim);
     this.scene.add(this.board, this.pieces, this.markers, this.fx);
-    for (let rank = 1; rank <= 8; rank++)
-      for (let file = 0; file < 8; file++) {
-        const s = `${String.fromCharCode(97 + file)}${rank}` as Square;
-        const p = coords(s);
-        const tile = mesh(
-          new THREE.BoxGeometry(0.98, 0.16, 0.98),
-          material((rank + file) % 2 ? 0x253d51 : 0x9ab5bf),
-          this.board,
-          p.x,
-          -0.08,
-          p.z,
-        );
-        tile.userData.square = s;
-      }
+    const tileGeometry = new THREE.BoxGeometry(0.98, 0.16, 0.98);
+    for (const parity of [0, 1]) {
+      const tiles = new THREE.InstancedMesh(tileGeometry, material(parity ? 0x253d51 : 0x9ab5bf), 32);
+      const squares: Square[] = [];
+      for (let rank = 1; rank <= 8; rank++)
+        for (let file = 0; file < 8; file++) {
+          if ((rank + file) % 2 !== parity) continue;
+          const square = `${String.fromCharCode(97 + file)}${rank}` as Square;
+          const p = coords(square);
+          tiles.setMatrixAt(squares.length, new THREE.Matrix4().makeTranslation(p.x, -0.08, p.z));
+          squares.push(square);
+        }
+      tiles.userData.squares = squares;
+      tiles.receiveShadow = true;
+      this.board.add(tiles);
+    }
     mesh(
       new THREE.BoxGeometry(8.45, 0.28, 8.45),
       material(0x172333, 0.7),
@@ -271,6 +321,10 @@ export class ChessScene {
         [...this.pieces.children, ...this.board.children],
         true,
       )) {
+        if (hit.object instanceof THREE.InstancedMesh && hit.instanceId !== undefined) {
+          this.onPick(hit.object.userData.squares[hit.instanceId]);
+          return;
+        }
         let o: THREE.Object3D | null = hit.object;
         while (o && !o.userData.square) o = o.parent;
         if (o?.userData.square) {
@@ -290,7 +344,17 @@ export class ChessScene {
       this.resetView();
       this.dirty = true;
     }).observe(this.stage);
-    this.renderer.setAnimationLoop(() => this.frame());
+    this.renderer.setAnimationLoop((time) => this.frame(time));
+  }
+  setQuality(quality: GraphicsQuality) {
+    this.quality = quality;
+    this.resolution = Math.min(devicePixelRatio, quality === "high" ? 1.7 : quality === "low" ? 1 : 1.25);
+    this.renderer.setPixelRatio(this.resolution);
+    this.renderer.shadowMap.enabled = quality !== "low";
+    this.renderer.shadowMap.needsUpdate = true;
+    this.slowFrames = 0;
+    this.dirty = true;
+    this.stage.dataset.graphics = quality;
   }
   private label(text: string, x: number, z: number) {
     const c = document.createElement("canvas");
@@ -390,6 +454,7 @@ export class ChessScene {
     this.controls.enabled = true;
     clear(this.fx);
     this.sparks = [];
+    this.particleMesh = undefined;
   }
   finish() {
     if (!this.animation) return;
@@ -415,9 +480,14 @@ export class ChessScene {
       const o = this.pieces.children.find((o) => o.userData.square === from);
       if (o) rook = { object: o, from: coords(from), to: coords(to) };
     }
+    const ply = after.history().length;
+    const urgent = ["mate", "promotion", "rescue"].includes(event.kind) ||
+      ["queen-fallen", "comeback"].includes(event.story || "");
     const dramatic =
       this.cinematic && !this.reduced &&
-      useDramaticCamera(move, event, this.cinematicScope);
+      useDramaticCamera(move, event, this.cinematicScope) &&
+      (this.cinematicScope === "all" || urgent || ply - this.lastDramaticPly >= 4);
+    if (dramatic) this.lastDramaticPly = ply;
     this.animation = {
       object,
       victim,
@@ -489,6 +559,8 @@ export class ChessScene {
       ghost.scale.setScalar(1.5);
       ghost.traverse((o) => {
         if (o instanceof THREE.Mesh) {
+          o.material = (o.material as THREE.Material).clone();
+          o.userData.sharedMaterial = false;
           (o.material as THREE.MeshStandardMaterial).transparent = true;
           (o.material as THREE.MeshStandardMaterial).opacity = 0.3;
         }
@@ -557,27 +629,38 @@ export class ChessScene {
     }
   }
   private impact(a: Animation) {
-    const color = a.move.color === "w" ? 0x68f9e0 : 0xb787ff;
+    const color = battleColor(a.move.color, a.event.story);
     if (a.victim) disposeObject(a.victim);
     this.onImpact(a.move, a.event);
     if (this.reduced) return;
     const count = a.move.captured ? (a.dramatic ? 52 : 32) : 12;
+    this.particleMesh = new THREE.InstancedMesh(
+      new THREE.IcosahedronGeometry(1), new THREE.MeshBasicMaterial({ color }), count,
+    );
+    this.particleMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    // Bounds change every frame as fragments fly away from the attacker.
+    this.particleMesh.frustumCulled = false;
+    this.fx.add(this.particleMesh);
     for (let i = 0; i < count; i++) {
-      const o = mesh(
-        new THREE.IcosahedronGeometry(0.035 + Math.random() * 0.045),
-        new THREE.MeshBasicMaterial({ color }),
-        this.fx,
-      );
-      o.position.copy(a.to).add(new THREE.Vector3(0, 0.4, 0));
       this.sparks.push({
-        object: o,
+        position: a.to.clone().add(new THREE.Vector3(0, 0.4, 0)),
         velocity: new THREE.Vector3(
           (Math.random() - 0.5) * (a.dramatic ? 6 : 3),
           1 + Math.random() * (a.dramatic ? 4 : 2),
           (Math.random() - 0.5) * (a.dramatic ? 6 : 3),
         ),
         life: 1,
+        size: 0.035 + Math.random() * 0.045,
       });
+    }
+    if (a.event.story === "recapture") {
+      for (const angle of [-0.65, 0.65]) {
+        const slash = mesh(new THREE.TorusGeometry(0.7, 0.035, 4, 24, Math.PI),
+          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8 }),
+          this.fx, a.to.x, 0.6, a.to.z);
+        slash.rotation.z = angle;
+        slash.userData.shock = true;
+      }
     }
     const ring = mesh(
       new THREE.TorusGeometry(0.3, 0.025, 6, 48),
@@ -630,7 +713,7 @@ export class ChessScene {
     });
   }
   private chargeAura(a: Animation) {
-    const color = a.move.color === "w" ? 0x6bffe4 : 0xb47aff;
+    const color = battleColor(a.move.color, a.event.story);
     const group = new THREE.Group();
     this.fx.add(group);
     group.position.copy(a.from);
@@ -715,7 +798,7 @@ export class ChessScene {
     else a.object.scale.setScalar(1 + (1 - f.travel) * 0.12);
   }
   private finalStrike(a: Animation) {
-    const color = a.move.color === "w" ? 0x86fff0 : 0xc59bff;
+    const color = battleColor(a.move.color, a.event.story);
     for (let i = 0; i < 3; i++) {
       const wave = mesh(
         new THREE.TorusGeometry(0.36 + i * 0.12, 0.04, 6, 64),
@@ -859,9 +942,9 @@ export class ChessScene {
       }
     }
   }
-  private frame() {
-    const now = performance.now(),
-      dt = Math.min((now - this.previous) / 1000, 0.05);
+  private frame(now: number) {
+    const elapsed = now - this.previous;
+    const dt = Math.max(0, Math.min(elapsed / 1000, 0.05));
     this.previous = now;
     if (this.controls.enabled) this.controls.update();
     const a = this.animation;
@@ -927,22 +1010,43 @@ export class ChessScene {
       const s = this.sparks[i];
       s.life -= particleDt;
       s.velocity.y -= particleDt * 3;
-      s.object.position.addScaledVector(s.velocity, particleDt);
-      s.object.scale.setScalar(Math.max(0, s.life));
+      s.position.addScaledVector(s.velocity, particleDt);
       if (s.life <= 0) {
-        disposeObject(s.object);
         this.sparks.splice(i, 1);
+      }
+    }
+    if (this.particleMesh) {
+      this.particleMesh.count = this.sparks.length;
+      for (let i = 0; i < this.sparks.length; i++) {
+        const spark = this.sparks[i];
+        this.particleMatrix.makeScale(spark.size * spark.life, spark.size * spark.life, spark.size * spark.life);
+        this.particleMatrix.setPosition(spark.position);
+        this.particleMesh.setMatrixAt(i, this.particleMatrix);
+      }
+      this.particleMesh.instanceMatrix.needsUpdate = true;
+      if (!this.sparks.length) {
+        disposeObject(this.particleMesh);
+        this.particleMesh = undefined;
       }
     }
     if (this.animation || this.sparks.length) this.dirty = true;
     // Keep camera interaction and short moves responsive; bound heavy mobile cuts.
     const targetFps = this.animation?.dramatic && this.stage.clientWidth < 700 ? 30 : 60;
-    if (this.dirty && now - this.lastRender >= 1000 / targetFps - 1) {
+    // Orbit/short moves follow every display frame; a second 60 Hz gate causes skips.
+    if (this.dirty && (targetFps === 60 || now - this.lastRender >= 1000 / targetFps - 1)) {
       // Camera movement can reuse the board's shadow map; moving pieces cannot.
       if (this.animation) this.renderer.shadowMap.needsUpdate = true;
       this.renderer.render(this.scene, this.camera);
       this.lastRender = now;
       this.dirty = false;
+      if (this.quality === "auto" && elapsed > 25 && elapsed < 200) this.slowFrames++;
+      else this.slowFrames = Math.max(0, this.slowFrames - 1);
+      if (this.quality === "auto" && this.slowFrames >= 12 && this.resolution > 0.8) {
+        this.resolution = Math.max(0.8, this.resolution - 0.15);
+        this.renderer.setPixelRatio(this.resolution);
+        this.slowFrames = 0;
+        this.dirty = true;
+      }
     }
   }
 }
