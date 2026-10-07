@@ -47,10 +47,12 @@ try {
   await page.waitForSelector("canvas");
   // Exercise raycasting on the actual 3D board before using the accessible board.
   async function canvasSquare(s) {
-    const r = await page.locator("canvas").boundingBox();
+    const r = await page.locator("canvas").first().boundingBox();
     const x = s.charCodeAt(0) - 97 - 3.5,
       z = 3.5 - (Number(s[1]) - 1),
-      distance = (2 * Math.max(10, 10 * 1.05 / (r.width / r.height)) - z) * Math.SQRT1_2,
+      distance =
+        (2 * Math.max(10, (10 * 1.05) / (r.width / r.height)) - z) *
+        Math.SQRT1_2,
       tan = Math.tan((21 * Math.PI) / 180);
     await page.mouse.click(
       r.x + (r.width * (1 + x / (distance * tan * (r.width / r.height)))) / 2,
@@ -147,10 +149,17 @@ try {
     await square(page, t.to);
     if (key === "promotion")
       await page.locator('#promotion [data-piece="q"]').click();
-    await page.waitForTimeout(key === 'knight' ? 950 : 80);
-    if(key === 'knight'){mkdirSync('test-results',{recursive:true});await page.screenshot({path:'test-results/knight-cinematic.png'});}
+    await page.waitForTimeout(key === "knight" ? 950 : 80);
+    if (key === "knight") {
+      mkdirSync("test-results", { recursive: true });
+      await page.screenshot({ path: "test-results/knight-cinematic.png" });
+    }
     assert.notEqual(await page.locator("#event strong").innerText(), "");
-    if(key === "bishop")await page.waitForFunction(()=>!document.querySelector("#stage").classList.contains("cinematic"));else await page.locator("#skip").click();
+    if (key === "bishop")
+      await page.waitForFunction(
+        () => !document.querySelector("#stage").classList.contains("cinematic"),
+      );
+    else await page.locator("#skip").click();
   }
   await page.locator("#training-panel summary").click();
   await page.locator('[data-mode="bot"]').click();

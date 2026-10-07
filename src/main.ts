@@ -81,6 +81,19 @@ let ws: WebSocket | undefined,
   serverStamp = Date.now(),
   requestPending = false;
 let audio: AudioContext | undefined;
+const activeSounds = new Set<AudioScheduledSourceNode>();
+function stopSounds() {
+  for (const source of activeSounds) {
+    try {
+      source.stop();
+    } catch {}
+  }
+  activeSounds.clear();
+}
+function trackSound(source: AudioScheduledSourceNode) {
+  activeSounds.add(source);
+  source.onended = () => activeSounds.delete(source);
+}
 const storage = {
   get(key: string) {
     try {
@@ -289,11 +302,27 @@ function pick(square: Square) {
   updateUI();
 }
 function playSound(move: Move, event: MoveEvent) {
+  stopSounds();
   if (!$<HTMLInputElement>("#sound").checked) return;
   try {
     audio ||= new AudioContext();
     void audio.resume();
     const now = audio.currentTime;
+    if (scene?.cinematic && !scene.reduced && event.kind !== "move") {
+      const charge = audio.createOscillator(),
+        gain = audio.createGain();
+      charge.type = "triangle";
+      charge.frequency.setValueAtTime(70, now);
+      charge.frequency.exponentialRampToValueAtTime(720, now + 0.75);
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.035, now + 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.83);
+      charge.connect(gain).connect(audio.destination);
+      trackSound(charge);
+      charge.start(now);
+      charge.stop(now + 0.85);
+      return;
+    }
     for (let i = 0; i < (event.kind === "move" ? 1 : 3); i++) {
       const o = audio.createOscillator(),
         g = audio.createGain();
@@ -305,9 +334,46 @@ function playSound(move: Move, event: MoveEvent) {
       g.gain.linearRampToValueAtTime(0.06, now + i * 0.09 + 0.015);
       g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.09 + 0.3);
       o.connect(g).connect(audio.destination);
+      trackSound(o);
       o.start(now + i * 0.09);
       o.stop(now + i * 0.09 + 0.31);
     }
+  } catch {}
+}
+function impactSound(move: Move, event: MoveEvent) {
+  if (!move.captured && event.kind === "move") return;
+  if (!$<HTMLInputElement>("#sound").checked || !audio || scene?.reduced)
+    return;
+  try {
+    const now = audio.currentTime;
+    const low = audio.createOscillator(),
+      gain = audio.createGain();
+    low.frequency.setValueAtTime(135, now);
+    low.frequency.exponentialRampToValueAtTime(32, now + 0.38);
+    gain.gain.setValueAtTime(0.09, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+    low.connect(gain).connect(audio.destination);
+    trackSound(low);
+    low.start(now);
+    low.stop(now + 0.46);
+    const buffer = audio.createBuffer(
+        1,
+        Math.floor(audio.sampleRate * 0.18),
+        audio.sampleRate,
+      ),
+      samples = buffer.getChannelData(0);
+    for (let i = 0; i < samples.length; i++)
+      samples[i] = (Math.random() * 2 - 1) * (1 - i / samples.length);
+    const noise = audio.createBufferSource(),
+      volume = audio.createGain(),
+      filter = audio.createBiquadFilter();
+    noise.buffer = buffer;
+    filter.type = "lowpass";
+    filter.frequency.value = 1600;
+    volume.gain.value = 0.055;
+    noise.connect(filter).connect(volume).connect(audio.destination);
+    trackSound(noise);
+    noise.start(now);
   } catch {}
 }
 function animate(before: Chess, move: Move) {
@@ -336,6 +402,8 @@ function finishAnimation() {
 if (scene) {
   scene.onPick = pick;
   scene.onFinish = finishAnimation;
+  scene.onImpact = impactSound;
+  scene.onCancel = stopSounds;
 }
 function submitMove(from: Square, to: Square, promotion: PieceSymbol = "q") {
   if (!canPlay()) return;

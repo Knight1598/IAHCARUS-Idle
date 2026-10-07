@@ -59,7 +59,8 @@ The browser suite exercises the production build. If system Chromium exists at `
 - All six procedural 3D pieces, camera controls, board coordinates, selection, last-move and check indicators.
 - Unique capture visuals: pawn spear, knight phantom, bishop prism beam, rook cannon, queen blades and king sword.
 - Event analysis for check, checkmate, actual checking-piece capture (royal rescue), interposition, king escape, discovered/double check, forks, promotion and castling.
-- Cinematic camera movement, letterbox, shockwaves, particles, threat beams, protective king shields, optional synthesized sound.
+- Anime-style choreography: energy charge and lightning, diagonal manga cut-in, dash, held impact frame, speed lines, explosive rings/slashes, close-up camera cuts and return to the board.
+- Letterbox, particles, threat beams, protective king shields and synchronized synthesized charge/impact sounds. Sequences are skippable; reduced effects removes the dramatic choreography.
 - Local undo, persistent games, PGN export, promotion dialog, mobile layout and 2D fallback.
 - Server-authoritative private PvP rooms, legal turn validation, revision checking, five-minute clocks, resignation and reconnect. Clocks continue through animations and disconnects; their outcome is decided by the server.
 

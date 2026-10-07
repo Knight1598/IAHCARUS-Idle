@@ -91,8 +91,71 @@ try {
   await page.locator("#reset").click();
   await page.waitForTimeout(600);
   assert.equal(await page.locator("#moves .san").count(), 0);
-  // Training remains available without a multiplayer mode.
+  // Exercise the full anime sequence, then ensure skip and reduced mode clean up.
   await page.locator("#training-panel summary").click();
+  await page.locator("#training-select").selectOption("knight");
+  await page.locator("#reduced").uncheck();
+  await page.locator("#sound").check();
+  await page.locator('[data-square="c3"]').click();
+  await page.locator('[data-square="d5"]').click();
+  await page.waitForFunction(
+    () => document.querySelector("#stage").dataset.battlePhase === "charge",
+  );
+  mkdirSync("test-results", { recursive: true });
+  await page.screenshot({ path: "test-results/anime-charge.png" });
+  await page.waitForFunction(
+    () => document.querySelector("#stage").dataset.battlePhase === "aftermath",
+    {},
+    { timeout: 10000 },
+  );
+  await page.screenshot({ path: "test-results/anime-impact.png" });
+  await page.waitForFunction(
+    () => !document.querySelector("#stage").dataset.battlePhase,
+    {},
+    { timeout: 10000 },
+  );
+  assert.match(await page.locator("#moves").innerText(), /Nxd5/);
+  assert.match(await page.locator('[data-square="d5"]').innerText(), /♘/);
+  // A normal 3D pick after completion exercises camera and pointer restoration.
+  async function canvasSquare(square) {
+    const r = await page.locator("canvas").first().boundingBox();
+    const x = square.charCodeAt(0) - 97 - 3.5,
+      z = 3.5 - (Number(square[1]) - 1),
+      distance =
+        (2 * Math.max(10, (10 * 1.05) / (r.width / r.height)) - z) *
+        Math.SQRT1_2,
+      tan = Math.tan((21 * Math.PI) / 180);
+    await page.mouse.click(
+      r.x + (r.width * (1 + x / (distance * tan * (r.width / r.height)))) / 2,
+      r.y + (r.height * (1 + (z * Math.SQRT1_2) / (distance * tan))) / 2,
+    );
+  }
+  await canvasSquare("h8");
+  await canvasSquare("h7");
+  await page.locator("#skip").click();
+  assert.match(await page.locator("#moves").innerText(), /Kh7/);
+  await page.locator("#training-select").selectOption("queen");
+  await page.locator('[data-square="d1"]').click();
+  await page.locator('[data-square="d5"]').click();
+  await page.waitForFunction(
+    () => !!document.querySelector("#stage").dataset.battlePhase,
+  );
+  await page.locator("#skip").click();
+  assert.equal(
+    await page.locator("#stage").getAttribute("data-battle-phase"),
+    null,
+  );
+  await page.locator("#training-select").selectOption("bishop");
+  await page.locator("#cinematic").uncheck();
+  await move("c3", "f6");
+  assert.equal(
+    await page.locator("#stage").getAttribute("data-battle-phase"),
+    null,
+  );
+  await page.locator("#cinematic").check();
+  await page.locator("#reduced").check();
+  await page.locator("#sound").uncheck();
+  // Training remains available without a multiplayer mode.
   await page.locator("#training-select").selectOption("rescue");
   await move("g7", "f6");
   assert.match(await page.locator("#moves").innerText(), /gxf6/);

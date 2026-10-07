@@ -8,7 +8,7 @@ export const training = {
   },
   knight: {
     name: "ม้า · พุ่งทะลวงเงา",
-    fen: "7k/8/8/3r4/8/2N5/8/K7 w - - 0 1",
+    fen: "7k/8/7p/3r4/8/2N5/8/K7 w - - 0 1",
     from: "c3",
     to: "d5",
     hint: "ม้าขาว c3 กิน d5",

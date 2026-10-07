@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { BattleOverlay, cinematicFrame } from "./cinematic";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Chess, type Square, type PieceSymbol, type Move } from "chess.js";
 import { kingSquare, type MoveEvent } from "../shared/events.js";
@@ -25,7 +26,11 @@ function disposeObject(o: THREE.Object3D) {
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
   o.traverse((child) => {
-    if (child instanceof THREE.Mesh) {
+    if (
+      child instanceof THREE.Mesh ||
+      child instanceof THREE.Line ||
+      child instanceof THREE.Points
+    ) {
       geometries.add(child.geometry);
       for (const m of Array.isArray(child.material)
         ? child.material
@@ -137,6 +142,9 @@ interface Animation {
   event: MoveEvent;
   after: Chess;
   impacted: boolean;
+  dramatic: boolean;
+  weapons: boolean;
+  aura?: THREE.Group;
   rotation: number;
   camera: THREE.Vector3;
   target: THREE.Vector3;
@@ -157,6 +165,9 @@ export class ChessScene {
   flipped = false;
   onPick: (s: Square) => void = () => {};
   onFinish: () => void = () => {};
+  onImpact: (move: Move, event: MoveEvent) => void = () => {};
+  onCancel: () => void = () => {};
+  private overlay: BattleOverlay;
   private sparks: {
     object: THREE.Mesh;
     velocity: THREE.Vector3;
@@ -173,6 +184,7 @@ export class ChessScene {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.stage.prepend(this.renderer.domElement);
+    this.overlay = new BattleOverlay(stage);
     this.camera.position.set(0, 10, 10);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
@@ -355,7 +367,7 @@ export class ChessScene {
   }
   resetView(flip = this.flipped) {
     this.flipped = flip;
-    const distance = Math.max(10, 10 * 1.05 / this.camera.aspect);
+    const distance = Math.max(10, (10 * 1.05) / this.camera.aspect);
     this.camera.position.set(0, distance, flip ? -distance : distance);
     this.controls.target.set(0, 0, 0);
     this.controls.update();
@@ -366,10 +378,13 @@ export class ChessScene {
       this.camera.position.copy(this.animation.camera);
       this.controls.target.copy(this.animation.target);
     }
+    this.camera.lookAt(this.controls.target);
     this.animation = null;
+    this.overlay.clear();
+    this.renderer.toneMappingExposure = 1;
+    this.onCancel();
     this.controls.enabled = true;
     clear(this.fx);
-    for (const s of this.sparks) disposeObject(s.object);
     this.sparks = [];
   }
   finish() {
@@ -396,6 +411,7 @@ export class ChessScene {
       const o = this.pieces.children.find((o) => o.userData.square === from);
       if (o) rook = { object: o, from: coords(from), to: coords(to) };
     }
+    const dramatic = this.cinematic && !this.reduced && event.kind !== "move";
     this.animation = {
       object,
       victim,
@@ -405,21 +421,27 @@ export class ChessScene {
       duration: this.reduced
         ? 180
         : event.kind === "mate"
-          ? 2200
+          ? dramatic
+            ? 3800
+            : 1000
           : event.kind !== "move"
-            ? 1500
+            ? dramatic
+              ? 2800
+              : 850
             : 420,
       move,
       event,
       after,
       impacted: false,
+      dramatic,
+      weapons: false,
       rotation: object.rotation.y,
       camera: this.camera.position.clone(),
       target: this.controls.target.clone(),
       rook,
     };
     this.controls.enabled = false;
-    if (!this.reduced && move.captured) this.weapon(move, coords(move.to));
+    if (dramatic) this.animation.aura = this.chargeAura(this.animation);
   }
   private beam(
     from: THREE.Vector3,
@@ -531,8 +553,9 @@ export class ChessScene {
   private impact(a: Animation) {
     const color = a.move.color === "w" ? 0x68f9e0 : 0xb787ff;
     if (a.victim) disposeObject(a.victim);
+    this.onImpact(a.move, a.event);
     if (this.reduced) return;
-    const count = a.move.captured ? 32 : 12;
+    const count = a.move.captured ? (a.dramatic ? 52 : 32) : 12;
     for (let i = 0; i < count; i++) {
       const o = mesh(
         new THREE.IcosahedronGeometry(0.035 + Math.random() * 0.045),
@@ -543,9 +566,9 @@ export class ChessScene {
       this.sparks.push({
         object: o,
         velocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 3,
-          1 + Math.random() * 2,
-          (Math.random() - 0.5) * 3,
+          (Math.random() - 0.5) * (a.dramatic ? 6 : 3),
+          1 + Math.random() * (a.dramatic ? 4 : 2),
+          (Math.random() - 0.5) * (a.dramatic ? 6 : 3),
         ),
         life: 1,
       });
@@ -560,6 +583,7 @@ export class ChessScene {
     );
     ring.rotation.x = Math.PI / 2;
     ring.userData.shock = true;
+    if (a.dramatic) this.finalStrike(a);
     for (const target of a.event.targets) {
       this.beam(
         a.to.clone().add(new THREE.Vector3(0, 0.5, 0)),
@@ -589,16 +613,270 @@ export class ChessScene {
       }
     }
   }
+  private glow(color: number, opacity = 0.65) {
+    return new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    });
+  }
+  private chargeAura(a: Animation) {
+    const color = a.move.color === "w" ? 0x6bffe4 : 0xb47aff;
+    const group = new THREE.Group();
+    this.fx.add(group);
+    group.position.copy(a.from);
+    for (let i = 0; i < 3; i++) {
+      const ring = mesh(
+        new THREE.TorusGeometry(0.6 + i * 0.22, 0.018, 6, 56),
+        this.glow(color, 0.7 - i * 0.12),
+        group,
+        0,
+        0.08 + i * 0.12,
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.userData.auraRing = i;
+    }
+    const shell = mesh(
+      new THREE.ConeGeometry(0.58, 2.2, 8, 1, true),
+      this.glow(color, 0.13),
+      group,
+      0,
+      1,
+    );
+    shell.userData.auraShell = true;
+    const lightning: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      const angle = (i * Math.PI) / 4;
+      for (let j = 0; j < 5; j++) {
+        const y = j * 0.45;
+        const r = 0.35 + Math.sin(i * 17 + j * 13) * 0.18;
+        const next = 0.35 + Math.sin(i * 17 + (j + 1) * 13) * 0.18;
+        lightning.push(
+          Math.cos(angle) * r,
+          y,
+          Math.sin(angle) * r,
+          Math.cos(angle + 0.1) * next,
+          y + 0.45,
+          Math.sin(angle + 0.1) * next,
+        );
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(lightning, 3),
+    );
+    const bolts = new THREE.LineSegments(
+      geometry,
+      new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.85,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    group.add(bolts);
+    for (let i = 0; i < 8; i++) {
+      const angle = (i * Math.PI) / 4;
+      const shard = mesh(
+        new THREE.OctahedronGeometry(0.065),
+        this.glow(color),
+        group,
+        Math.cos(angle) * 0.7,
+        0.2,
+        Math.sin(angle) * 0.7,
+      );
+      shard.userData.auraShard = i;
+    }
+    return group;
+  }
+  private animateAura(a: Animation, t: number, charge: number) {
+    if (!a.aura) return;
+    const f = cinematicFrame(t);
+    a.aura.position.lerpVectors(a.from, a.to, f.travel);
+    a.aura.rotation.y = t * 8;
+    a.aura.scale.setScalar(0.3 + charge * 0.9);
+    a.aura.visible = t < 0.6;
+    for (const o of a.aura.children) {
+      if (o.userData.auraShard !== undefined)
+        o.position.y = 0.2 + ((t * 5 + o.userData.auraShard * 0.22) % 1) * 2;
+    }
+    if (t < 0.3) a.object.scale.setScalar(1 + charge * 0.12);
+    else a.object.scale.setScalar(1 + (1 - f.travel) * 0.12);
+  }
+  private finalStrike(a: Animation) {
+    const color = a.move.color === "w" ? 0x86fff0 : 0xc59bff;
+    for (let i = 0; i < 3; i++) {
+      const wave = mesh(
+        new THREE.TorusGeometry(0.36 + i * 0.12, 0.04, 6, 64),
+        this.glow(color, 0.7),
+        this.fx,
+        a.to.x,
+        0.06 + i * 0.06,
+        a.to.z,
+      );
+      wave.rotation.x = Math.PI / 2;
+      wave.userData.blast = true;
+      wave.userData.layer = i;
+    }
+    if (a.move.piece === "b" || a.move.piece === "r") {
+      const pillar = mesh(
+        new THREE.CylinderGeometry(0.1, 0.7, 5, 12, 1, true),
+        this.glow(color, 0.35),
+        this.fx,
+        a.to.x,
+        2.5,
+        a.to.z,
+      );
+      pillar.userData.pillar = true;
+    } else {
+      const slash = mesh(
+        new THREE.TorusGeometry(1.3, 0.1, 6, 56, Math.PI * 1.35),
+        this.glow(color, 0.95),
+        this.fx,
+        a.to.x,
+        0.8,
+        a.to.z,
+      );
+      slash.rotation.set(0.9, 0.4, -0.8);
+      slash.userData.slash = true;
+    }
+    const spokes: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      const angle = (i * Math.PI) / 10;
+      const r = 1.1 + (i % 3) * 0.35;
+      spokes.push(
+        a.to.x + Math.cos(angle) * 0.2,
+        0.12,
+        a.to.z + Math.sin(angle) * 0.2,
+        a.to.x + Math.cos(angle) * r,
+        0.12,
+        a.to.z + Math.sin(angle) * r,
+      );
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(spokes, 3));
+    this.fx.add(
+      new THREE.LineSegments(
+        g,
+        new THREE.LineBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.6,
+          blending: THREE.AdditiveBlending,
+        }),
+      ),
+    );
+  }
+  private directCamera(a: Animation, t: number) {
+    const f = cinematicFrame(t);
+    const direction = this.flipped ? -1 : 1;
+    const actor = a.from.clone().add(new THREE.Vector3(0, 0.65, 0));
+    const target = a.to.clone().add(new THREE.Vector3(0, 0.55, 0));
+    const attackDirection = a.to.clone().sub(a.from).normalize();
+    const side = new THREE.Vector3(-attackDirection.z, 0, attackDirection.x);
+    const portrait = actor
+      .clone()
+      .add(side.clone().multiplyScalar(2.3))
+      .add(new THREE.Vector3(0, 1.35, direction * 2.6));
+    const clash = target
+      .clone()
+      .add(side.clone().multiplyScalar(3))
+      .add(new THREE.Vector3(0, 2, direction * 2.8));
+    let position: THREE.Vector3, focus: THREE.Vector3;
+    if (t < 0.3) {
+      const ease = Math.min(1, t / 0.08);
+      position = a.camera.clone().lerp(portrait, ease);
+      focus = a.target.clone().lerp(actor, ease);
+    } else if (t < 0.52) {
+      position = portrait.clone().lerp(clash, f.travel);
+      focus = actor.clone().lerp(target, f.travel);
+    } else if (t < 0.6) {
+      position = clash;
+      focus = target;
+    } else {
+      focus = target.clone();
+      if (
+        [
+          "check",
+          "mate",
+          "double-check",
+          "discovered-check",
+          "rescue",
+          "block",
+        ].includes(a.event.kind)
+      ) {
+        const king = kingSquare(
+          a.after,
+          ["rescue", "block"].includes(a.event.kind)
+            ? a.move.color
+            : a.after.turn(),
+        );
+        if (king)
+          focus.lerp(
+            coords(king).add(new THREE.Vector3(0, 0.65, 0)),
+            f.release * 0.7,
+          );
+      }
+      const wide = focus
+        .clone()
+        .add(new THREE.Vector3(side.x * 3.6, 3.5, direction * 5));
+      position = clash.clone().lerp(wide, f.release);
+      position.lerp(a.camera, f.returning);
+      focus.lerp(a.target, f.returning);
+    }
+    if (t >= 0.6 && t < 0.72) {
+      const shake = (1 - (t - 0.6) / 0.12) * 0.11;
+      position.x += Math.sin(t * 200) * shake;
+      position.y += Math.cos(t * 150) * shake * 0.55;
+    }
+    this.camera.position.copy(position);
+    this.controls.target.copy(focus);
+    this.camera.lookAt(focus);
+    for (const o of this.fx.children) {
+      if (o.userData.blast) {
+        const p = Math.max(0, (t - 0.52) / 0.48);
+        o.scale.setScalar(1 + p * (5 + o.userData.layer));
+        (
+          o as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>
+        ).material.opacity = (1 - p) * 0.6;
+      }
+      if (o.userData.slash) {
+        o.rotation.z += 0.045;
+        (
+          o as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>
+        ).material.opacity = Math.max(0, 1 - (t - 0.52) * 2);
+      }
+    }
+  }
   private frame() {
     const now = performance.now(),
       dt = Math.min((now - this.previous) / 1000, 0.05);
     this.previous = now;
-    this.controls.update();
+    if (this.controls.enabled) this.controls.update();
     const a = this.animation;
     if (a) {
       const t = Math.min((now - a.start) / a.duration, 1);
-      const travel = Math.min(t / 0.58, 1),
-        e = travel * travel * (3 - 2 * travel);
+      const choreography = cinematicFrame(t);
+      const travel = a.dramatic ? choreography.travel : Math.min(t / 0.58, 1);
+      const e = travel * travel * (3 - 2 * travel);
+      if (a.dramatic) {
+        this.overlay.draw(t, a.move.piece, a.move.color, a.event.title);
+        this.animateAura(a, t, choreography.charge);
+      }
+      if (
+        !a.weapons &&
+        !this.reduced &&
+        a.move.captured &&
+        (!a.dramatic || t >= 0.3)
+      ) {
+        a.weapons = true;
+        this.weapon(a.move, a.to);
+      }
       a.object.position.lerpVectors(a.from, a.to, e);
       a.object.position.y =
         Math.sin(travel * Math.PI) *
@@ -617,7 +895,7 @@ export class ChessScene {
       if (a.move.piece === "k")
         a.object.scale.setScalar(1 + Math.sin(travel * Math.PI) * 0.08);
       if (a.rook) a.rook.object.position.lerpVectors(a.rook.from, a.rook.to, e);
-      if (!a.impacted && t >= 0.58) {
+      if (!a.impacted && t >= (a.dramatic ? 0.52 : 0.58)) {
         a.impacted = true;
         this.impact(a);
       }
@@ -628,34 +906,22 @@ export class ChessScene {
             o as THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial>
           ).material.opacity = Math.max(0, 1 - (t - 0.58) * 2);
         }
-      if (!this.reduced && this.cinematic && a.event.kind !== "move") {
-        const focus = a.to.clone().add(new THREE.Vector3(0, 0.5, 0));
-        if (
-          ["check", "mate", "double-check", "discovered-check"].includes(
-            a.event.kind,
-          ) &&
-          a.event.targets[0]
-        )
-          focus.lerp(
-            coords(a.event.targets[0]).add(new THREE.Vector3(0, 0.5, 0)),
-            Math.max(0, t - 0.5) * 2,
-          );
-        const amount = Math.sin(t * Math.PI) * 0.65;
-        const shot = focus
-          .clone()
-          .add(
-            new THREE.Vector3(this.flipped ? -3 : 3, 4, this.flipped ? -5 : 5),
-          );
-        this.camera.position.lerpVectors(a.camera, shot, amount);
-        this.controls.target.lerpVectors(a.target, focus, amount);
+      if (a.dramatic) {
+        this.directCamera(a, t);
       }
       if (t === 1) this.finish();
     }
+    const particleDt =
+      this.animation?.dramatic &&
+      cinematicFrame((now - this.animation.start) / this.animation.duration)
+        .phase === "impact"
+        ? 0
+        : dt;
     for (let i = this.sparks.length - 1; i >= 0; i--) {
       const s = this.sparks[i];
-      s.life -= dt;
-      s.velocity.y -= dt * 3;
-      s.object.position.addScaledVector(s.velocity, dt);
+      s.life -= particleDt;
+      s.velocity.y -= particleDt * 3;
+      s.object.position.addScaledVector(s.velocity, particleDt);
       s.object.scale.setScalar(Math.max(0, s.life));
       if (s.life <= 0) {
         disposeObject(s.object);
