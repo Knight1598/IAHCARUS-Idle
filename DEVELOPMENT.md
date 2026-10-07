@@ -5,6 +5,8 @@ Use the existing checkout in the isolated workspace. Do not create a worktree un
 ## Architecture
 
 - `src/main.ts`: local/bot/online state, Thai interface, move submission, settings/storage, promotion, accessible board and room reconnect.
+- `src/title.ts`: title/menu, mode launch options, CSS pawn preview, skin selection and saved-game resume. The preview needs no second WebGL context.
+- `src/profile.ts`: versioned local commander profile, level/skin catalog, reward calculation and claim deduplication. Cosmetic progression does not change chess rules.
 - `src/cinematic.ts`: pure phase timing and procedural 2D manga overlay. No chess mutation; charge/dash/impact/aftermath/return phases.
 - `src/scene.ts`: procedural models, renderer, board interaction, per-piece capture effects and camera timelines. Idle scenes render on demand; movement/camera interaction targets 60 FPS, with heavy cinematic sequences capped at 30 on narrow stages. Camera motion reuses the board shadow map; moves/board rebuilds invalidate it. These are render targets, not measured hardware guarantees.
 - `src/gameplay.ts`: capture history, material balance and cinematic pacing decisions. Material comes from the current board, so promotions and custom training positions work correctly; captured pieces come only from actual history.
@@ -24,15 +26,23 @@ Animation displays the previous board, moves the attacker, resolves capture at i
 
 Bot searches start during the human move's animation. Replies carry the position FEN and wait until the animation completes; worker identity and FEN checks prevent stale replies. Finish callbacks queue the next action in a microtask so camera/settings handlers can complete before another animation begins. Human color is saved with local history; old saves default to white. A black-side opening cannot be undone until a human move exists, and normal bot undo removes the human turn plus any bot reply.
 
+Boot restores the game behind the title screen without starting a bot or connecting a room. Launch/resume shows the existing scene and enables rendering; returning to the title finishes the current animation, clears selection and terminates the bot. Keep one scene/context for repeated menu visits. Active online matches cannot return to the menu because server clocks continue. Clear training/local reward context when a room snapshot becomes the active game.
+
+`special-chess-profile` stores XP, selected skin, completed-match counts and claimed reward IDs. Local saves carry a stable `matchId`; training uses `training:<scenario>` and online uses `room:<code>`. Reward checks run before the result UI refresh. Undo rolls back history/mission stars but never XP or claims. Training context is restored from its initial FEN; only standard-start bot matches earn match rewards. The profile is browser-local, not a server-authoritative economy.
+
 ## Validation
 
 `npm test` covers rules, contextual events, room ownership/turns, illegal moves, stale revisions, reconnect token rejection, history restoration, resignation and timeout. `npm run test:browser` starts an isolated production server and verifies real 3D picking, local play, undo/storage, castling, promotion selection, all training effects, worker bot, two-browser PvP, reconnect, resignation and mobile overflow.
+
+Profile tests cover malformed saves, level unlocks and claim deduplication. After building the offline artifact, `npm run test:title` checks desktop/mobile menus, starter skins, first-clear XP, bot launch as black, paused menus, saved-game resume and an unlock after a completed match. It serves the single-file document from memory with networking disabled and makes no external requests.
 
 Headless software WebGL is slower than hardware rendering. Browser tests use 2D square buttons for most scenarios, with an explicit 3D raycast test. Screenshots are generated into `test-results/`, not committed.
 
 `npm run test:render` creates an isolated Vite renderer fixture without a second game loop. It drags the actual OrbitControls, checks drawing/geometry budgets, repeated board rebuilds, camera-preserving quality changes, an instanced particle burst, opaque cached pieces after a phantom attack, cinematic cooldown and the mate exception. Baseline orbit batches were 286; the revised fixture draws 100, with 43 uploaded geometries rather than 270. These are workload measurements in software Chromium, not device FPS benchmarks.
 
 Board squares use two instanced batches; raycasting maps `instanceId` back to a square. Piece body/accent meshes are merged per type/color and cached. Shared geometry/material flags prevent board resets or capture cleanup from disposing the cache. Phantom copies clone their materials before adjusting transparency. Spark particles use one instanced mesh; cancellation disposes its instance buffers too. Quality changes resize only the render buffer and preserve camera/animation; Auto reduces pixel ratio after sustained slow frames, Low removes shadow rendering, High restores the sharper resolution. Normal/orbit rendering follows the browser's display callback directly; only heavy narrow-screen cinematics retain a 30 Hz limiter.
+
+Piece caches include the skin ID. Mixed indexed/non-indexed primitives (the Ember pawn's octahedron, for example) are normalized before merging into the same two material batches. Renderer tests build all five armies, check actual pawn geometry/colors and board positions, and verify that a paused title draws no GPU frames.
 
 ## Priorities after this release
 
@@ -41,7 +51,7 @@ Board squares use two instanced batches; raycasting maps `instanceId` back to a 
 3. Persistent rooms/results, disconnect grace policy, shared server storage and accounts before ratings.
 4. Complete FIDE timeout/draw claims and add agreed draws for competitive play.
 5. Better bot engine and difficulty progression.
-6. Cosmetic themes with equal gameplay; no paid power changes.
+6. Expand the cosmetic collection and RPG campaign; keep competitive rules equal.
 
 Rooms currently live in a single server's memory. Hosting/snapshots preserve files, not ongoing room sessions. Public deployment is separate from a GitHub push.
 
@@ -49,7 +59,7 @@ Rooms currently live in a single server's memory. Hosting/snapshots preserve fil
 
 `vite.offline.config.ts` defines `__OFFLINE__` and uses vite-plugin-singlefile to inline all application JS and CSS. The bot worker is imported with `?worker&inline`, embedding its code in both builds. `scripts/package-offline.mjs` copies the built HTML to `offline/Special-Chess-Offline.html`, which is deliberately committed as a ready-to-download test artifact. Do not hand-edit this generated HTML.
 
-Offline defaults to bot play, hides mode switching/room UI, ignores room query parameters and online session storage, and saves its game/difficulty under separate keys. Training temporarily switches to a local sandbox; New Game always returns to bot mode. Easy/Medium/Hard target search depths 1/2/3 with bounded thinking time.
+Offline starts at the title screen, offers bot/local/training modes there, hides in-match mode tabs/room UI, ignores room query parameters and online session storage, and saves its game/difficulty under separate keys. Training temporarily switches to a local sandbox; New Game from training returns to bot mode, while a regular local game stays local. Easy/Medium/Hard target search depths 1/2/3 with bounded thinking time.
 
 After shared source changes, run `npm run build:offline` and `npm run test:offline`. The default test opens the delivered file via file URL with networking disabled, checks every difficulty, and rejects any attempted WebSocket connection. This cloud machine blocks file navigation by managed Chromium policy; the verified local run used `OFFLINE_TEST_TRANSPORT=memory`, fulfilling only the main document from the delivered HTML in memory while networking remained disabled. Do not claim file-origin behavior verified from that run. CI keeps the default file-URL test. Rebuild the normal app and run its browser suite after changing shared code.
 

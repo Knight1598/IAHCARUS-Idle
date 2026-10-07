@@ -7,6 +7,8 @@ import {
   type Color,
 } from "chess.js";
 import { ChessScene, type GraphicsQuality } from "./scene";
+import { TitleScreen, type LaunchSettings } from "./title";
+import { readProfile, claimXP, matchXP, levelProgress, skins, isSkinUnlocked, type SkinId } from "./profile";
 import { matchStory, latestMoment } from "./battle";
 import { matchMaterial, type CinematicScope } from "./gameplay";
 import BotWorker from "./bot.ts?worker&inline";
@@ -54,13 +56,19 @@ const names = {
 const $ = <T extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<T>(s)!;
 $("#app").innerHTML =
-  `<header><a class="brand" href="#"><span class="brand-mark">♞</span><span>SPECIAL CHESS<small>PROCEDURAL 3D ARENA</small></span></a><div class="header-actions"><span class="tag">PURE CODE</span><button id="help" class="icon" aria-label="วิธีเล่น">?</button></div></header><div class="layout"><main id="stage" aria-label="กระดานหมากรุกสามมิติ"><div class="arena-top"><span id="mode-tag">LOCAL DUEL</span><span id="connection"></span></div><div id="event" aria-live="polite"><strong></strong><span></span></div><div id="battle-toast" role="status"><small>ARENA EVENT</small><strong></strong><span></span></div><div id="cinema-top" class="cinema-bar"></div><div id="cinema-bottom" class="cinema-bar"></div><div class="arena-bottom"><span id="hint">เลือกหมากเพื่อเริ่มการประลอง</span><div><button id="view" class="icon" title="กลับมุมกล้อง" aria-label="กลับมุมกล้อง">◎</button><button id="flip" class="icon" title="สลับมุม" aria-label="สลับมุม">↻</button><button id="skip">ข้ามฉาก</button></div></div></main><aside><section class="match-head"><small>THE ROYAL DUEL</small><h1>ศึกหมากราชัน</h1><p>หมากรุกคลาสสิก · ทุกตาคือฉากต่อสู้</p></section><div class="player" id="black-player"><span class="avatar black">♚</span><div><strong>ฝ่ายดำ</strong><small id="black-label">ผู้เล่น 2</small></div><span class="clock" id="black-clock">—</span></div><div id="status" role="status"></div><div class="player" id="white-player"><span class="avatar white">♔</span><div><strong>ฝ่ายขาว</strong><small id="white-label">ผู้เล่น 1</small></div><span class="clock" id="white-clock">—</span></div><div id="result" hidden></div><div class="tabs" role="group" aria-label="โหมดเกม"><button data-mode="bot">เล่นกับบอต</button><button data-mode="local" class="active">สองคน</button><button data-mode="online">ออนไลน์</button></div><section id="online-panel" hidden><p class="muted">ห้องส่วนตัว · ฝ่ายละ 5 นาที</p><div class="button-row"><button id="create" class="primary">สร้างห้อง</button><button id="leave" hidden>ออกจากห้อง</button></div><form id="join-form"><input id="room-code" aria-label="รหัสห้อง" placeholder="รหัสห้อง 6 ตัว" maxlength="6" autocomplete="off" pattern="[A-Fa-f0-9]{6}" required><button id="join" type="submit">เข้าร่วม</button></form><div id="room-info" hidden><span>รหัสห้อง <strong id="code"></strong></span><button id="copy">คัดลอกลิงก์</button></div></section><div class="button-row" id="local-actions"><button id="reset" class="primary">เกมใหม่</button><button id="undo">ย้อนตา</button><select id="difficulty" aria-label="ระดับบอต" hidden><option value="1">ง่าย</option><option value="2" selected>ปานกลาง</option><option value="3">ยาก</option></select></div><label id="side-control" hidden>ฝ่ายของคุณ<select id="human-side" aria-label="ฝ่ายของคุณ"><option value="w">ฝ่ายขาว · เดินก่อน</option><option value="b">ฝ่ายดำ · เดินทีหลัง</option></select><small>เปลี่ยนฝ่ายจะเริ่มเกมใหม่</small></label><section class="material-panel" aria-label="หมากที่กินและคะแนนกำลัง"><div><span>ขาวกิน</span><span id="white-captured">—</span><strong id="white-material"></strong></div><div><span>ดำกิน</span><span id="black-captured">—</span><strong id="black-material"></strong></div></section><section id="missions" class="missions"><div class="section-title"><h2 id="mission-title">ภารกิจในแมตช์</h2><strong id="mission-stars">☆ ☆ ☆</strong></div><p class="muted">เป้าหมายเสริม · เก็บดาวระหว่างการประลอง</p><div id="mission-list"></div></section><details id="battle-log-panel"><summary>อีเวนท์ในแมตช์</summary><div id="battle-log"></div></details><button id="resign" hidden>ยอมแพ้</button><div id="notice" role="status"></div><section class="settings"><label class="setting-select" for="graphics-quality">กราฟิก<select id="graphics-quality"><option value="auto">อัตโนมัติ · ปรับตามความลื่น</option><option value="low">ลื่นที่สุด · ลดเงาและความละเอียด</option><option value="high">ภาพคมชัด</option></select></label><label><input type="checkbox" id="battle-events" checked> อีเวนท์และภารกิจระหว่างเล่น</label><label><input type="checkbox" id="cinematic" checked> คัตซีนและกล้องพิเศษ</label><label class="setting-select" for="cinematic-scope">จังหวะคัตซีน<select id="cinematic-scope"><option value="key">เฉพาะจังหวะสำคัญ</option><option value="all">ทุกท่าสเปเชียล</option></select></label><label><input type="checkbox" id="reduced"> ลดเอฟเฟกต์</label><label><input type="checkbox" id="sound"> เสียงสังเคราะห์</label></section><details id="board-details"><summary>กระดาน 2D / เล่นด้วยคีย์บอร์ด</summary><div id="flat-board" role="group" aria-label="กระดานหมากรุกสองมิติ"></div></details><details id="training-panel"><summary>สนามฝึกท่าสเปเชียล</summary><select id="training-select" aria-label="เลือกท่าฝึก"><option value="">เลือกฉากเพื่อทดลอง</option>${Object.entries(
+  `<div id="game-shell" hidden><header><a class="brand" href="#"><span class="brand-mark">♞</span><span>SPECIAL CHESS<small>PROCEDURAL 3D ARENA</small></span></a><div class="header-actions"><button id="title-return">หน้าหลัก</button><span id="player-level" class="tag">Lv.1</span><span class="tag">PURE CODE</span><button id="help" class="icon" aria-label="วิธีเล่น">?</button></div></header><div class="layout"><main id="stage" aria-label="กระดานหมากรุกสามมิติ"><div class="arena-top"><span id="mode-tag">LOCAL DUEL</span><span id="connection"></span></div><div id="event" aria-live="polite"><strong></strong><span></span></div><div id="battle-toast" role="status"><small>ARENA EVENT</small><strong></strong><span></span></div><div id="cinema-top" class="cinema-bar"></div><div id="cinema-bottom" class="cinema-bar"></div><div class="arena-bottom"><span id="hint">เลือกหมากเพื่อเริ่มการประลอง</span><div><button id="view" class="icon" title="กลับมุมกล้อง" aria-label="กลับมุมกล้อง">◎</button><button id="flip" class="icon" title="สลับมุม" aria-label="สลับมุม">↻</button><button id="skip">ข้ามฉาก</button></div></div></main><aside><section class="match-head"><small>THE ROYAL DUEL</small><h1>ศึกหมากราชัน</h1><p>หมากรุกคลาสสิก · ทุกตาคือฉากต่อสู้</p></section><div class="player" id="black-player"><span class="avatar black">♚</span><div><strong>ฝ่ายดำ</strong><small id="black-label">ผู้เล่น 2</small></div><span class="clock" id="black-clock">—</span></div><div id="status" role="status"></div><div class="player" id="white-player"><span class="avatar white">♔</span><div><strong>ฝ่ายขาว</strong><small id="white-label">ผู้เล่น 1</small></div><span class="clock" id="white-clock">—</span></div><div id="result" hidden></div><div id="xp-reward" role="status" hidden></div><div class="tabs" role="group" aria-label="โหมดเกม"><button data-mode="bot">เล่นกับบอต</button><button data-mode="local" class="active">สองคน</button><button data-mode="online">ออนไลน์</button></div><section id="online-panel" hidden><p class="muted">ห้องส่วนตัว · ฝ่ายละ 5 นาที</p><div class="button-row"><button id="create" class="primary">สร้างห้อง</button><button id="leave" hidden>ออกจากห้อง</button></div><form id="join-form"><input id="room-code" aria-label="รหัสห้อง" placeholder="รหัสห้อง 6 ตัว" maxlength="6" autocomplete="off" pattern="[A-Fa-f0-9]{6}" required><button id="join" type="submit">เข้าร่วม</button></form><div id="room-info" hidden><span>รหัสห้อง <strong id="code"></strong></span><button id="copy">คัดลอกลิงก์</button></div></section><div class="button-row" id="local-actions"><button id="reset" class="primary">เกมใหม่</button><button id="undo">ย้อนตา</button><select id="difficulty" aria-label="ระดับบอต" hidden><option value="1">ง่าย</option><option value="2" selected>ปานกลาง</option><option value="3">ยาก</option></select></div><label id="side-control" hidden>ฝ่ายของคุณ<select id="human-side" aria-label="ฝ่ายของคุณ"><option value="w">ฝ่ายขาว · เดินก่อน</option><option value="b">ฝ่ายดำ · เดินทีหลัง</option></select><small>เปลี่ยนฝ่ายจะเริ่มเกมใหม่</small></label><section class="material-panel" aria-label="หมากที่กินและคะแนนกำลัง"><div><span>ขาวกิน</span><span id="white-captured">—</span><strong id="white-material"></strong></div><div><span>ดำกิน</span><span id="black-captured">—</span><strong id="black-material"></strong></div></section><section id="missions" class="missions"><div class="section-title"><h2 id="mission-title">ภารกิจในแมตช์</h2><strong id="mission-stars">☆ ☆ ☆</strong></div><p class="muted">เป้าหมายเสริม · เก็บดาวระหว่างการประลอง</p><div id="mission-list"></div></section><details id="battle-log-panel"><summary>อีเวนท์ในแมตช์</summary><div id="battle-log"></div></details><button id="resign" hidden>ยอมแพ้</button><div id="notice" role="status"></div><section class="settings"><label class="setting-select" for="graphics-quality">กราฟิก<select id="graphics-quality"><option value="auto">อัตโนมัติ · ปรับตามความลื่น</option><option value="low">ลื่นที่สุด · ลดเงาและความละเอียด</option><option value="high">ภาพคมชัด</option></select></label><label><input type="checkbox" id="battle-events" checked> อีเวนท์และภารกิจระหว่างเล่น</label><label><input type="checkbox" id="cinematic" checked> คัตซีนและกล้องพิเศษ</label><label class="setting-select" for="cinematic-scope">จังหวะคัตซีน<select id="cinematic-scope"><option value="key">เฉพาะจังหวะสำคัญ</option><option value="all">ทุกท่าสเปเชียล</option></select></label><label><input type="checkbox" id="reduced"> ลดเอฟเฟกต์</label><label><input type="checkbox" id="sound"> เสียงสังเคราะห์</label></section><details id="board-details"><summary>กระดาน 2D / เล่นด้วยคีย์บอร์ด</summary><div id="flat-board" role="group" aria-label="กระดานหมากรุกสองมิติ"></div></details><details id="training-panel"><summary>สนามฝึกท่าสเปเชียล</summary><select id="training-select" aria-label="เลือกท่าฝึก"><option value="">เลือกฉากเพื่อทดลอง</option>${Object.entries(
     training,
   )
     .map(([key, t]) => `<option value="${key}">${t.name}</option>`)
     .join(
       "",
-    )}</select><p id="training-hint" class="muted"></p></details><section class="history"><div class="section-title"><h2>บันทึกการประลอง</h2><button id="export" class="text-button">PGN ↓</button></div><div id="moves"></div></section><footer>โมเดล แสง และพลังทั้งหมดสร้างจากโค้ด<br>ไม่มีการเปลี่ยนความสามารถของหมาก</footer></aside></div><dialog id="promotion"><small>ASCENSION</small><h2>เลือกหมากเพื่อเลื่อนขั้น</h2><div class="promotion-options">${(["q", "r", "b", "n"] as const).map((p) => `<button data-piece="${p}"><span>${symbols.w[p]}</span>${names[p]}</button>`).join("")}</div><button id="cancel-promotion" class="text-button">ยกเลิก</button></dialog><dialog id="help-dialog"><small>HOW TO PLAY</small><h2>ทุกตาคือการตัดสินใจ</h2><p>เลือกหมากของฝ่ายที่ถึงตา แล้วเลือกช่องเรืองแสงเพื่อเดิน สีชมพูคือช่องกินหมาก</p><p>ลากเพื่อหมุนกระดาน เลื่อนเพื่อซูม หรือใช้กระดาน 2D ด้วยคีย์บอร์ด</p><p>กติกาหมากรุกมาตรฐาน: คิงจะไม่ถูกกิน เกมจบเมื่อรุกฆาต ท่าสเปเชียลเป็นภาพประกอบการเดิน และข้ามได้เสมอ</p><p>ออนไลน์: สร้างห้องแล้วส่งลิงก์ให้เพื่อน ฝ่ายละ 5 นาที เวลาเดินตามเซิร์ฟเวอร์ รวมเวลาคัตซีน หากรีเฟรชจะกลับเข้าห้องจากเบราว์เซอร์เดิม</p><p>เล่นกับบอต: เลือกเล่นขาวหรือดำได้ เปลี่ยนฝ่ายจะเริ่มเกมใหม่ ย้อนตาจะกลับไปก่อนตาของคุณ ปรับระดับได้ก่อนตาถัดไป</p><button id="close-help" class="primary">เข้าใจแล้ว</button></dialog>`;
+    )}</select><p id="training-hint" class="muted"></p></details><section class="history"><div class="section-title"><h2>บันทึกการประลอง</h2><button id="export" class="text-button">PGN ↓</button></div><div id="moves"></div></section><footer>โมเดล แสง และพลังทั้งหมดสร้างจากโค้ด<br>ไม่มีการเปลี่ยนความสามารถของหมาก</footer></aside></div></div><dialog id="promotion"><small>ASCENSION</small><h2>เลือกหมากเพื่อเลื่อนขั้น</h2><div class="promotion-options">${(["q", "r", "b", "n"] as const).map((p) => `<button data-piece="${p}"><span>${symbols.w[p]}</span>${names[p]}</button>`).join("")}</div><button id="cancel-promotion" class="text-button">ยกเลิก</button></dialog><dialog id="help-dialog"><small>HOW TO PLAY</small><h2>ทุกตาคือการตัดสินใจ</h2><p>เลือกหมากของฝ่ายที่ถึงตา แล้วเลือกช่องเรืองแสงเพื่อเดิน สีชมพูคือช่องกินหมาก</p><p>ลากเพื่อหมุนกระดาน เลื่อนเพื่อซูม หรือใช้กระดาน 2D ด้วยคีย์บอร์ด</p><p>กติกาหมากรุกมาตรฐาน: คิงจะไม่ถูกกิน เกมจบเมื่อรุกฆาต ท่าสเปเชียลเป็นภาพประกอบการเดิน และข้ามได้เสมอ</p><p>ออนไลน์: สร้างห้องแล้วส่งลิงก์ให้เพื่อน ฝ่ายละ 5 นาที เวลาเดินตามเซิร์ฟเวอร์ รวมเวลาคัตซีน หากรีเฟรชจะกลับเข้าห้องจากเบราว์เซอร์เดิม</p><p>เล่นกับบอต: เลือกเล่นขาวหรือดำได้ เปลี่ยนฝ่ายจะเริ่มเกมใหม่ ย้อนตาจะกลับไปก่อนตาของคุณ ปรับระดับได้ก่อนตาถัดไป</p><button id="close-help" class="primary">เข้าใจแล้ว</button></dialog>`;
+let menuOpen = true;
+function newMatchId() { return globalThis.crypto?.randomUUID?.() || `match-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+let matchId = newMatchId();
+let hasSavedLocalGame = false;
+let activeTraining: keyof typeof training | null = null;
+let matchReward: { amount: number; message: string } | null = null;
 let humanColor: Color = "w";
 let initialFen = new Chess().fen();
 let game = new Chess(),
@@ -71,6 +79,7 @@ let game = new Chess(),
 let scene: ChessScene | undefined;
 try {
   scene = new ChessScene($("#stage"));
+  scene.setPaused(true);
 } catch {
   $("#stage").classList.add("no-webgl");
   $("#stage").insertAdjacentHTML(
@@ -142,6 +151,43 @@ const storage = {
     } catch {}
   },
 };
+let profile = readProfile(storage.get("special-chess-profile"));
+function saveProfile() { storage.set("special-chess-profile", JSON.stringify(profile)); }
+function selectSkin(skin: SkinId) {
+  if (!isSkinUnlocked(profile, skin)) return;
+  profile = { ...profile, skin };
+  saveProfile();
+}
+function grantReward(id: string, amount: number, win = false, match = false) {
+  const reward = claimXP(profile, id, amount, win, match);
+  if (!reward.added) return;
+  profile = reward.profile;
+  saveProfile();
+  matchReward = { amount, message: `+${amount} XP · เลเวล ${levelProgress(profile.xp).level}${reward.unlocked.length ? " · ปลดล็อก " + reward.unlocked.map((skin) => skins[skin].name).join(", ") : ""}` };
+  if (mode !== "online") saveLocal();
+}
+function checkRewards() {
+  let rewardVisible = false;
+  const stars = (color: Color) => Object.values(story().missions[color]).filter(Boolean).length;
+  if (activeTraining) {
+    const target = training[activeTraining];
+    const last = game.history({ verbose: true }).at(-1);
+    if (last?.from === target.from && last.to === target.to) {
+      rewardVisible = true;
+      grantReward("training:" + activeTraining, 40);
+    }
+  } else if (mode === "bot" && initialFen === new Chess().fen() && game.isGameOver()) {
+    rewardVisible = true;
+    const winner = game.isCheckmate() ? game.turn() === "w" ? "b" : "w" : null;
+    grantReward(matchId, matchXP(winner, humanColor, Number($<HTMLSelectElement>("#difficulty").value), stars(humanColor)), winner === humanColor, true);
+  } else if (mode === "online" && session && state?.result && game.history().length >= 4) {
+    rewardVisible = true;
+    grantReward("room:" + session.code, matchXP(state.result.winner, session.color, 2, stars(session.color)), state.result.winner === session.color, true);
+  }
+  $("#player-level").textContent = `Lv.${levelProgress(profile.xp).level}`;
+  $("#xp-reward").hidden = !matchReward || !rewardVisible;
+  $("#xp-reward").textContent = matchReward?.message || "";
+}
 function notice(message: string) {
   $("#notice").textContent = message;
   clearTimeout(noticeTimer);
@@ -166,7 +212,7 @@ function isBusy() {
   return !!scene?.animation || !!worker;
 }
 function canPlay() {
-  if (isBusy() || game.isGameOver() || localResult) return false;
+  if (menuOpen || isBusy() || game.isGameOver() || localResult) return false;
   if (mode === "bot" && game.turn() !== humanColor) return false;
   if (mode === "online")
     return (
@@ -193,6 +239,7 @@ function resultText(result: Result) {
     : `เกมเสมอ · ${reason}`;
 }
 function updateUI() {
+  checkRewards();
   const result = mode === "online" ? state?.result : localResult;
   const turn = game.turn();
   $("#status").textContent = result
@@ -530,7 +577,7 @@ function applyBotReply() {
     commitMove(reply.move.from, reply.move.to, reply.move.promotion);
 }
 function scheduleBot() {
-  if (mode !== "bot" || game.turn() === humanColor || game.isGameOver() || localResult) {
+  if (menuOpen || mode !== "bot" || game.turn() === humanColor || game.isGameOver() || localResult) {
     stopBot();
     return;
   }
@@ -566,13 +613,18 @@ function scheduleBot() {
   }, 80);
 }
 function saveLocal() {
-  if (mode !== "online")
+  if (mode !== "online") {
     storage.set(
       saveKey,
-      JSON.stringify({ mode, humanColor, initialFen, history: game.history() }),
+      JSON.stringify({ mode, humanColor, initialFen, history: game.history(), matchId, activeTraining, matchReward }),
     );
+    hasSavedLocalGame = true;
+  }
 }
 function newLocal() {
+  matchId = newMatchId();
+  activeTraining = null;
+  matchReward = null;
   clearBattleToast();
   scene?.resetPacing();
   clearTimeout(noticeTimer);
@@ -700,6 +752,9 @@ function receiveState(next: State) {
   state = next;
   serverStamp = Date.now();
   if (changed) {
+    initialFen = new Chess().fen();
+    activeTraining = null;
+    matchReward = null;
     stopBot();
     scene?.cancel();
     clearSelection();
@@ -748,7 +803,7 @@ if (!OFFLINE) setInterval(updateClocks, 200);
 for (const b of document.querySelectorAll<HTMLButtonElement>("[data-mode]"))
   b.onclick = () => setMode(b.dataset.mode as Mode);
 $("#reset").onclick = () => {
-  if (OFFLINE) mode = "bot";
+  if (OFFLINE && activeTraining) mode = "bot";
   newLocal();
 };
 $("#undo").onclick = () => {
@@ -843,6 +898,8 @@ $("#training-select").onchange = () => {
   stopBot();
   game = new Chess(t.fen);
   initialFen = t.fen;
+  activeTraining = key;
+  matchReward = null;
   localResult = null;
   lastMove = undefined;
   clearSelection();
@@ -907,6 +964,15 @@ try {
     for (const m of saved.history) game.move(m);
     mode = saved.mode;
     humanColor = saved.humanColor === "b" ? "b" : "w";
+    if (typeof saved.matchId === "string" && saved.matchId.length <= 100) matchId = saved.matchId;
+    const scenario = Object.entries(training).find(([, value]) => value.fen === initialFen)?.[0];
+    activeTraining = (scenario as keyof typeof training) || null;
+    if (activeTraining) {
+      $<HTMLSelectElement>("#training-select").value = activeTraining;
+      $("#training-hint").textContent = training[activeTraining].hint;
+    }
+    if (saved.matchReward && typeof saved.matchReward.message === "string" && Number.isSafeInteger(saved.matchReward.amount)) matchReward = saved.matchReward;
+    hasSavedLocalGame = true;
   }
 } catch {
   game = new Chess();
@@ -972,8 +1038,69 @@ graphicsInput.onchange = () => {
   storage.set("special-chess-graphics-quality", graphicsInput.value);
 };
 scene?.setQuality(graphicsInput.value as GraphicsQuality);
+scene?.setSkin(profile.skin);
 scene?.renderBoard(game);
 scene?.resetView(mode === "bot" && humanColor === "b");
 updateUI();
-if (!OFFLINE && mode === "online") connect();
-else scheduleBot();
+const title = new TitleScreen($("#app"), OFFLINE, {
+  selectSkin,
+  start: launchGame,
+  resume: (skin) => {
+    selectSkin(skin);
+    enterBoard();
+    scene?.setSkin(profile.skin);
+    scene?.renderBoard(game);
+    updateUI();
+    if (mode === "online") connect(); else scheduleBot();
+  },
+});
+function enterBoard() {
+  menuOpen = false;
+  title.root.hidden = true;
+  $("#game-shell").hidden = false;
+  scene?.setPaused(false);
+  scrollTo(0, 0);
+}
+function launchGame(settings: LaunchSettings) {
+  selectSkin(settings.skin);
+  stopBot();
+  disconnect();
+  humanColor = settings.side;
+  $<HTMLSelectElement>("#difficulty").value = settings.depth;
+  storage.set(difficultyKey, settings.depth);
+  scene?.setSkin(profile.skin);
+  mode = settings.mode === "training" ? "local" : settings.mode;
+  enterBoard();
+  newLocal();
+  if (settings.mode === "training") {
+    $("#training-panel").setAttribute("open", "");
+    $<HTMLSelectElement>("#training-select").value = settings.training;
+    $("#training-select").dispatchEvent(new Event("change"));
+  }
+  if (mode === "online") connect();
+}
+function openTitle() {
+  if (mode === "online" && state?.started && !state.result) {
+    notice("แมตช์ออนไลน์กำลังแข่งอยู่ จบเกมหรือยอมแพ้ก่อนกลับหน้าหลัก");
+    return;
+  }
+  scene?.finish();
+  stopBot();
+  stopSounds();
+  clearSelection();
+  clearBattleToast();
+  menuOpen = true;
+  scene?.setPaused(true);
+  $("#game-shell").hidden = true;
+  title.show(profile, {
+    mode: mode === "online" && !OFFLINE ? "online" : activeTraining ? "training" : mode,
+    side: humanColor,
+    depth: $<HTMLSelectElement>("#difficulty").value,
+    resume: mode === "online" ? !!session : hasSavedLocalGame,
+    training: activeTraining || "pawn",
+  });
+  title.root.querySelector<HTMLButtonElement>("#launch-start")?.focus({ preventScroll: true });
+  scrollTo(0, 0);
+}
+$("#title-return").onclick = openTitle;
+title.show(profile, { mode: mode === "online" && !OFFLINE ? "online" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot", side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn" });

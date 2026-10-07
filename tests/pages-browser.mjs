@@ -1,3 +1,4 @@
+import { enterGame } from "./enter-game.mjs";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { once } from "node:events";
@@ -41,6 +42,7 @@ try {
   page.on("websocket", () => sockets++);
   const url = `http://127.0.0.1:${server.address().port}${prefix}`;
   await page.goto(url);
+  await enterGame(page);
   await page.waitForSelector("canvas");
   assert.equal(await page.locator(".tabs").isVisible(), false);
   assert.equal(await page.locator("#difficulty").isVisible(), true);

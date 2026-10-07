@@ -16,7 +16,8 @@
     "test:offline": "node tests/offline-browser.mjs",
     "build:pages": "npm run build:offline && node scripts/package-pages.mjs",
     "test:pages": "node tests/pages-browser.mjs",
-    "test:render": "node tests/render-browser.mjs"
+    "test:render": "node tests/render-browser.mjs",
+    "test:title": "node tests/title-browser.mjs"
   },
   "dependencies": {
     "chess.js": "^1.4.0",

@@ -5,6 +5,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { Chess, type Square, type PieceSymbol, type Move } from "chess.js";
 import { kingSquare, type MoveEvent } from "../shared/events.js";
+import { skins, type SkinId } from "./profile";
 const material = (color: number, metalness = 0.3) =>
   new THREE.MeshStandardMaterial({ color, metalness, roughness: 0.3 });
 const mesh = (
@@ -51,10 +52,11 @@ function disposeObject(o: THREE.Object3D) {
 function clear(group: THREE.Group) {
   for (const child of [...group.children]) disposeObject(child);
 }
-function buildPiece(type: PieceSymbol, color: "w" | "b") {
+function buildPiece(type: PieceSymbol, color: "w" | "b", skin: SkinId) {
   const group = new THREE.Group();
-  const body = material(color === "w" ? 0xe4edf4 : 0x222937, 0.55);
-  const accent = material(color === "w" ? 0x39d9e8 : 0xae70ff, 0.6);
+  const palette = color === "w" ? skins[skin].white : skins[skin].black;
+  const body = material(palette[0], 0.55);
+  const accent = material(palette[1], 0.6);
   mesh(new THREE.CylinderGeometry(0.27, 0.33, 0.13, 24), body, group, 0, 0.1);
   mesh(new THREE.CylinderGeometry(0.12, 0.23, 0.38, 24), body, group, 0, 0.34);
   mesh(
@@ -64,8 +66,18 @@ function buildPiece(type: PieceSymbol, color: "w" | "b") {
     0,
     0.17,
   ).rotation.x = Math.PI / 2;
-  if (type === "p")
-    mesh(new THREE.SphereGeometry(0.18, 20, 12), body, group, 0, 0.65);
+  if (type === "p") {
+    if (skin === "ember") mesh(new THREE.OctahedronGeometry(0.22), accent, group, 0, 0.68);
+    else if (skin === "frost") mesh(new THREE.ConeGeometry(0.19, 0.36, 6), accent, group, 0, 0.69);
+    else {
+      mesh(new THREE.SphereGeometry(0.18, 20, 12), body, group, 0, 0.65);
+      if (skin === "astral") mesh(new THREE.TorusGeometry(0.23, 0.025, 6, 16), accent, group, 0, 0.73).rotation.x = Math.PI / 2.5;
+      if (skin === "royal") for (let i = 0; i < 5; i++) {
+        const angle = i * Math.PI * 2 / 5;
+        mesh(new THREE.ConeGeometry(0.045, 0.14, 4), accent, group, Math.cos(angle) * 0.13, 0.85, Math.sin(angle) * 0.13);
+      }
+    }
+  }
   if (type === "r") {
     mesh(new THREE.CylinderGeometry(0.25, 0.2, 0.25, 16), body, group, 0, 0.66);
     for (let i = 0; i < 4; i++) {
@@ -135,11 +147,11 @@ function buildPiece(type: PieceSymbol, color: "w" | "b") {
   return group;
 }
 const pieceAssets = new Map<string, { geometry: THREE.BufferGeometry; material: THREE.Material }[]>();
-function makePiece(type: PieceSymbol, color: "w" | "b") {
-  const key = type + color;
+function makePiece(type: PieceSymbol, color: "w" | "b", skin: SkinId = "classic") {
+  const key = type + color + skin;
   let assets = pieceAssets.get(key);
   if (!assets) {
-    const source = buildPiece(type, color);
+    const source = buildPiece(type, color, skin);
     source.rotation.y = 0;
     source.updateMatrixWorld(true);
     const batches = new Map<THREE.Material, THREE.BufferGeometry[]>();
@@ -151,8 +163,12 @@ function makePiece(type: PieceSymbol, color: "w" | "b") {
       batches.set(mat, geometries);
     });
     assets = [...batches].map(([mat, geometries]) => {
-      const geometry = mergeGeometries(geometries)!;
-      geometries.forEach((g) => g.dispose());
+      // Crystal polyhedra have unindexed vertices; cylinders/torus meshes use indices.
+      const mixedIndices = geometries.some((g) => !!g.index !== !!geometries[0].index);
+      const prepared = mixedIndices ? geometries.map((g) => g.index ? g.toNonIndexed() : g) : geometries;
+      const geometry = mergeGeometries(prepared);
+      if (!geometry) throw Error("Cannot merge procedural piece geometry");
+      new Set([...geometries, ...prepared]).forEach((g) => g.dispose());
       return { geometry, material: mat.clone() };
     });
     disposeObject(source);
@@ -168,8 +184,8 @@ function makePiece(type: PieceSymbol, color: "w" | "b") {
   return group;
 }
 export type GraphicsQuality = "auto" | "low" | "high";
-function battleColor(color: "w" | "b", story?: string) {
-  return story === "comeback" ? 0xffc06b : story === "queen-fallen" ? 0xbb8dff : color === "w" ? 0x68f9e0 : 0xb787ff;
+function battleColor(color: "w" | "b", story?: string, skin: SkinId = "classic") {
+  return story === "comeback" ? 0xffc06b : story === "queen-fallen" ? 0xbb8dff : (color === "w" ? skins[skin].white : skins[skin].black)[1];
 }
 interface Animation {
   object: THREE.Group;
@@ -204,6 +220,17 @@ export class ChessScene {
   cinematic = true;
   cinematicScope: CinematicScope = "key";
   flipped = false;
+  skin: SkinId = "classic";
+  private paused = false;
+  setPaused(paused: boolean) {
+    this.paused = paused;
+    this.controls.enabled = !paused && !this.animation;
+    this.dirty = true;
+  }
+  setSkin(skin: SkinId) {
+    this.skin = skin;
+    this.stage.dataset.skin = skin;
+  }
   onPick: (s: Square) => void = () => {};
   onFinish: () => void = () => {};
   onImpact: (move: Move, event: MoveEvent) => void = () => {};
@@ -388,7 +415,7 @@ export class ChessScene {
     for (const row of game.board())
       for (const p of row)
         if (p) {
-          const o = makePiece(p.type, p.color);
+          const o = makePiece(p.type, p.color, this.skin);
           o.position.copy(coords(p.square));
           o.userData.square = p.square;
           if (p.type === "k" && p.color === game.turn() && game.isCheckmate()) {
@@ -451,7 +478,7 @@ export class ChessScene {
     this.overlay.clear();
     this.renderer.toneMappingExposure = 1;
     this.onCancel();
-    this.controls.enabled = true;
+    this.controls.enabled = !this.paused;
     clear(this.fx);
     this.sparks = [];
     this.particleMesh = undefined;
@@ -536,7 +563,7 @@ export class ChessScene {
     return o;
   }
   private weapon(move: Move, p: THREE.Vector3) {
-    const color = move.color === "w" ? 0x68f9e0 : 0xb787ff;
+    const color = battleColor(move.color, undefined, this.skin);
     if (move.piece === "p") {
       this.beam(
         p.clone().add(new THREE.Vector3(0, 2, -0.6)),
@@ -554,7 +581,7 @@ export class ChessScene {
       ).rotation.z = Math.PI;
     }
     if (move.piece === "n") {
-      const ghost = makePiece("n", move.color);
+      const ghost = makePiece("n", move.color, this.skin);
       ghost.position.copy(p).add(new THREE.Vector3(0, 1.7, 0));
       ghost.scale.setScalar(1.5);
       ghost.traverse((o) => {
@@ -629,7 +656,7 @@ export class ChessScene {
     }
   }
   private impact(a: Animation) {
-    const color = battleColor(a.move.color, a.event.story);
+    const color = battleColor(a.move.color, a.event.story, this.skin);
     if (a.victim) disposeObject(a.victim);
     this.onImpact(a.move, a.event);
     if (this.reduced) return;
@@ -713,7 +740,7 @@ export class ChessScene {
     });
   }
   private chargeAura(a: Animation) {
-    const color = battleColor(a.move.color, a.event.story);
+    const color = battleColor(a.move.color, a.event.story, this.skin);
     const group = new THREE.Group();
     this.fx.add(group);
     group.position.copy(a.from);
@@ -798,7 +825,7 @@ export class ChessScene {
     else a.object.scale.setScalar(1 + (1 - f.travel) * 0.12);
   }
   private finalStrike(a: Animation) {
-    const color = battleColor(a.move.color, a.event.story);
+    const color = battleColor(a.move.color, a.event.story, this.skin);
     for (let i = 0; i < 3; i++) {
       const wave = mesh(
         new THREE.TorusGeometry(0.36 + i * 0.12, 0.04, 6, 64),
@@ -943,6 +970,7 @@ export class ChessScene {
     }
   }
   private frame(now: number) {
+    if (this.paused) { this.previous = now; return; }
     const elapsed = now - this.previous;
     const dt = Math.max(0, Math.min(elapsed / 1000, 0.05));
     this.previous = now;

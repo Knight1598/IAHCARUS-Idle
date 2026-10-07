@@ -120,6 +120,41 @@ try {
       fixture.finish();
     });
     console.log("PASS: orbit batches/geometry budgets, mesh reuse, drag without accidental moves and quality changes preserving camera");
+    const theme = await page.evaluate(() => {
+      const game = new fixtureChess();
+      fixture.setSkin("classic"); fixture.renderBoard(game);
+      const original = fixture.pieces.children.find((p) => p.userData.square === "a2").children.map((m) => m.geometry.attributes.position.count);
+      const squares = fixture.pieces.children.map((p) => p.userData.square).sort();
+      fixture.setSkin("frost"); fixture.renderBoard(game);
+      const pawn = fixture.pieces.children.find((p) => p.userData.square === "a2");
+      return {
+        original, themed: pawn.children.map((m) => m.geometry.attributes.position.count),
+        color: pawn.children[0].material.color.getHex(),
+        squares, themedSquares: fixture.pieces.children.map((p) => p.userData.square).sort(),
+        fen: game.fen(),
+      };
+    });
+    assert.notDeepEqual(theme.themed, theme.original);
+    assert.equal(theme.color, 0xe1f5ff);
+    assert.deepEqual(theme.themedSquares, theme.squares);
+    await page.evaluate(() => {
+      for (const skin of ["classic", "ember", "frost", "astral", "royal"]) {
+        fixture.setSkin(skin); fixture.renderBoard(new fixtureChess());
+        if (fixture.pieces.children.length !== 32) throw Error(`Incomplete army for ${skin}`);
+      }
+    });
+    await page.evaluate(() => {
+      window.pausedDraws = 0;
+      const render = fixture.renderer.render.bind(fixture.renderer);
+      fixture.renderer.render = (...args) => { pausedDraws++; return render(...args); };
+      fixture.setPaused(true);
+    });
+    await page.waitForTimeout(150);
+    assert.equal(await page.evaluate(() => pausedDraws), 0);
+    await page.evaluate(() => fixture.setPaused(false));
+    await page.waitForTimeout(100);
+    assert.ok(await page.evaluate(() => pausedDraws) > 0);
+    console.log("PASS: procedural skin changes actual pawn geometry/colors without moving pieces; title pause stops GPU drawing");
   }
   assert.deepEqual(errors, []);
 } finally {

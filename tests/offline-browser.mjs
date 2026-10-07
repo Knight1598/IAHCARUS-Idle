@@ -1,3 +1,4 @@
+import { enterGame } from "./enter-game.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -61,6 +62,7 @@ try {
     );
   }
   await page.goto(documentUrl);
+  await enterGame(page);
   await page.waitForSelector("canvas");
   assert.equal(await page.locator(".tabs").isVisible(), false);
   assert.equal(await page.locator("#online-panel").isVisible(), false);
@@ -87,6 +89,7 @@ try {
     console.log(`PASS: offline bot level ${depth} answered a legal move`);
   }
   await page.reload();
+  await enterGame(page);
   await page.waitForSelector("canvas");
   assert.equal(await page.locator("#difficulty").inputValue(), "3");
   assert.equal(await page.locator("#moves .san").count(), 2);
@@ -120,6 +123,7 @@ try {
   await page.locator("#undo").click();
   assert.equal(await page.locator("#moves .san").count(), 1);
   await page.reload();
+  await enterGame(page);
   await page.waitForSelector("canvas");
   assert.equal(await page.locator("#human-side").inputValue(), "b");
   assert.equal(await page.locator("#moves .san").count(), 1);
@@ -153,6 +157,7 @@ try {
     mode: "bot", humanColor: "w", initialFen: "7k/8/8/3r4/8/8/8/K2Q4 w - - 0 1", history: [],
   })));
   await page.reload();
+  await enterGame(page);
   await page.waitForSelector("canvas");
   await page.locator("#board-details summary").click();
   await page.locator('[data-square="d1"]').click();
@@ -238,6 +243,7 @@ try {
     mode: "local", humanColor: "w", history: ["e4", "d5", "exd5"],
   })));
   await page.reload();
+  await enterGame(page);
   await page.waitForSelector("canvas");
   await page.locator("#board-details summary").click();
   await page.locator("#battle-log-panel summary").click();
@@ -251,6 +257,7 @@ try {
   await move("d8", "d5");
   await page.locator("#graphics-quality").selectOption("low");
   await page.reload();
+  await enterGame(page);
   await page.waitForSelector("canvas");
   assert.equal(await page.locator("#graphics-quality").inputValue(), "low");
   assert.equal(await page.locator("#stage").getAttribute("data-graphics"), "low");
@@ -262,6 +269,7 @@ try {
     mode: "bot", humanColor: "w", initialFen: "7k/8/7r/3q4/8/8/8/K2Q4 w - - 0 1", history: [],
   })));
   await page.reload();
+  await enterGame(page);
   await page.waitForSelector("canvas");
   await page.locator("#board-details summary").click();
   await page.locator("#reduced").uncheck();

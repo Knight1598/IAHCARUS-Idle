@@ -23,7 +23,7 @@ The Pages smoke test serves the game from `/IAHCARUS-Idle/`, loads the real brow
 
 ## Standalone offline test edition
 
-Download [`offline/Special-Chess-Offline.html`](offline/Special-Chess-Offline.html) using GitHub's **Download raw file** button, then open it in desktop Chrome/Edge. This separate single-file edition starts directly against a local bot with Easy/Medium/Hard difficulty. It includes all procedural 3D effects and training scenes, has no multiplayer UI, and requires no Node server or Internet connection. See the [Thai offline guide](offline/README.md).
+Download [`offline/Special-Chess-Offline.html`](offline/Special-Chess-Offline.html) using GitHub's **Download raw file** button, then open it in desktop Chrome/Edge. This single-file edition opens a title screen with bot play (Easy/Medium/Hard), same-device two-player play and training. It includes all procedural 3D effects, skins and local RPG progression, requires no Node server or Internet connection, and excludes online rooms. See the [Thai offline guide](offline/README.md).
 
 ```sh
 npm run build:offline
@@ -44,7 +44,8 @@ npm start
 
 The server serves the built game on port **3000**. Open that port's address in your browser. For another device, use your machine's reachable hostname/IP, with appropriate port access. A loopback address only works on the same machine.
 
-- **เล่นกับบอต**: play white against a worker-based bot; choose one of three search depths.
+- Start at the title screen: choose a mode, army skin, side and bot difficulty, or resume the saved match. **หน้าหลัก** returns to this screen and pauses bot work and board rendering. Active online matches must finish or be resigned first; online clocks continue while disconnected.
+- **เล่นกับบอต**: choose white or black against a worker-based bot; choose one of three search depths.
 - **สองคน**: share one device; white moves first.
 - **ออนไลน์**: create a private room and share its invite link/code. The creator is white; the guest is black. Both players need to reach the same running server.
 - Select a piece, then a highlighted destination. Drag to orbit and scroll to zoom. Use the 2D board for keyboard play or when WebGL is unavailable.
@@ -57,6 +58,14 @@ The server serves the built game on port **3000**. Open that port's address in y
 - Key-moment cinematics wait four plies between regular camera cuts. Mate, promotion, royal rescue, queen loss and comebacks bypass the interval. All-specials mode keeps every special-event cutscene available.
 - **สนามฝึกท่าสเปเชียล** provides eleven scenarios to try every attack, royal rescue, blocking check, double check, a knight fork and promotion immediately.
 - Local games and settings resume from browser storage. Online sessions reconnect from the same browser using a private reconnect token. A shared invite link never includes that token.
+
+## RPG progression and skins
+
+The commander profile earns a level every **200 XP**. Royal Origin, Ember Knights and Frost Guard are available immediately; Astral Order unlocks at **Lv.2 / 200 XP** and Golden Sovereign at **Lv.4 / 600 XP**. Each theme changes both armies' body/accent colors, pawn geometry and normal attack energy. All shapes are procedural; skins preserve the same chess rules.
+
+Completing each training scenario's indicated move awards **40 XP once**. A completed standard bot match awards **80 / 110 / 150 XP** for an Easy/Medium/Hard victory, **35 XP** for a draw or **20 XP** for a loss, plus **20 XP per mission star** (up to three). Completed online matches use the Medium reward and require at least four plies. Same-device two-player matches do not award match XP. Rewards are claimed once per match; undo or reload does not award them again or remove already-earned XP.
+
+Levels, unlocked skins, match records and reward claims are saved in this browser's local storage. The full and offline editions share a profile when served from the same origin; different browsers/origins have separate profiles. Accounts and cloud synchronization are future work.
 
 ## Development
 
@@ -74,6 +83,9 @@ npm run build
 npm test
 npx playwright install chromium
 npm run test:browser
+npm run test:render
+npm run build:offline
+npm run test:title
 ```
 
 The browser suite exercises the production build. If system Chromium exists at `/usr/bin/chromium`, it uses that; otherwise it uses Playwright's installed Chromium. Set `CHROMIUM_PATH` to override. Screenshots go into ignored `test-results/`. GitHub Actions runs build, rules/events/server tests and browser smoke tests.

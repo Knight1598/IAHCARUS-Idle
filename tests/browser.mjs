@@ -1,3 +1,4 @@
+import { enterGame } from "./enter-game.mjs";
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
@@ -43,6 +44,7 @@ try {
   });
   page.setDefaultTimeout(15000);
   await page.goto(base);
+  await enterGame(page, "local");
   console.log("browser loaded");
   await page.waitForSelector("canvas");
   // Exercise raycasting on the actual 3D board before using the accessible board.
@@ -84,6 +86,7 @@ try {
   await page.locator("#undo").click();
   assert.doesNotMatch(await page.locator("#moves").innerText(), /exd5/);
   await page.reload();
+  await enterGame(page);
   await page.locator("#board-details summary").click();
   assert.match(await page.locator("#moves").innerText(), /d5/);
   console.log("checkmate test");
@@ -135,6 +138,7 @@ try {
     ),
   );
   await page.reload();
+  await enterGame(page);
   await page.locator("#board-details summary").click();
   await square(page, "b7");
   await square(page, "a8");
@@ -192,6 +196,7 @@ try {
   const guest = await guestContext.newPage();
   guest.on("pageerror", (e) => errors.push(e.message));
   await guest.goto(`${base}/?room=${code}`);
+  await enterGame(guest);
   await guest.waitForFunction(() =>
     document.querySelector("#connection").textContent.includes("เชื่อมต่อแล้ว"),
   );
@@ -213,6 +218,7 @@ try {
   );
   await page.locator("#skip").click();
   await guest.reload();
+  await enterGame(guest);
   await guest.waitForFunction(
     () => document.querySelectorAll("#moves .san").length === 2,
   );
