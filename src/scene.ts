@@ -204,6 +204,7 @@ interface Animation {
   launched: boolean;
   lock?: THREE.Group;
   trail?: THREE.LineSegments;
+  cracks?: { dark: THREE.Mesh; core: THREE.LineSegments; stops: number[] };
   aura?: THREE.Group;
   rotation: number;
   camera: THREE.Vector3;
@@ -220,6 +221,7 @@ export class ChessScene {
   readonly fx = new THREE.Group();
   readonly board = new THREE.Group();
   readonly groundAuras = new THREE.Group();
+  readonly groundScars = new THREE.Group();
   animation: Animation | null = null;
   reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
   cinematic = true;
@@ -253,11 +255,12 @@ export class ChessScene {
   private previous = performance.now();
   private dirty = true;
   private lastRender = 0;
+  private lastAuraDraw = 0;
   private quality: GraphicsQuality = "auto";
   private resolution = 1;
   private slowFrames = 0;
   private lastDramaticPly = -100;
-  resetPacing() { this.lastDramaticPly = -100; }
+  resetPacing() { this.lastDramaticPly = -100; clear(this.groundScars); }
   constructor(private stage: HTMLElement) {
     this.scene.background = new THREE.Color("#080d16");
     this.scene.fog = new THREE.Fog("#080d16", 19, 35);
@@ -295,7 +298,7 @@ export class ChessScene {
     const rim = new THREE.PointLight(0x6b65ff, 18, 15);
     rim.position.set(-5, 3, -4);
     this.scene.add(rim);
-    this.scene.add(this.board, this.pieces, this.markers, this.fx, this.groundAuras);
+    this.scene.add(this.board, this.pieces, this.markers, this.fx, this.groundAuras, this.groundScars);
     const tileGeometry = new THREE.BoxGeometry(0.98, 0.16, 0.98);
     for (const parity of [0, 1]) {
       const tiles = new THREE.InstancedMesh(tileGeometry, material(parity ? 0x1a2b40 : 0x58738b), 32);
@@ -419,6 +422,7 @@ export class ChessScene {
     clear(this.pieces);
     clear(this.markers);
     clear(this.groundAuras);
+    if (game.fen() === new Chess().fen() || this.reduced) clear(this.groundScars);
     for (const row of game.board())
       for (const p of row)
         if (p) {
@@ -438,24 +442,52 @@ export class ChessScene {
     }
   }
   private buildGroundAuras(game: Chess) {
-    // All 32 runes are merged into two color batches, with no idle animation loop.
+    // All 32 breathing runes share one shader clock and two color batches.
     for (const color of ["w", "b"] as const) {
       const geometries: THREE.BufferGeometry[] = [];
       for (const piece of game.board().flat()) {
         if (!piece || piece.color !== color) continue;
         const p = coords(piece.square);
         const sides = combatStyles[piece.type].sides;
-        for (const [radius, segments] of [[0.39, sides], [0.31, 24]]) {
-          const geometry = new THREE.RingGeometry(radius - 0.014, radius, segments);
+        for (const [radius, segments, glow] of [[0.39, sides, 0], [0.31, 24, 0], [0.46, 24, 1]]) {
+          const geometry = new THREE.RingGeometry(glow ? 0 : radius - 0.014, radius, segments, glow ? 4 : 1);
           geometry.rotateX(-Math.PI / 2);
           geometry.translate(p.x, 0.018, p.z);
+          const count = geometry.getAttribute("position").count;
+          const centers = new Float32Array(count * 3), flags = new Float32Array(count);
+          for (let i = 0; i < count; i++) {
+            centers.set([p.x, sides + p.z * 2, p.z], i * 3); flags[i] = glow;
+          }
+          geometry.setAttribute("aCenter", new THREE.BufferAttribute(centers, 3));
+          geometry.setAttribute("aGlow", new THREE.BufferAttribute(flags, 1));
           geometries.push(geometry);
         }
       }
       if (!geometries.length) continue;
       const merged = mergeGeometries(geometries)!;
       geometries.forEach((g) => g.dispose());
-      const rune = mesh(merged, this.glow(battleColor(color, undefined, this.skin), 0.42), this.groundAuras);
+      const material = new THREE.ShaderMaterial({
+        uniforms: { uTime: { value: performance.now() / 1000 }, uColor: { value: new THREE.Color(battleColor(color, undefined, this.skin)) } },
+        vertexShader: `attribute vec3 aCenter; attribute float aGlow; uniform float uTime;
+          varying vec2 vLocal; varying float vPhase; varying float vGlow;
+          void main() { vec3 p = position; vec2 local = p.xz - aCenter.xz;
+            float angle = uTime * 0.13 + aCenter.y * 0.2;
+            float c = cos(angle), s = sin(angle);
+            p.xz = aCenter.xz + mat2(c,-s,s,c) * local;
+            vLocal = local; vPhase = aCenter.y; vGlow = aGlow;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(p,1.0); }`,
+        fragmentShader: `uniform vec3 uColor; uniform float uTime;
+          varying vec2 vLocal; varying float vPhase; varying float vGlow;
+          void main() { float pulse = 0.65 + 0.2 * sin(uTime * 1.7 + vPhase);
+            float alpha = vGlow > 0.5 ? pow(max(0.0,1.0-length(vLocal)/0.46),2.0) * 0.65 : 0.5;
+            gl_FragColor = vec4(uColor, alpha * pulse);
+            #include <tonemapping_fragment>
+            #include <colorspace_fragment>
+          }`,
+        transparent: true, depthWrite: false, side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending, forceSinglePass: true,
+      });
+      const rune = mesh(merged, material, this.groundAuras);
       rune.castShadow = rune.receiveShadow = false;
     }
   }
@@ -499,8 +531,16 @@ export class ChessScene {
   }
   resetView(flip = this.flipped) {
     this.flipped = flip;
-    const distance = Math.max(10, (10 * 1.05) / this.camera.aspect);
-    this.camera.position.set(0, distance, flip ? -distance : distance);
+    if (this.camera.aspect < 0.8) {
+      const radius = Math.max(12, 4.6 / (Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * this.camera.aspect));
+      this.camera.position.set(0, radius * 0.96, radius * (flip ? -0.28 : 0.28));
+    } else {
+      const distance = Math.max(10, (10 * 1.05) / this.camera.aspect);
+      this.camera.position.set(0, distance, flip ? -distance : distance);
+    }
+    // Portrait framing needs distance to fit width; fog must not darken the far army.
+    const fog = this.scene.fog as THREE.Fog;
+    fog.near = this.camera.position.length() + 6; fog.far = fog.near + 18;
     this.controls.target.set(0, 0, 0);
     this.controls.update();
   }
@@ -509,6 +549,11 @@ export class ChessScene {
     if (this.animation) {
       this.camera.position.copy(this.animation.camera);
       this.controls.target.copy(this.animation.target);
+      const cracks = this.animation.cracks;
+      if (cracks?.core.parent) {
+        if (!cracks.core.geometry.drawRange.count) disposeObject(cracks.core.parent);
+        else { cracks.core.parent.userData.active = false; cracks.core.parent.userData.born = performance.now(); }
+      }
     }
     this.camera.lookAt(this.controls.target);
     this.animation = null;
@@ -596,7 +641,44 @@ export class ChessScene {
       }));
       trail.frustumCulled = false;
       this.fx.add(trail); this.animation.trail = trail;
+      this.animation.cracks = this.groundCracks(this.animation);
     }
+  }
+  private groundCracks(a: Animation) {
+    while (this.groundScars.children.length >= 4) disposeObject(this.groundScars.children[0]);
+    const group = new THREE.Group(); group.name = "energy-fracture";
+    group.userData.born = performance.now(); group.userData.active = true;
+    const lines: number[] = [], ribbons: number[] = [], stops: number[] = [];
+    const distance = a.from.distanceTo(a.to), steps = Math.min(7, Math.max(2, Math.ceil(distance)));
+    const sides = combatStyles[a.move.piece].sides;
+    const segment = (p: THREE.Vector3, q: THREE.Vector3) => {
+      p.x = Math.max(-3.98, Math.min(3.98, p.x)); p.z = Math.max(-3.98, Math.min(3.98, p.z));
+      q.x = Math.max(-3.98, Math.min(3.98, q.x)); q.z = Math.max(-3.98, Math.min(3.98, q.z));
+      lines.push(p.x, 0.03, p.z, q.x, 0.03, q.z);
+      const side = new THREE.Vector3(-(q.z - p.z), 0, q.x - p.x).normalize().multiplyScalar(0.018);
+      for (const vertex of [p.clone().add(side), p.clone().sub(side), q.clone().add(side),
+        q.clone().add(side), p.clone().sub(side), q.clone().sub(side)]) ribbons.push(vertex.x, 0.024, vertex.z);
+    };
+    for (let step = 0; step <= steps; step++) {
+      const root = a.from.clone().lerp(a.to, step / steps);
+      const radius = step === steps ? a.victim ? 0.5 : 0.32 : 0.22;
+      for (let i = 0; i < sides; i++) {
+        const angle = i * Math.PI * 2 / sides + step * 0.7;
+        const elbow = root.clone().add(new THREE.Vector3(Math.cos(angle) * radius * 0.5, 0, Math.sin(angle) * radius * 0.5));
+        const tip = root.clone().add(new THREE.Vector3(Math.cos(angle + 0.3) * radius, 0, Math.sin(angle + 0.3) * radius));
+        segment(root.clone(), elbow); segment(elbow.clone(), tip);
+        if (i % 2 === 0) segment(elbow.clone(), elbow.clone().add(new THREE.Vector3(Math.cos(angle - 0.7) * radius * 0.35, 0, Math.sin(angle - 0.7) * radius * 0.35)));
+      }
+      stops.push(lines.length / 3);
+    }
+    const lineGeometry = new THREE.BufferGeometry(); lineGeometry.setAttribute("position", new THREE.Float32BufferAttribute(lines, 3));
+    const darkGeometry = new THREE.BufferGeometry(); darkGeometry.setAttribute("position", new THREE.Float32BufferAttribute(ribbons, 3));
+    lineGeometry.setDrawRange(0, 0); darkGeometry.setDrawRange(0, 0);
+    const dark = mesh(darkGeometry, new THREE.MeshBasicMaterial({ color: 0x020711, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true }), group);
+    dark.castShadow = dark.receiveShadow = false;
+    const core = new THREE.LineSegments(lineGeometry, new THREE.LineBasicMaterial({ color: battleColor(a.move.color, undefined, this.skin), transparent: true, opacity: 0.65, blending: THREE.AdditiveBlending, depthWrite: false }));
+    group.add(core); this.groundScars.add(group);
+    return { dark, core, stops };
   }
   private targetLock(a: Animation) {
     const group = new THREE.Group();
@@ -1095,6 +1177,11 @@ export class ChessScene {
       const short = moveFrame(t);
       const travel = this.reduced ? Math.min(t / 0.58, 1) : a.dramatic ? choreography.travel : short.travel;
       const e = travel;
+      if (a.cracks) {
+        const count = travel === 0 ? 0 : a.cracks.stops[Math.min(a.cracks.stops.length - 1, Math.floor(travel * (a.cracks.stops.length - 1)))];
+        a.cracks.core.geometry.setDrawRange(0, count);
+        a.cracks.dark.geometry.setDrawRange(0, count * 3);
+      }
       if (!this.reduced) {
         this.stage.dataset.movePhase = a.dramatic ? t >= 0.44 && t < 0.52 ? "slowmo" : choreography.phase : short.phase;
         this.animateAura(a, t, a.dramatic ? choreography.charge : short.charge, travel);
@@ -1186,6 +1273,17 @@ export class ChessScene {
       }
     }
     if (this.animation || this.sparks.length) this.dirty = true;
+    for (const rune of this.groundAuras.children) {
+      (rune as THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>).material.uniforms.uTime.value = now / 1000;
+    }
+    for (const scar of [...this.groundScars.children]) {
+      if (scar.userData.active) continue;
+      const fade = Math.max(0, 1 - (now - scar.userData.born) / 7000);
+      if (!fade) { disposeObject(scar); this.dirty = true; continue; }
+      for (const child of scar.children) (child as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>).material.opacity = fade * (child instanceof THREE.Line ? 0.65 : 0.9);
+    }
+    // A low-rate idle pulse shares the same two aura batches. Orbit still follows display frames.
+    if ((this.groundAuras.children.length || this.groundScars.children.length) && now - this.lastAuraDraw >= (this.quality === "low" ? 125 : 50)) this.dirty = true;
     // Keep camera interaction and short moves responsive; bound heavy mobile cuts.
     const targetFps = this.animation?.dramatic && this.stage.clientWidth < 700 ? 30 : 60;
     // Orbit/short moves follow every display frame; a second 60 Hz gate causes skips.
@@ -1194,6 +1292,7 @@ export class ChessScene {
       if (this.animation) this.renderer.shadowMap.needsUpdate = true;
       this.renderer.render(this.scene, this.camera);
       this.lastRender = now;
+      this.lastAuraDraw = now;
       this.dirty = false;
       if (this.quality === "auto" && elapsed > 25 && elapsed < 200) this.slowFrames++;
       else this.slowFrames = Math.max(0, this.slowFrames - 1);

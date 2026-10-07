@@ -1,4 +1,4 @@
-import { enterGame } from "./enter-game.mjs";
+import { enterGame, openPanel, closePanel } from "./enter-game.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -68,10 +68,14 @@ try {
   assert.equal(await page.locator("#online-panel").isVisible(), false);
   assert.equal(await page.locator("#difficulty").isVisible(), true);
   assert.match(await page.locator("#mode-tag").innerText(), /SOLO/);
+  await openPanel(page, "settings");
   await page.locator("#reduced").check();
+  await closePanel(page);
   await page.locator("#board-details summary").click();
   async function move(from, to) {
+    await closePanel(page);
     await page.locator(`[data-square="${from}"]`).click();
+    await closePanel(page);
     await page.locator(`[data-square="${to}"]`).click();
     await page.locator("#skip").click();
   }
@@ -93,6 +97,7 @@ try {
   await page.waitForSelector("canvas");
   assert.equal(await page.locator("#difficulty").inputValue(), "3");
   assert.equal(await page.locator("#moves .san").count(), 2);
+  await closePanel(page);
   await page.locator("#board-details summary").click();
   await page.locator("#undo").click();
   assert.equal(await page.locator("#moves .san").count(), 0);
@@ -103,13 +108,16 @@ try {
   await page.waitForTimeout(600);
   assert.equal(await page.locator("#moves .san").count(), 0);
   // Bad destinations preserve the selected piece and provide useful feedback.
+  await closePanel(page);
   await page.locator('[data-square="e2"]').click();
+  await closePanel(page);
   await page.locator('[data-square="e5"]').click();
   assert.match(await page.locator("#notice").innerText(), /เดินไม่ได้/);
   assert.equal(await page.locator('[data-square="e2"]').evaluate((el) => el.classList.contains("selected")), true);
   assert.equal(await page.locator("#moves .san").count(), 0);
   // Black-side games: bot opens, orientation, undo, persistence and cancellation.
   await page.locator("#difficulty").selectOption("1");
+  await openPanel(page, "settings");
   await page.locator("#human-side").selectOption("b");
   await page.waitForFunction(() => document.querySelectorAll("#moves .san").length === 1);
   await page.locator("#skip").click();
@@ -127,16 +135,23 @@ try {
   await page.waitForSelector("canvas");
   assert.equal(await page.locator("#human-side").inputValue(), "b");
   assert.equal(await page.locator("#moves .san").count(), 1);
+  await closePanel(page);
   await page.locator("#board-details summary").click();
   await move("h7", "h6");
+  await openPanel(page, "settings");
   await page.locator("#human-side").selectOption("w");
   await page.waitForTimeout(400);
   assert.equal(await page.locator("#moves .san").count(), 0);
   // An ordinary pawn capture stays short; all-events mode restores its cutscene.
+  await openPanel(page, "training");
   await page.locator("#training-panel summary").click();
+  await openPanel(page, "training");
   await page.locator("#training-select").selectOption("pawn");
+  await openPanel(page, "settings");
   await page.locator("#reduced").uncheck();
+  await closePanel(page);
   await page.locator('[data-square="c4"]').click();
+  await closePanel(page);
   await page.locator('[data-square="d5"]').click();
   await page.waitForTimeout(100);
   assert.equal(await page.locator("#stage").getAttribute("data-battle-phase"), null);
@@ -146,11 +161,15 @@ try {
   assert.equal(await page.locator("#white-material").innerText(), "+1");
   await page.locator("#undo").click();
   assert.equal(await page.locator("#white-captured").innerText(), "—");
+  await openPanel(page, "settings");
   await page.locator("#cinematic-scope").selectOption("all");
+  await closePanel(page);
   await page.locator('[data-square="c4"]').click();
+  await closePanel(page);
   await page.locator('[data-square="d5"]').click();
   await page.waitForFunction(() => !!document.querySelector("#stage").dataset.battlePhase);
   await page.locator("#skip").click();
+  await openPanel(page, "settings");
   await page.locator("#cinematic-scope").selectOption("key");
   // Bot search starts during a long capture, but cannot mutate the animated board.
   await page.evaluate(() => localStorage.setItem("special-chess-offline-game", JSON.stringify({
@@ -159,8 +178,11 @@ try {
   await page.reload();
   await enterGame(page);
   await page.waitForSelector("canvas");
+  await closePanel(page);
   await page.locator("#board-details summary").click();
+  await closePanel(page);
   await page.locator('[data-square="d1"]').click();
+  await closePanel(page);
   await page.locator('[data-square="d5"]').click();
   await page.waitForFunction(() => window.__botStarts === 1);
   assert.ok(await page.locator("#stage").getAttribute("data-battle-phase"));
@@ -171,11 +193,17 @@ try {
   await page.locator("#skip").click();
   console.log("PASS: black-side play/undo/persistence, illegal-move feedback, captures, cinematic pacing and bot thinking during animation");
   // Exercise the full anime sequence, then ensure skip and reduced mode clean up.
+  await openPanel(page, "training");
   await page.locator("#training-panel summary").click();
+  await openPanel(page, "training");
   await page.locator("#training-select").selectOption("knight");
+  await openPanel(page, "settings");
   await page.locator("#reduced").uncheck();
+  await openPanel(page, "settings");
   await page.locator("#sound").check();
+  await closePanel(page);
   await page.locator('[data-square="c3"]').click();
+  await closePanel(page);
   await page.locator('[data-square="d5"]').click();
   await page.waitForFunction(
     () => document.querySelector("#stage").dataset.battlePhase === "charge",
@@ -196,6 +224,8 @@ try {
   assert.match(await page.locator("#moves").innerText(), /Nxd5/);
   assert.match(await page.locator('[data-square="d5"]').innerText(), /♘/);
   // A normal 3D pick after completion exercises camera and pointer restoration.
+  await closePanel(page);
+  await page.locator("#board-details summary").click();
   async function canvasSquare(square) {
     const r = await page.locator("canvas").first().boundingBox();
     const x = square.charCodeAt(0) - 97 - 3.5,
@@ -213,8 +243,12 @@ try {
   await canvasSquare("h7");
   await page.locator("#skip").click();
   assert.match(await page.locator("#moves").innerText(), /Kh7/);
+  await page.locator("#board-details summary").click();
+  await openPanel(page, "training");
   await page.locator("#training-select").selectOption("queen");
+  await closePanel(page);
   await page.locator('[data-square="d1"]').click();
+  await closePanel(page);
   await page.locator('[data-square="d5"]').click();
   await page.waitForFunction(
     () => !!document.querySelector("#stage").dataset.battlePhase,
@@ -224,17 +258,23 @@ try {
     await page.locator("#stage").getAttribute("data-battle-phase"),
     null,
   );
+  await openPanel(page, "training");
   await page.locator("#training-select").selectOption("bishop");
+  await openPanel(page, "settings");
   await page.locator("#cinematic").uncheck();
   await move("c3", "f6");
   assert.equal(
     await page.locator("#stage").getAttribute("data-battle-phase"),
     null,
   );
+  await openPanel(page, "settings");
   await page.locator("#cinematic").check();
+  await openPanel(page, "settings");
   await page.locator("#reduced").check();
+  await openPanel(page, "settings");
   await page.locator("#sound").uncheck();
   // Training remains available without a multiplayer mode.
+  await openPanel(page, "training");
   await page.locator("#training-select").selectOption("rescue");
   await move("g7", "f6");
   assert.match(await page.locator("#moves").innerText(), /gxf6/);
@@ -245,7 +285,9 @@ try {
   await page.reload();
   await enterGame(page);
   await page.waitForSelector("canvas");
+  await closePanel(page);
   await page.locator("#board-details summary").click();
+  await openPanel(page, "missions");
   await page.locator("#battle-log-panel summary").click();
   assert.equal(await page.locator('[data-battle-kind="first-blood"]').count(), 1);
   await move("d8", "d5");
@@ -255,12 +297,14 @@ try {
   assert.equal(await page.locator('[data-battle-kind="recapture"]').count(), 0);
   assert.equal(await page.locator("#battle-toast").evaluate((el) => el.classList.contains("visible")), false);
   await move("d8", "d5");
+  await openPanel(page, "settings");
   await page.locator("#graphics-quality").selectOption("low");
   await page.reload();
   await enterGame(page);
   await page.waitForSelector("canvas");
   assert.equal(await page.locator("#graphics-quality").inputValue(), "low");
   assert.equal(await page.locator("#stage").getAttribute("data-graphics"), "low");
+  await openPanel(page, "missions");
   await page.locator("#battle-log-panel summary").click();
   assert.equal(await page.locator('[data-battle-kind="recapture"]').count(), 1);
   assert.equal(await page.locator("#battle-toast").evaluate((el) => el.classList.contains("visible")), false);
@@ -271,9 +315,13 @@ try {
   await page.reload();
   await enterGame(page);
   await page.waitForSelector("canvas");
+  await closePanel(page);
   await page.locator("#board-details summary").click();
+  await openPanel(page, "settings");
   await page.locator("#reduced").uncheck();
+  await closePanel(page);
   await page.locator('[data-square="d1"]').click();
+  await closePanel(page);
   await page.locator('[data-square="d5"]').click();
   assert.equal(await page.locator("#stage").getAttribute("data-battle-moment"), "comeback");
   assert.match(await page.locator("#event strong").innerText(), /TURNING POINT/);
@@ -283,15 +331,19 @@ try {
   await page.locator("#undo").click();
   assert.equal(await page.locator("#mission-list .complete").count(), 0);
   assert.equal(await page.locator("#moves .san").count(), 0);
+  await openPanel(page, "settings");
   await page.locator("#battle-events").uncheck();
   assert.equal(await page.locator("#missions").isVisible(), false);
   assert.equal(await page.locator("#battle-log-panel").isVisible(), false);
+  await openPanel(page, "settings");
   await page.locator("#battle-events").check();
   console.log("PASS: counterattacks, comeback cinematic, mission stars, undo/history restoration, event toggle and saved graphics quality");
   await page.locator("#reset").click();
   assert.equal(await page.locator("#difficulty").isVisible(), true);
   assert.match(await page.locator("#mode-tag").innerText(), /SOLO/);
+  await closePanel(page);
   await page.locator("#board-details summary").click();
+  await openPanel(page, "training");
   await page.locator("#training-panel summary").click();
   mkdirSync("test-results", { recursive: true });
   await page.screenshot({ path: "test-results/offline-desktop.png" });

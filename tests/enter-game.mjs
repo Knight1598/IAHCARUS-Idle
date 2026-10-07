@@ -6,3 +6,11 @@ export async function enterGame(page, mode) {
   else await page.locator("#launch-start").click();
   await page.waitForSelector("#stage canvas");
 }
+export async function openPanel(page, name) {
+  const drawer = page.locator("#arena-drawer");
+  if (!await drawer.isVisible() || await drawer.getAttribute("data-panel") !== name)
+    await page.locator(`[data-hud-open="${name}"]`).click();
+}
+export async function closePanel(page) {
+  if (await page.locator("#arena-drawer").isVisible()) await page.locator("#drawer-close").click();
+}

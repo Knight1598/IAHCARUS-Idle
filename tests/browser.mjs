@@ -1,4 +1,4 @@
-import { enterGame } from "./enter-game.mjs";
+import { enterGame, openPanel, closePanel } from "./enter-game.mjs";
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
@@ -68,8 +68,11 @@ try {
   );
   await page.locator("#skip").click();
   await page.locator("#reset").click();
+  await closePanel(page);
   await page.locator("#board-details summary").click();
   async function square(p, s) {
+    await closePanel(p);
+    await closePanel(p);
     await p.locator(`[data-square="${s}"]`).click();
   }
   async function move(p, from, to) {
@@ -87,6 +90,7 @@ try {
   assert.doesNotMatch(await page.locator("#moves").innerText(), /exd5/);
   await page.reload();
   await enterGame(page);
+  await closePanel(page);
   await page.locator("#board-details summary").click();
   assert.match(await page.locator("#moves").innerText(), /d5/);
   console.log("checkmate test");
@@ -139,6 +143,7 @@ try {
   );
   await page.reload();
   await enterGame(page);
+  await closePanel(page);
   await page.locator("#board-details summary").click();
   await square(page, "b7");
   await square(page, "a8");
@@ -146,8 +151,10 @@ try {
   await page.locator("#skip").click();
   assert.match(await page.locator('[data-square="a8"]').innerText(), /♘/);
   console.log("special animations");
+  await openPanel(page, "training");
   await page.locator("#training-panel summary").click();
   for (const [key, t] of Object.entries(training)) {
+    await openPanel(page, "training");
     await page.locator("#training-select").selectOption(key);
     await square(page, t.from);
     await square(page, t.to);
@@ -165,8 +172,11 @@ try {
       );
     else await page.locator("#skip").click();
   }
+  await openPanel(page, "training");
   await page.locator("#training-panel summary").click();
+  await openPanel(page, "room");
   await page.locator('[data-mode="bot"]').click();
+  await openPanel(page, "settings");
   await page.locator("#reduced").check();
   await move(page, "e2", "e4");
   await page.waitForFunction(
@@ -177,14 +187,17 @@ try {
   await page.locator("#skip").click();
   assert.match(await page.locator("#status").innerText(), /ตาฝ่ายขาว/);
   mkdirSync("test-results", { recursive: true });
+  await closePanel(page);
   await page.locator("#board-details summary").click();
   await page.screenshot({ path: "test-results/desktop.png" });
   console.log("online test");
   // Isolated contexts represent two different players.
+  await openPanel(page, "room");
   await page.locator('[data-mode="online"]').click();
   await page.waitForFunction(() =>
     document.querySelector("#connection").textContent.includes("เชื่อมต่อแล้ว"),
   );
+  await openPanel(page, "room");
   await page.locator("#create").click();
   await page.waitForFunction(
     () => document.querySelector("#code").textContent.length === 6,
@@ -200,12 +213,16 @@ try {
   await guest.waitForFunction(() =>
     document.querySelector("#connection").textContent.includes("เชื่อมต่อแล้ว"),
   );
+  await openPanel(guest, "room");
   await guest.locator("#join").click();
   await guest.waitForFunction(
     () => !document.querySelector("#room-info").hidden,
   );
+  await closePanel(page);
   await page.locator("#board-details summary").click();
+  await closePanel(guest);
   await guest.locator("#board-details summary").click();
+  await openPanel(guest, "settings");
   await guest.locator("#reduced").check();
   await move(page, "e2", "e4");
   await guest.waitForFunction(

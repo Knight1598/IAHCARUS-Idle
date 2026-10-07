@@ -1,8 +1,7 @@
 import type { PieceSymbol } from "chess.js";
-import { combatStyles } from "./combat";
 
 export type SoundPhase = "lock" | "charge" | "dash" | "impact";
-/** Procedural FM, filtered space noise and a short stereo echo; no audio downloads. */
+/** Six procedural sound families with filtered space noise and stereo echo; no downloads. */
 export class SpaceAudio {
   private bus: GainNode;
   private output: GainNode;
@@ -51,10 +50,10 @@ export class SpaceAudio {
     this.cancel(); this.bus.disconnect(); this.gate.disconnect(); this.output.disconnect();
     this.tails.forEach((node) => node.disconnect());
   }
-  private voice(source: AudioScheduledSourceNode, duration: number, level: number, cutoff: number, pan: number, nodes: AudioNode[] = []) {
-    const c = this.context, now = c.currentTime;
+  private voice(source: AudioScheduledSourceNode, duration: number, level: number, cutoff: number, pan: number, nodes: AudioNode[] = [], offset = 0, filterType: BiquadFilterType = "lowpass") {
+    const c = this.context, now = c.currentTime + offset;
     const gain = c.createGain(), filter = c.createBiquadFilter(), stereo = c.createStereoPanner();
-    filter.type = "lowpass"; filter.frequency.setValueAtTime(cutoff, now);
+    filter.type = filterType; filter.Q.value = filterType === "bandpass" ? 2.5 : 0.7; filter.frequency.setValueAtTime(cutoff, now);
     filter.frequency.exponentialRampToValueAtTime(Math.max(250, cutoff * 0.45), now + duration);
     stereo.pan.value = Math.max(-0.75, Math.min(0.75, pan));
     gain.gain.setValueAtTime(0, now);
@@ -68,47 +67,96 @@ export class SpaceAudio {
     };
     source.start(now); source.stop(now + duration + 0.01);
   }
-  private tone(from: number, to: number, duration: number, level: number, fm: number, cutoff: number, pan: number) {
-    const c = this.context, now = c.currentTime;
-    const carrier = c.createOscillator(), mod = c.createOscillator(), depth = c.createGain();
-    carrier.type = "sine"; mod.type = "sine";
+  private tone(from: number, to: number, duration: number, level: number, fm: number, cutoff: number, pan: number, type: OscillatorType = "sine", offset = 0) {
+    const c = this.context, now = c.currentTime + offset;
+    const carrier = c.createOscillator(); carrier.type = type;
     carrier.frequency.setValueAtTime(from, now);
     carrier.frequency.exponentialRampToValueAtTime(to, now + duration);
-    mod.frequency.setValueAtTime(from * fm, now);
-    mod.frequency.exponentialRampToValueAtTime(Math.max(20, to * fm), now + duration);
-    depth.gain.setValueAtTime(from * 0.65, now);
-    depth.gain.exponentialRampToValueAtTime(1, now + duration);
-    mod.connect(depth).connect(carrier.frequency);
-    this.voice(carrier, duration, level, cutoff, pan, [depth]);
-    // Track modulators too so cancellation releases every oscillator.
-    this.sources.set(mod, depth);
-    mod.onended = () => { this.sources.delete(mod); mod.disconnect(); };
-    mod.start(now); mod.stop(now + duration + 0.01);
+    if (fm > 0) {
+      const mod = c.createOscillator(), depth = c.createGain();
+      mod.frequency.setValueAtTime(from * fm, now);
+      mod.frequency.exponentialRampToValueAtTime(Math.max(20, to * fm), now + duration);
+      depth.gain.setValueAtTime(from * 0.65, now); depth.gain.exponentialRampToValueAtTime(1, now + duration);
+      mod.connect(depth).connect(carrier.frequency);
+      this.voice(carrier, duration, level, cutoff, pan, [depth], offset);
+      this.sources.set(mod, depth);
+      mod.onended = () => { this.sources.delete(mod); mod.disconnect(); };
+      mod.start(now); mod.stop(now + duration + 0.01);
+    } else this.voice(carrier, duration, level, cutoff, pan, [], offset);
   }
-  private sweep(duration: number, cutoff: number, level: number, pan: number) {
-    const source = this.context.createBufferSource();
-    source.buffer = this.noise;
-    this.voice(source, duration, level, cutoff, pan);
+  private sweep(duration: number, cutoff: number, level: number, pan: number, offset = 0, filter: BiquadFilterType = "lowpass") {
+    const source = this.context.createBufferSource(); source.buffer = this.noise;
+    this.voice(source, duration, level, cutoff, pan, [], offset, filter);
   }
   play(piece: PieceSymbol, phase: SoundPhase, duration = 0.3, capture = false, pan = 0) {
-    const c = this.context, now = c.currentTime, style = combatStyles[piece];
+    const c = this.context, now = c.currentTime;
     this.gate.gain.cancelScheduledValues(now); this.gate.gain.setTargetAtTime(1, now, 0.008);
-    if (phase === "lock") {
-      this.tone(style.pitch * 2, style.pitch * 2.6, 0.08, 0.035, 0.5, 1700, pan);
-    } else if (phase === "charge") {
-      const length = Math.max(0.12, Math.min(1.2, duration));
-      this.tone(style.pitch * 0.55, style.pitch * 2.2, length, 0.075, style.fm, style.cutoff, pan);
-      this.sweep(length, style.cutoff * 0.7, 0.035, -pan);
-    } else if (phase === "dash") {
-      this.tone(style.pitch * 3.5, style.pitch * 0.6, piece === "b" ? 0.45 : 0.22,
-        0.09, style.fm, style.cutoff, pan);
-      this.sweep(piece === "r" ? 0.32 : 0.18, style.cutoff, 0.07, pan);
-      if (piece === "q") this.tone(style.pitch * 4, style.pitch, 0.28, 0.035, 1.5, style.cutoff, -pan);
-    } else {
-      const strength = capture ? 1 : 0.35;
-      this.tone(65 + style.weight * 65, 28, capture ? 0.45 : 0.18, 0.2 * strength, 0.5, 650, pan);
-      this.sweep(capture ? 0.28 : 0.12, style.cutoff, 0.11 * strength, pan);
-      if (capture) this.tone(style.pitch * 2, style.pitch * 0.75, 0.36, 0.065, style.fm, style.cutoff, -pan);
+    const length = Math.max(0.12, Math.min(1.2, duration));
+    const strength = phase === "impact" && !capture ? 0.35 : 1;
+    // Each family has its own waveform, rhythm and layering, rather than a shared pitch sweep.
+    switch (piece) {
+      case "p": // Compact plasma needle: dry clicks and a quick triangular zip.
+        if (phase === "charge") this.sweep(length, 1800, 0.065, pan, 0, "bandpass");
+        else {
+          this.tone(phase === "lock" ? 620 : 940, phase === "lock" ? 620 : 230,
+            phase === "lock" ? 0.045 : 0.12, 0.085 * strength, 0, 2400, pan, "triangle");
+          if (phase !== "lock") this.sweep(0.045, 2600, 0.07 * strength, pan, 0, "highpass");
+        }
+        break;
+      case "n": // Torn-space double pulse and a broad rushing air layer.
+        if (phase === "lock") { this.sweep(0.035, 1700, 0.045, pan); this.sweep(0.035, 2300, 0.035, pan, 0.06); }
+        else if (phase === "charge") {
+          this.tone(55, 145, length, 0.09, 3.1, 1800, pan, "triangle");
+          this.sweep(length, 1700, 0.04, -pan, 0, "bandpass");
+        } else {
+          this.sweep(0.24, 2300, 0.15 * strength, pan, 0, "bandpass");
+          this.tone(320, 55, 0.14, 0.1 * strength, 2.8, 2000, pan, "square");
+          this.tone(180, 40, 0.14, 0.075 * strength, 2.8, 1400, -pan, "square", 0.09);
+        }
+        break;
+      case "b": // Coherent beam: sustained pure harmonics, no common explosion noise.
+        if (phase === "lock") this.tone(880, 880, 0.08, 0.035, 0, 3200, pan);
+        else {
+          const pitch = phase === "charge" ? 220 : phase === "dash" ? 660 : 440;
+          const end = phase === "charge" ? 660 : pitch * 0.92;
+          const sustain = phase === "charge" ? length : phase === "dash" ? 0.48 : 0.32;
+          this.tone(pitch, end, sustain, 0.12 * strength, 0, 3600, pan);
+          this.tone(pitch * 2, end * 2, sustain, 0.035 * strength, 0, 4000, -pan);
+        }
+        break;
+      case "r": // Reactor motor and a low cannon burst with a delayed mechanical kick.
+        if (phase === "lock") this.tone(90, 65, 0.1, 0.08, 0, 700, pan, "square");
+        else if (phase === "charge") {
+          this.tone(32, 58, length, 0.11, 0.5, 450, pan, "sawtooth");
+          this.sweep(length, 380, 0.11, -pan);
+        } else {
+          this.tone(95, 25, 0.42, 0.23 * strength, 0, 600, pan);
+          this.sweep(0.32, 650, 0.2 * strength, pan);
+          this.tone(55, 30, 0.12, 0.09 * strength, 0, 300, -pan, "triangle", 0.13);
+        }
+        break;
+      case "q": // Orbital blades: a cascading crystalline chord, alternating stereo lanes.
+        if (phase === "lock") {
+          this.tone(1046, 1046, 0.07, 0.035, 0, 4200, pan);
+          this.tone(1568, 1568, 0.07, 0.025, 0, 4200, -pan, "sine", 0.055);
+        } else for (const [index, ratio] of [1, 1.25, 1.5, 2, 2.5].entries()) {
+          const pitch = (phase === "charge" ? 330 : 660) * ratio;
+          const gap = phase === "charge" ? length / 7 : 0.055;
+          this.tone(pitch, phase === "charge" ? pitch * 1.1 : pitch * 0.8,
+            phase === "charge" ? length * 0.5 : 0.24, 0.045 * strength, 0, 4400,
+            index % 2 ? -0.5 : 0.5, "sine", index * gap);
+        }
+        break;
+      case "k": // Royal shield: broad, steady brass chord and a resonant low seal.
+        if (phase === "lock") this.tone(196, 196, 0.12, 0.05, 0, 1200, pan, "triangle");
+        else {
+          const sustain = phase === "charge" ? length : 0.35;
+          for (const [index, pitch] of [98, 146.8, 196.8].entries())
+            this.tone(pitch, pitch * (phase === "impact" ? 0.9 : 1.03), sustain,
+              0.045 * strength, 0, 1100, pan, "sawtooth", index * 0.012);
+          if (phase === "impact") this.tone(65, 42, 0.5, 0.14 * strength, 0, 500, pan);
+        }
+        break;
     }
   }
 }

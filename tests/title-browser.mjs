@@ -1,7 +1,7 @@
 import { chromium } from "playwright";
 import { existsSync, readFileSync, mkdirSync } from "node:fs";
 import assert from "node:assert/strict";
-import { enterGame } from "./enter-game.mjs";
+import { enterGame, openPanel, closePanel } from "./enter-game.mjs";
 
 const browser = await chromium.launch({
   ...(process.env.CHROMIUM_PATH || existsSync("/usr/bin/chromium") ? { executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium" } : {}),
@@ -57,10 +57,14 @@ try {
   await page.locator("#launch-start").click();
   await page.waitForSelector("#stage canvas");
   assert.equal(await page.locator("#stage").getAttribute("data-skin"), "ember");
+  await openPanel(page, "settings");
   await page.locator("#reduced").check();
+  await closePanel(page);
   await page.locator("#board-details summary").click();
   async function move(from, to) {
+    await closePanel(page);
     await page.locator(`[data-square="${from}"]`).click();
+    await closePanel(page);
     await page.locator(`[data-square="${to}"]`).click();
     await page.locator("#skip").click();
   }
@@ -92,6 +96,7 @@ try {
   await page.locator("#skip").click();
   assert.equal(await page.locator("#stage").getAttribute("data-skin"), "frost");
   assert.match(await page.locator("#status").innerText(), /ตาฝ่ายดำ/);
+  await closePanel(page);
   await page.locator("#board-details summary").click();
   await move("h7", "h6");
   await page.locator("#title-return").click();
@@ -118,6 +123,7 @@ try {
   await page.reload();
   await enterGame(page);
   assert.equal(await xp(), 320);
+  await closePanel(page);
   await page.locator("#board-details summary").click();
   await page.locator("#undo").click();
   await move("d8", "h4");

@@ -9,6 +9,7 @@ import {
 import { ChessScene, type GraphicsQuality } from "./scene";
 import { TitleScreen, type LaunchSettings } from "./title";
 import { SpaceAudio } from "./sound";
+import { ArenaHUD } from "./hud";
 import { readProfile, claimXP, matchXP, levelProgress, skins, isSkinUnlocked, type SkinId } from "./profile";
 import { matchStory, latestMoment } from "./battle";
 import { matchMaterial, type CinematicScope } from "./gameplay";
@@ -64,7 +65,9 @@ $("#app").innerHTML =
     .join(
       "",
     )}</select><p id="training-hint" class="muted"></p></details><section class="history"><div class="section-title"><h2>บันทึกการประลอง</h2><button id="export" class="text-button">PGN ↓</button></div><div id="moves"></div></section><footer>โมเดล แสง และพลังทั้งหมดสร้างจากโค้ด<br>ไม่มีการเปลี่ยนความสามารถของหมาก</footer></aside></div></div><dialog id="promotion"><small>ASCENSION</small><h2>เลือกหมากเพื่อเลื่อนขั้น</h2><div class="promotion-options">${(["q", "r", "b", "n"] as const).map((p) => `<button data-piece="${p}"><span>${symbols.w[p]}</span>${names[p]}</button>`).join("")}</div><button id="cancel-promotion" class="text-button">ยกเลิก</button></dialog><dialog id="help-dialog"><small>HOW TO PLAY</small><h2>ทุกตาคือการตัดสินใจ</h2><p>เลือกหมากของฝ่ายที่ถึงตา แล้วเลือกช่องเรืองแสงเพื่อเดิน สีชมพูคือช่องกินหมาก</p><p>ลากเพื่อหมุนกระดาน เลื่อนเพื่อซูม หรือใช้กระดาน 2D ด้วยคีย์บอร์ด</p><p>กติกาหมากรุกมาตรฐาน: คิงจะไม่ถูกกิน เกมจบเมื่อรุกฆาต ท่าสเปเชียลเป็นภาพประกอบการเดิน และข้ามได้เสมอ</p><p>ออนไลน์: สร้างห้องแล้วส่งลิงก์ให้เพื่อน ฝ่ายละ 5 นาที เวลาเดินตามเซิร์ฟเวอร์ รวมเวลาคัตซีน หากรีเฟรชจะกลับเข้าห้องจากเบราว์เซอร์เดิม</p><p>เล่นกับบอต: เลือกเล่นขาวหรือดำได้ เปลี่ยนฝ่ายจะเริ่มเกมใหม่ ย้อนตาจะกลับไปก่อนตาของคุณ ปรับระดับได้ก่อนตาถัดไป</p><button id="close-help" class="primary">เข้าใจแล้ว</button></dialog>`;
+const hud = new ArenaHUD();
 let menuOpen = true;
+let eventTimer: ReturnType<typeof setTimeout> | undefined;
 function newMatchId() { return globalThis.crypto?.randomUUID?.() || `match-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 let matchId = newMatchId();
 let hasSavedLocalGame = false;
@@ -448,6 +451,8 @@ function impactSound(move: Move, _event: MoveEvent) {
 function animate(before: Chess, move: Move) {
   clearTimeout(noticeTimer);
   $("#notice").textContent = "";
+  clearTimeout(eventTimer);
+  eventTimer = setTimeout(() => $("#event").classList.remove("visible"), 1600);
   lastMove = { from: move.from, to: move.to };
   clearSelection();
   const ev = analyzeMove(before, game, move);
@@ -458,7 +463,7 @@ function animate(before: Chess, move: Move) {
     $("#battle-toast span").textContent = moment.description;
     $("#battle-toast").classList.add("visible");
     $("#stage").dataset.battleMoment = moment.kind;
-    battleTimer = setTimeout(clearBattleToast, 3200);
+    battleTimer = setTimeout(clearBattleToast, 2200);
     ev.story = moment.kind;
     if (["recapture", "queen-fallen", "comeback", "capture-streak"].includes(moment.kind) &&
       !["mate", "check", "double-check", "discovered-check", "rescue", "promotion"].includes(ev.kind)) {
@@ -477,6 +482,7 @@ function animate(before: Chess, move: Move) {
   else scheduleBot();
 }
 function finishAnimation() {
+  clearTimeout(eventTimer);
   $("#event").classList.remove("visible");
   $("#stage").classList.remove("cinematic");
   scene?.select(game, null, lastMove);
@@ -609,7 +615,7 @@ function setMode(next: Mode) {
   disconnect();
   mode = next;
   newLocal();
-  if (!OFFLINE && next === "online") connect();
+  if (!OFFLINE && next === "online") { connect(); hud.open("room"); }
 }
 function send(data: unknown) {
   if (ws?.readyState !== WebSocket.OPEN) {
@@ -872,7 +878,7 @@ for (const key of ["cinematic", "reduced", "sound", "battle-events"]) {
   if (saved !== null) input.checked = saved === "true";
   input.onchange = () => {
     storage.set("special-chess-" + key, String(input.checked));
-    if (scene) {
+    if (scene && (key === "cinematic" || key === "reduced")) {
       scene.finish();
       scene.cinematic = $<HTMLInputElement>("#cinematic").checked;
       scene.reduced = $<HTMLInputElement>("#reduced").checked;
@@ -882,6 +888,7 @@ for (const key of ["cinematic", "reduced", "sound", "battle-events"]) {
       updateBattleUI();
     }
     if (key === "reduced") { scene?.renderBoard(game); scene?.select(game, selected, lastMove); }
+    if (key === "sound") hud.syncSound();
     if (key === "sound" && !input.checked) stopSounds();
     if (key === "sound" && input.checked) {
       try {
@@ -947,6 +954,7 @@ if (OFFLINE) {
   $(".brand small").textContent = "OFFLINE BOT EDITION";
   $(".match-head p").textContent = "เล่นได้โดยไม่ใช้อินเทอร์เน็ต · บอต 3 ระดับ";
   $(".tabs").hidden = true;
+  $('[data-hud-open="room"]').hidden = true;
   $("#connection").textContent = "OFFLINE";
   $("#help-dialog").querySelectorAll("p")[3].remove();
 }
@@ -965,6 +973,7 @@ $<HTMLSelectElement>("#human-side").onchange = () => {
   humanColor = $<HTMLSelectElement>("#human-side").value === "b" ? "b" : "w";
   newLocal();
 };
+hud.syncSound();
 const volumeInput = $<HTMLInputElement>("#sound-volume");
 const savedVolume = Number(storage.get("special-chess-sound-volume") ?? 35);
 volumeInput.value = String(Number.isFinite(savedVolume) ? Math.max(0, Math.min(100, savedVolume)) : 35);
@@ -1003,11 +1012,13 @@ const title = new TitleScreen($("#app"), OFFLINE, {
     scene?.setSkin(profile.skin);
     scene?.renderBoard(game);
     updateUI();
-    if (mode === "online") connect(); else scheduleBot();
+    if (mode === "online") { connect(); hud.open("room"); } else scheduleBot();
   },
 });
 function enterBoard() {
   menuOpen = false;
+  document.body.classList.add("arena-playing");
+  hud.close();
   title.root.hidden = true;
   $("#game-shell").hidden = false;
   scene?.setPaused(false);
@@ -1029,7 +1040,7 @@ function launchGame(settings: LaunchSettings) {
     $<HTMLSelectElement>("#training-select").value = settings.training;
     $("#training-select").dispatchEvent(new Event("change"));
   }
-  if (mode === "online") connect();
+  if (mode === "online") { connect(); hud.open("room"); }
 }
 function openTitle() {
   if (mode === "online" && state?.started && !state.result) {
@@ -1042,6 +1053,9 @@ function openTitle() {
   clearSelection();
   clearBattleToast();
   menuOpen = true;
+  clearTimeout(eventTimer);
+  document.body.classList.remove("arena-playing");
+  hud.close();
   scene?.setPaused(true);
   $("#game-shell").hidden = true;
   title.show(profile, {

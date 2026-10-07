@@ -58,50 +58,17 @@ export class BattleOverlay {
     const fade = 1 - f.returning;
     c.save();
     c.globalAlpha = fade;
-    // The diagonally clipped cut-in is a manga panel, drawn entirely in code.
-    if (t < 0.3) {
-      const appear = Math.min(1, t / 0.045);
-      const band = h * 0.21;
-      const y = h * 0.54;
-      c.save();
-      c.globalAlpha = appear;
-      c.beginPath();
-      c.moveTo(0, y + band * 0.25);
-      c.lineTo(w, y - band * 0.6);
-      c.lineTo(w, y + band * 0.4);
-      c.lineTo(0, y + band * 1.25);
-      c.closePath();
-      c.clip();
-      c.fillStyle = "#050912ed";
-      c.fillRect(0, y - band, w, band * 3);
-      c.strokeStyle = accent;
-      c.lineWidth = 2;
-      for (let i = 0; i < 12; i++) {
-        const x = ((i / 12) * w + t * w * 2) % w;
-        c.beginPath();
-        c.moveTo(x, y - band);
-        c.lineTo(x - w * 0.24, y + band * 2);
-        c.stroke();
-      }
-      c.font = `900 italic ${Math.min(65, w * 0.09)}px system-ui`;
-      c.fillStyle = accent;
-      c.shadowColor = accent;
-      c.shadowBlur = 12;
-      c.textAlign = "center";
-      c.fillText(title || "ROYAL POWER", w * 0.5, y + band * 0.5);
-      c.restore();
-    }
     if (t >= 0.3 && t < 0.84) {
       const cx = w * 0.5,
         cy = h * 0.49;
       const strength = f.phase === "impact" ? 1 : 0.55;
       c.lineCap = "round";
-      for (let i = 0; i < 48; i++) {
-        const a = (i * Math.PI * 2) / 48 + Math.sin(i * 7) * 0.02;
-        const near = Math.min(w, h) * (0.25 + (i % 5) * 0.025),
+      for (let i = 0; i < 24; i++) {
+        const a = (i * Math.PI * 2) / 24 + Math.sin(i * 7) * 0.02;
+        const near = Math.min(w, h) * (0.45 + (i % 5) * 0.025),
           far = Math.max(w, h) * 1.2;
         c.strokeStyle = i % 3 === 0 ? accent : "#e7f1ff";
-        c.globalAlpha = fade * strength * (0.16 + (i % 4) * 0.1);
+        c.globalAlpha = fade * strength * (0.06 + (i % 4) * 0.03);
         c.lineWidth = i % 6 === 0 ? 3 : 1;
         c.beginPath();
         c.moveTo(cx + Math.cos(a) * near, cy + Math.sin(a) * near);
@@ -110,41 +77,9 @@ export class BattleOverlay {
       }
       c.globalAlpha = fade;
     }
-    if (f.phase === "impact") {
-      c.save();
-      c.translate(w * 0.5, h * 0.53);
-      c.rotate(-0.12);
-      c.fillStyle = "#040713";
-      c.globalAlpha = 0.8;
-      c.beginPath();
-      for (let i = 0; i < 24; i++) {
-        const a = (i * Math.PI) / 12;
-        const r = (i % 2 ? 1 : 0.5) * Math.min(w, h) * 0.29;
-        c.lineTo(Math.cos(a) * r, Math.sin(a) * r);
-      }
-      c.closePath();
-      c.fill();
-      c.globalAlpha = 1;
-      c.font = `900 italic ${Math.min(78, w * 0.13)}px system-ui`;
-      c.textAlign = "center";
-      c.lineWidth = 6;
-      c.strokeStyle = "#07111f";
-      c.strokeText(
-        type === "n" ? "BREAK!" : type === "q" ? "ECLIPSE!" : "IMPACT!",
-        0,
-        12,
-      );
-      c.fillStyle = accent;
-      c.fillText(
-        type === "n" ? "BREAK!" : type === "q" ? "ECLIPSE!" : "IMPACT!",
-        0,
-        12,
-      );
-      c.restore();
-    }
     // A single soft impact pulse; no repeating fullscreen flashes.
     if (f.flash > 0) {
-      c.globalAlpha = f.flash * 0.2;
+      c.globalAlpha = f.flash * 0.06;
       c.fillStyle = accent;
       c.fillRect(0, 0, w, h);
     }

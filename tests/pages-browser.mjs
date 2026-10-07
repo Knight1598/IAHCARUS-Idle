@@ -1,4 +1,4 @@
-import { enterGame } from "./enter-game.mjs";
+import { enterGame, openPanel, closePanel } from "./enter-game.mjs";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { once } from "node:events";
@@ -48,12 +48,16 @@ try {
   assert.equal(await page.locator("#difficulty").isVisible(), true);
   // Once the single page has loaded, no networking is needed for bot play.
   await context.setOffline(true);
+  await openPanel(page, "settings");
   await page.locator("#reduced").check();
+  await closePanel(page);
   await page.locator("#board-details summary").click();
   for (const depth of ["1", "2", "3"]) {
     await page.locator("#reset").click();
     await page.locator("#difficulty").selectOption(depth);
+    await closePanel(page);
     await page.locator('[data-square="e2"]').click();
+    await closePanel(page);
     await page.locator('[data-square="e4"]').click();
     await page.locator("#skip").click();
     await page.waitForFunction(

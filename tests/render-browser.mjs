@@ -165,11 +165,17 @@ try {
       const move = after.move("e4");
       fixture.play(before, after, move, analyzeMove(before, after, move));
       fixture.animation.duration = 10000;
+      const now = performance.now();
+      fixture.animation.start = now - 1000;
+      fixture.frame(now); fixture.setPaused(true);
     });
     await page.waitForFunction(() => document.querySelector("#stage").dataset.movePhase === "charge");
     assert.equal(await page.evaluate(() => fixture.animation.object.position.distanceTo(fixture.animation.from)), 0);
     assert.equal(await page.evaluate(() => fixture.animation.lock.name), "destination-lock");
-    await page.evaluate(() => fixture.animation.start = performance.now() - 5000);
+    await page.evaluate(() => {
+      const now = performance.now(); fixture.setPaused(false);
+      fixture.animation.start = now - 5000; fixture.frame(now); fixture.setPaused(true);
+    });
     await page.waitForFunction(() => document.querySelector("#stage").dataset.movePhase === "slowmo");
     assert.equal(await page.evaluate(() => launchCount), 1);
     assert.equal(await page.evaluate(() => contactCount), 0);
@@ -177,8 +183,8 @@ try {
     mkdirSync("test-results", { recursive: true });
     await page.locator("#stage").screenshot({ path: "test-results/space-move-slowmo.png" });
     await page.evaluate(() => {
-      fixture.animation.start = performance.now() - 6500;
-      fixture.setPaused(false);
+      const now = performance.now(); fixture.setPaused(false);
+      fixture.animation.start = now - 6500; fixture.frame(now); fixture.setPaused(true);
     });
     await page.waitForFunction(() => document.querySelector("#stage").dataset.movePhase === "impact");
     assert.equal(await page.evaluate(() => contactCount), 1);
@@ -194,14 +200,22 @@ try {
         fixture.play(before, after, move, analyzeMove(before, after, move));
         if (fixture.animation.aura.name !== `charge-${move.piece}`) throw Error("Lost piece charge identity");
         if (fixture.animation.lock.name !== "enemy-lock") throw Error("Enemy lock missing");
-        fixture.finish();
+        const now = performance.now(); fixture.setPaused(false);
+        fixture.animation.start = now - fixture.animation.duration * 0.7;
+        fixture.frame(now); fixture.setPaused(true); fixture.finish();
+        if (fixture.groundScars.children.length > 4) throw Error("Unbounded floor fractures");
       }
       fixture.reduced = true; fixture.renderBoard(new fixtureChess());
       if (fixture.groundAuras.children.length) throw Error("Reduced effects left ambient runes");
       fixture.reduced = false; fixture.renderBoard(new fixtureChess());
       if (fixture.groundAuras.children.length !== 2) throw Error("Ground auras must use two batches");
+      fixture.setPaused(false);
     });
-    console.log("PASS: normal moves charge/lock/slow approach/contact once, all six attack identities, cancellation and reduced-effects cleanup");
+    const auraTime = await page.evaluate(() => fixture.groundAuras.children[0].material.uniforms.uTime.value);
+    await page.waitForTimeout(250);
+    assert.ok(await page.evaluate(() => fixture.groundAuras.children[0].material.uniforms.uTime.value) > auraTime);
+    await page.evaluate(() => fixture.setPaused(true));
+    console.log("PASS: normal moves charge/lock/slow approach/contact once, all six attack identities, bounded floor fractures, idle aura pulse, cancellation and reduced-effects cleanup");
     const audio = await page.evaluate(async () => {
       const { SpaceAudio } = await import("/src/sound.ts");
       const results = [], samples = [];
