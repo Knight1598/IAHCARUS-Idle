@@ -1,73 +1,721 @@
-import './style.css';
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { Chess, type Square, type PieceSymbol } from 'chess.js';
+import "./style.css";
+import { Chess, type Square, type PieceSymbol, type Move } from "chess.js";
+import { ChessScene } from "./scene";
+import { training } from "./training";
+import { analyzeMove, type MoveEvent } from "../shared/events.js";
 
-const app = document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML = `<main id="stage"><div id="event"></div></main><aside><small>PURE CODE · LOCAL DUEL</small><h1>Special Chess 3D</h1><p id="status"></p><p>แตะหมากแล้วแตะช่องเพื่อเดิน<br>ลากเพื่อหมุนกระดาน · เลื่อนเพื่อซูม</p><button id="reset">เริ่มใหม่</button><button id="view">กลับมุมกล้อง</button><button id="skip">ข้ามเอฟเฟกต์</button><p>ต้นแบบเล่นสองคนบนเครื่องเดียว<br>ทุกโมเดลสร้างด้วยโค้ด ไม่มี asset ภายนอก</p><h3>ประวัติการเดิน</h3><div id="moves"></div></aside><dialog id="promotion"><p>เลือกหมากเพื่อเลื่อนขั้น</p>${['q','r','b','n'].map(p=>`<button data-piece="${p}">${({q:'ควีน',r:'รุก',b:'บิชอป',n:'ม้า'} as Record<string,string>)[p]}</button>`).join('')}</dialog>`;
-const stage = document.querySelector<HTMLElement>('#stage')!;
-const status = document.querySelector<HTMLElement>('#status')!;
-const event = document.querySelector<HTMLElement>('#event')!;
-const dialog = document.querySelector<HTMLDialogElement>('#promotion')!;
-const game = new Chess();
-const scene = new THREE.Scene(); scene.background = new THREE.Color('#0b101a');
-const camera = new THREE.PerspectiveCamera(42,1,.1,100); camera.position.set(0,10,10);
-const renderer = new THREE.WebGLRenderer({antialias:true}); renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.shadowMap.enabled=true; stage.append(renderer.domElement);
-const controls = new OrbitControls(camera,renderer.domElement); controls.enableDamping=true; controls.minDistance=7; controls.maxDistance=20; controls.maxPolarAngle=Math.PI/2.25; controls.target.set(0,0,0);
-scene.add(new THREE.HemisphereLight(0xb9e9ff,0x192336,2));
-const sun = new THREE.DirectionalLight(0xffffff,3); sun.position.set(3,9,4); sun.castShadow=true; sun.shadow.mapSize.set(1024,1024); Object.assign(sun.shadow.camera,{left:-6,right:6,top:6,bottom:-6}); scene.add(sun);
-const board = new THREE.Group(); scene.add(board);
-const pieces = new THREE.Group(); scene.add(pieces);
-const markers = new THREE.Group(); scene.add(markers);
-const material = (color:number,metalness=.3)=>new THREE.MeshStandardMaterial({color,metalness,roughness:.32});
-const mesh = (g:THREE.BufferGeometry,m:THREE.Material,parent:THREE.Group,x=0,y=0,z=0)=>{const o=new THREE.Mesh(g,m);o.position.set(x,y,z);o.castShadow=true;o.receiveShadow=true;parent.add(o);return o;};
-const coords = (s:Square)=>new THREE.Vector3(s.charCodeAt(0)-97-3.5,0,3.5-(Number(s[1])-1));
-for(let rank=1;rank<=8;rank++)for(let file=0;file<8;file++){const square=`${String.fromCharCode(97+file)}${rank}` as Square;const p=coords(square);const tile=mesh(new THREE.BoxGeometry(.98,.16,.98),material((rank+file)%2?0x344b62:0x97b3c2),board,p.x,-.08,p.z);tile.userData.square=square;}
-mesh(new THREE.BoxGeometry(8.35,.25,8.35),material(0x182637,.7),board,0,-.27,0);
-function makePiece(type:PieceSymbol,color:'w'|'b'){
- const group=new THREE.Group(); const body=material(color==='w'?0xe4edf4:0x222937,.55); const accent=material(color==='w'?0x39d9e8:0xae70ff,.6);
- mesh(new THREE.CylinderGeometry(.27,.33,.13,24),body,group,0,.1);
- mesh(new THREE.CylinderGeometry(.12,.23,.38,24),body,group,0,.34);
- mesh(new THREE.TorusGeometry(.2,.035,8,24),accent,group,0,.17).rotation.x=Math.PI/2;
- if(type==='p')mesh(new THREE.SphereGeometry(.18,20,12),body,group,0,.65);
- if(type==='r'){mesh(new THREE.CylinderGeometry(.25,.2,.25,16),body,group,0,.66);for(let i=0;i<4;i++){const a=i*Math.PI/2;mesh(new THREE.BoxGeometry(.13,.16,.13),accent,group,Math.cos(a)*.2,.85,Math.sin(a)*.2);}}
- if(type==='b'){mesh(new THREE.ConeGeometry(.21,.46,16),body,group,0,.74);mesh(new THREE.SphereGeometry(.07,12,8),accent,group,0,1);}
- if(type==='n'){const neck=mesh(new THREE.BoxGeometry(.23,.42,.22),body,group,0,.67);neck.rotation.x=-.25;mesh(new THREE.BoxGeometry(.23,.2,.4),body,group,0,.86,-.09);for(const x of [-.065,.065])mesh(new THREE.ConeGeometry(.055,.15,4),accent,group,x,1,-.01);for(const x of [-.12,.12])mesh(new THREE.SphereGeometry(.035,8,8),accent,group,x,.9,-.2);group.rotation.y=color==='w'?0:Math.PI;}
- if(type==='q'||type==='k'){mesh(new THREE.CylinderGeometry(.16,.12,.23,16),body,group,0,.65);mesh(new THREE.CylinderGeometry(.23,.15,.16,16),accent,group,0,.85);if(type==='q'){for(let i=0;i<6;i++){const a=i*Math.PI/3;mesh(new THREE.ConeGeometry(.06,.2,8),body,group,Math.cos(a)*.17,1,Math.sin(a)*.17);}}else{mesh(new THREE.BoxGeometry(.08,.3,.08),accent,group,0,1.06);mesh(new THREE.BoxGeometry(.24,.08,.08),accent,group,0,1.1);}}
- return group;
+type Mode = "local" | "bot" | "online";
+type Result = { winner: "w" | "b" | null; reason: string } | null;
+interface State {
+  type: "state";
+  code: string;
+  color: "w" | "b";
+  fen: string;
+  history: string[];
+  latest: null | {
+    before: string;
+    from: Square;
+    to: Square;
+    promotion?: PieceSymbol;
+    san: string;
+  };
+  clocks: { w: number; b: number };
+  started: boolean;
+  result: Result;
+  connected: { w: boolean; b: boolean };
+  revision: number;
 }
-let selected:Square|null=null;
-let pending:{from:Square;to:Square}|null=null;
-let animation:{object:THREE.Group;from:THREE.Vector3;to:THREE.Vector3;start:number;type:PieceSymbol;duration:number}|null=null;
-const sparks: {object:THREE.Mesh;velocity:THREE.Vector3;life:number}[]=[];
-function clear(group:THREE.Group){for(const child of [...group.children]){group.remove(child);child.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();for(const m of Array.isArray(o.material)?o.material:[o.material])m.dispose();}});}}
-function rebuild(){clear(pieces);for(const row of game.board())for(const p of row)if(p){const obj=makePiece(p.type,p.color);obj.position.copy(coords(p.square));obj.userData.square=p.square;pieces.add(obj);}clear(markers);selected=null;updateStatus();}
-function updateStatus(){status.textContent=game.isCheckmate()?'รุกฆาต — '+(game.turn()==='w'?'ดำ':'ขาว')+' ชนะ':game.isDraw()?'เสมอ':`ตาฝ่าย${game.turn()==='w'?'ขาว':'ดำ'}${game.isCheck()?' — รุก!':''}`;const h=game.history();document.querySelector('#moves')!.textContent=h.map((s,i)=>`${i%2===0?`${Math.floor(i/2)+1}. `:''}${s}${i%2?'\n':'  '}`).join('');}
-function select(square:Square){clear(markers);selected=square;for(const move of game.moves({square,verbose:true})){const p=coords(move.to);const ring=mesh(new THREE.RingGeometry(.19,.3,24),new THREE.MeshBasicMaterial({color:move.captured?0xff687b:0x51f1dc,side:THREE.DoubleSide}),markers,p.x,.015,p.z);ring.rotation.x=-Math.PI/2;}}
-function burst(position:THREE.Vector3,color:number){for(let i=0;i<30;i++){const s=new THREE.Mesh(new THREE.IcosahedronGeometry(.05),material(color));s.position.copy(position).add(new THREE.Vector3(0,.5,0));scene.add(s);sparks.push({object:s,velocity:new THREE.Vector3((Math.random()-.5)*3,Math.random()*3,(Math.random()-.5)*3),life:1});}}
-function move(from:Square,to:Square,promotion:PieceSymbol='q'){
- const object=pieces.children.find(o=>o.userData.square===from) as THREE.Group|undefined;
- const legal=game.moves({square:from,verbose:true}).find(m=>m.to===to&&(!m.promotion||m.promotion===promotion));if(!legal||!object)return;
- const wasCheck=game.isCheck();const result=game.move({from,to,promotion});if(!result)return;
- clear(markers);selected=null;
- if(result.captured){const capturedSquare=result.flags.includes('e')?`${to[0]}${from[1]}`:to;const victim=pieces.children.find(o=>o.userData.square===capturedSquare);if(victim)pieces.remove(victim);burst(coords(to),result.color==='w'?0x51f1dc:0xc592ff);}
- event.textContent=game.isCheckmate()?'CHECKMATE':game.isCheck()?'CHECK':wasCheck&&result.captured?'ROYAL RESCUE':result.flags.includes('k')||result.flags.includes('q')?'ROYAL GUARD':result.promotion?'ASCENSION':result.captured?({p:'BRAVE STRIKE',n:'PHANTOM CHARGE',b:'PRISM JUDGMENT',r:'SIEGE BREAKER',q:'ROYAL ECLIPSE',k:'SOVEREIGN’S VERDICT'}[result.piece]):'';
- animation={object,from:coords(from),to:coords(to),start:performance.now(),type:result.piece,duration:result.captured?850:450};updateStatus();
+const symbols = {
+  w: { k: "♔", q: "♕", r: "♖", b: "♗", n: "♘", p: "♙" },
+  b: { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" },
+};
+const names = {
+  p: "เบี้ย",
+  n: "ม้า",
+  b: "บิชอป",
+  r: "รุก",
+  q: "ควีน",
+  k: "คิง",
+};
+const $ = <T extends HTMLElement = HTMLElement>(s: string) =>
+  document.querySelector<T>(s)!;
+$("#app").innerHTML =
+  `<header><a class="brand" href="#"><span class="brand-mark">♞</span><span>SPECIAL CHESS<small>PROCEDURAL 3D ARENA</small></span></a><div class="header-actions"><span class="tag">PURE CODE</span><button id="help" class="icon" aria-label="วิธีเล่น">?</button></div></header><div class="layout"><main id="stage" aria-label="กระดานหมากรุกสามมิติ"><div class="arena-top"><span id="mode-tag">LOCAL DUEL</span><span id="connection"></span></div><div id="event" aria-live="polite"><strong></strong><span></span></div><div id="cinema-top" class="cinema-bar"></div><div id="cinema-bottom" class="cinema-bar"></div><div class="arena-bottom"><span id="hint">เลือกหมากเพื่อเริ่มการประลอง</span><div><button id="view" class="icon" title="กลับมุมกล้อง" aria-label="กลับมุมกล้อง">◎</button><button id="flip" class="icon" title="สลับมุม" aria-label="สลับมุม">↻</button><button id="skip">ข้ามฉาก</button></div></div></main><aside><section class="match-head"><small>THE ROYAL DUEL</small><h1>ศึกหมากราชัน</h1><p>หมากรุกคลาสสิก · ทุกตาคือฉากต่อสู้</p></section><div class="player" id="black-player"><span class="avatar black">♚</span><div><strong>ฝ่ายดำ</strong><small id="black-label">ผู้เล่น 2</small></div><span class="clock" id="black-clock">—</span></div><div id="status" role="status"></div><div class="player" id="white-player"><span class="avatar white">♔</span><div><strong>ฝ่ายขาว</strong><small id="white-label">ผู้เล่น 1</small></div><span class="clock" id="white-clock">—</span></div><div id="result" hidden></div><div class="tabs" role="group" aria-label="โหมดเกม"><button data-mode="bot">เล่นกับบอต</button><button data-mode="local" class="active">สองคน</button><button data-mode="online">ออนไลน์</button></div><section id="online-panel" hidden><p class="muted">ห้องส่วนตัว · ฝ่ายละ 5 นาที</p><div class="button-row"><button id="create" class="primary">สร้างห้อง</button><button id="leave" hidden>ออกจากห้อง</button></div><form id="join-form"><input id="room-code" aria-label="รหัสห้อง" placeholder="รหัสห้อง 6 ตัว" maxlength="6" autocomplete="off" pattern="[A-Fa-f0-9]{6}" required><button id="join" type="submit">เข้าร่วม</button></form><div id="room-info" hidden><span>รหัสห้อง <strong id="code"></strong></span><button id="copy">คัดลอกลิงก์</button></div></section><div class="button-row" id="local-actions"><button id="reset" class="primary">เกมใหม่</button><button id="undo">ย้อนตา</button><select id="difficulty" aria-label="ระดับบอต" hidden><option value="1">บอตฝึกหัด</option><option value="2" selected>บอตทั่วไป</option><option value="3">บอตคิดลึก</option></select></div><button id="resign" hidden>ยอมแพ้</button><div id="notice" role="status"></div><section class="settings"><label><input type="checkbox" id="cinematic" checked> คัตซีนและกล้องพิเศษ</label><label><input type="checkbox" id="reduced"> ลดเอฟเฟกต์</label><label><input type="checkbox" id="sound"> เสียงสังเคราะห์</label></section><details id="board-details"><summary>กระดาน 2D / เล่นด้วยคีย์บอร์ด</summary><div id="flat-board" role="group" aria-label="กระดานหมากรุกสองมิติ"></div></details><details id="training-panel"><summary>สนามฝึกท่าสเปเชียล</summary><select id="training-select" aria-label="เลือกท่าฝึก"><option value="">เลือกฉากเพื่อทดลอง</option>${Object.entries(
+    training,
+  )
+    .map(([key, t]) => `<option value="${key}">${t.name}</option>`)
+    .join(
+      "",
+    )}</select><p id="training-hint" class="muted"></p></details><section class="history"><div class="section-title"><h2>บันทึกการประลอง</h2><button id="export" class="text-button">PGN ↓</button></div><div id="moves"></div></section><footer>โมเดล แสง และพลังทั้งหมดสร้างจากโค้ด<br>ไม่มีการเปลี่ยนความสามารถของหมาก</footer></aside></div><dialog id="promotion"><small>ASCENSION</small><h2>เลือกหมากเพื่อเลื่อนขั้น</h2><div class="promotion-options">${(["q", "r", "b", "n"] as const).map((p) => `<button data-piece="${p}"><span>${symbols.w[p]}</span>${names[p]}</button>`).join("")}</div><button id="cancel-promotion" class="text-button">ยกเลิก</button></dialog><dialog id="help-dialog"><small>HOW TO PLAY</small><h2>ทุกตาคือการตัดสินใจ</h2><p>เลือกหมากของฝ่ายที่ถึงตา แล้วเลือกช่องเรืองแสงเพื่อเดิน สีชมพูคือช่องกินหมาก</p><p>ลากเพื่อหมุนกระดาน เลื่อนเพื่อซูม หรือใช้กระดาน 2D ด้วยคีย์บอร์ด</p><p>กติกาหมากรุกมาตรฐาน: คิงจะไม่ถูกกิน เกมจบเมื่อรุกฆาต ท่าสเปเชียลเป็นภาพประกอบการเดิน และข้ามได้เสมอ</p><p>ออนไลน์: สร้างห้องแล้วส่งลิงก์ให้เพื่อน ฝ่ายละ 5 นาที เวลาเดินตามเซิร์ฟเวอร์ รวมเวลาคัตซีน หากรีเฟรชจะกลับเข้าห้องจากเบราว์เซอร์เดิม</p><p>เล่นกับบอต: คุณเป็นฝ่ายขาว บอตเป็นฝ่ายดำ ปรับระดับได้ก่อนตาถัดไป</p><button id="close-help" class="primary">เข้าใจแล้ว</button></dialog>`;
+let initialFen = new Chess().fen();
+let game = new Chess(),
+  mode: Mode = "local",
+  selected: Square | null = null,
+  pending: { from: Square; to: Square } | null = null,
+  lastMove: { from: Square; to: Square } | undefined;
+let scene: ChessScene | undefined;
+try {
+  scene = new ChessScene($("#stage"));
+} catch {
+  $("#stage").classList.add("no-webgl");
+  $("#stage").insertAdjacentHTML(
+    "afterbegin",
+    '<div class="fallback">เครื่องนี้เปิด 3D ไม่ได้ ใช้กระดาน 2D ด้านข้างเล่นได้</div>',
+  );
+  $("#board-details").setAttribute("open", "");
 }
-let down={x:0,y:0};renderer.domElement.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY};});
-renderer.domElement.addEventListener('pointerup',e=>{
- if(animation||game.isGameOver()||Math.hypot(e.clientX-down.x,e.clientY-down.y)>8)return;
- const rect=renderer.domElement.getBoundingClientRect();const ray=new THREE.Raycaster();ray.setFromCamera(new THREE.Vector2((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1),camera);
- const hits=ray.intersectObjects([...pieces.children,...board.children],true);let square:Square|undefined;
- for(const hit of hits){let o:THREE.Object3D|null=hit.object;while(o&&!o.userData.square)o=o.parent;if(o?.userData.square){square=o.userData.square;break;}}if(!square)return;
- if(selected){const moves=game.moves({square:selected,verbose:true}).filter(m=>m.to===square);if(moves.length){if(moves.some(m=>m.promotion)){pending={from:selected,to:square};dialog.showModal();}else move(selected,square);return;}}
- const p=game.get(square);if(p?.color===game.turn())select(square);else{selected=null;clear(markers);}
+let localResult: Result = null;
+let worker: Worker | undefined;
+let botTimer: ReturnType<typeof setTimeout> | undefined;
+let noticeTimer: ReturnType<typeof setTimeout>;
+let ws: WebSocket | undefined,
+  state: State | null = null,
+  session: { code: string; color: "w" | "b"; token: string } | null = null,
+  reconnectTimer: ReturnType<typeof setTimeout> | undefined,
+  serverStamp = Date.now(),
+  requestPending = false;
+let audio: AudioContext | undefined;
+const storage = {
+  get(key: string) {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key: string, value: string) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {}
+  },
+  remove(key: string) {
+    try {
+      localStorage.removeItem(key);
+    } catch {}
+  },
+};
+function notice(message: string) {
+  $("#notice").textContent = message;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => ($("#notice").textContent = ""), 6000);
+}
+function stopBot() {
+  clearTimeout(botTimer);
+  worker?.terminate();
+  worker = undefined;
+}
+function clearSelection() {
+  selected = null;
+  pending = null;
+  $("#promotion").hasAttribute("open") &&
+    $<HTMLDialogElement>("#promotion").close();
+  scene?.select(game, null, lastMove);
+}
+function isBusy() {
+  return !!scene?.animation || !!worker;
+}
+function canPlay() {
+  if (isBusy() || game.isGameOver() || localResult) return false;
+  if (mode === "bot" && game.turn() === "b") return false;
+  if (mode === "online")
+    return (
+      !!state?.started &&
+      !state.result &&
+      session?.color === game.turn() &&
+      ws?.readyState === WebSocket.OPEN
+    );
+  return true;
+}
+function resultText(result: Result) {
+  if (!result) return "";
+  const reason =
+    (
+      {
+        checkmate: "รุกฆาต",
+        draw: "เสมอ",
+        timeout: "หมดเวลา",
+        resign: "ยอมแพ้",
+      } as Record<string, string>
+    )[result.reason] || result.reason;
+  return result.winner
+    ? `ฝ่าย${result.winner === "w" ? "ขาว" : "ดำ"}ชนะ · ${reason}`
+    : `เกมเสมอ · ${reason}`;
+}
+function updateUI() {
+  const result = mode === "online" ? state?.result : localResult;
+  const turn = game.turn();
+  $("#status").textContent = result
+    ? resultText(result)
+    : game.isCheckmate()
+      ? `รุกฆาต · ฝ่าย${turn === "w" ? "ดำ" : "ขาว"}ชนะ`
+      : game.isDraw()
+        ? "เกมเสมอ"
+        : mode === "online" && !state?.started
+          ? "รอเพื่อนเข้าร่วม"
+          : `ตาฝ่าย${turn === "w" ? "ขาว" : "ดำ"}${game.isCheck() ? " · รุก!" : ""}${mode === "bot" && turn === "b" ? " · กำลังคิด" : ""}`;
+  $("#white-player").classList.toggle(
+    "current",
+    turn === "w" && !game.isGameOver() && !result,
+  );
+  $("#black-player").classList.toggle(
+    "current",
+    turn === "b" && !game.isGameOver() && !result,
+  );
+  $("#result").hidden = !(result || game.isGameOver());
+  $("#result").textContent = result
+    ? resultText(result)
+    : game.isCheckmate()
+      ? "ราชันถูกล้อม · การประลองสิ้นสุด"
+      : "การประลองจบด้วยผลเสมอ";
+  $("#white-label").textContent =
+    mode === "online"
+      ? (session?.color === "w" ? "คุณ" : "คู่แข่ง") +
+        (state?.connected.w ? " · เชื่อมต่อ" : " · หลุด")
+      : mode === "bot"
+        ? "คุณ"
+        : "ผู้เล่น 1";
+  $("#black-label").textContent =
+    mode === "online"
+      ? (session?.color === "b" ? "คุณ" : "คู่แข่ง") +
+        (state?.connected.b ? " · เชื่อมต่อ" : " · ยังไม่เชื่อมต่อ")
+      : mode === "bot"
+        ? "บอต"
+        : "ผู้เล่น 2";
+  $("#connection").textContent =
+    mode === "online"
+      ? ws?.readyState === 1
+        ? "● เชื่อมต่อแล้ว"
+        : "○ กำลังเชื่อมต่อ"
+      : "OFFLINE READY";
+  $("#mode-tag").textContent =
+    mode === "bot"
+      ? "SOLO CHALLENGE"
+      : mode === "online"
+        ? "ONLINE DUEL"
+        : "LOCAL DUEL";
+  $("#hint").textContent = selected
+    ? `${names[game.get(selected)!.type]} · ${selected.toUpperCase()} — เลือกช่องปลายทาง`
+    : mode === "online" && !state?.started
+      ? "ส่งรหัสห้องให้เพื่อนเพื่อเริ่ม"
+      : "แตะหมาก · ลากหมุน · เลื่อนซูม";
+  $("#training-panel").hidden = mode === "online";
+  $("#online-panel").hidden = mode !== "online";
+  $("#local-actions").hidden = mode === "online";
+  $("#resign").hidden = mode !== "online" || !state?.started || !!state.result;
+  $("#difficulty").hidden = mode !== "bot";
+  $("#room-info").hidden = !session;
+  $("#leave").hidden = !session;
+  $("#create").hidden = !!session;
+  $<HTMLFormElement>("#join-form").hidden = !!session;
+  if (session) $("#code").textContent = session.code;
+  for (const b of document.querySelectorAll<HTMLButtonElement>("[data-mode]"))
+    b.classList.toggle("active", b.dataset.mode === mode);
+  const h = game.history();
+  $("#moves").innerHTML = h.length
+    ? h
+        .map(
+          (s, i) =>
+            `${i % 2 === 0 ? `<span class="move-number">${Math.floor(i / 2) + 1}.</span>` : ""}<span class="san${i === h.length - 1 ? " latest" : ""}">${s}</span>`,
+        )
+        .join("")
+    : '<p class="muted">การเดินแรกเริ่มเรื่องราวของคุณ</p>';
+  $("#moves").scrollTop = $("#moves").scrollHeight;
+  updateFlatBoard();
+  updateClocks();
+}
+function updateFlatBoard() {
+  const focused =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement.dataset.square
+      : undefined;
+  const legal = selected
+    ? game.moves({ square: selected, verbose: true }).map((m) => m.to)
+    : [];
+  const order = scene?.flipped
+    ? [1, 2, 3, 4, 5, 6, 7, 8]
+    : [8, 7, 6, 5, 4, 3, 2, 1];
+  const files = scene?.flipped ? "hgfedcba" : "abcdefgh";
+  let html = "";
+  for (const rank of order)
+    for (const file of files) {
+      const s = (file + rank) as Square,
+        p = game.get(s);
+      html += `<button data-square="${s}" class="square ${(file.charCodeAt(0) + rank) % 2 ? "dark" : "light"} ${selected === s ? "selected" : ""} ${legal.includes(s) ? "legal" : ""} ${p?.color === "w" ? "white-piece" : "black-piece"}" aria-label="${s}${p ? " " + (p.color === "w" ? "ขาว" : "ดำ") + " " + names[p.type] : ""}${legal.includes(s) ? " เดินได้" : ""}"><span>${p ? symbols[p.color][p.type] : ""}</span><small>${s}</small></button>`;
+    }
+  $("#flat-board").innerHTML = html;
+  if (focused)
+    document
+      .querySelector<HTMLButtonElement>(`[data-square="${focused}"]`)
+      ?.focus({ preventScroll: true });
+}
+$("#flat-board").addEventListener("click", (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>(
+    "[data-square]",
+  );
+  if (b) pick(b.dataset.square as Square);
 });
-dialog.querySelectorAll<HTMLButtonElement>('button').forEach(b=>b.onclick=()=>{if(pending)move(pending.from,pending.to,b.dataset.piece as PieceSymbol);pending=null;dialog.close();});dialog.addEventListener('cancel',()=>{pending=null;});
-document.querySelector<HTMLButtonElement>('#reset')!.onclick=()=>{animation=null;event.textContent='';game.reset();rebuild();};
-document.querySelector<HTMLButtonElement>('#skip')!.onclick=()=>{animation=null;event.textContent='';rebuild();};
-document.querySelector<HTMLButtonElement>('#view')!.onclick=()=>{camera.position.set(0,10,10);controls.target.set(0,0,0);};
-new ResizeObserver(()=>{camera.aspect=stage.clientWidth/stage.clientHeight;camera.updateProjectionMatrix();renderer.setSize(stage.clientWidth,stage.clientHeight);}).observe(stage);
-rebuild();let previous=performance.now();
-renderer.setAnimationLoop(()=>{const now=performance.now();const dt=Math.min((now-previous)/1000,.05);previous=now;controls.update();if(animation){const t=Math.min((now-animation.start)/animation.duration,1);const eased=t*t*(3-2*t);animation.object.position.lerpVectors(animation.from,animation.to,eased);animation.object.position.y=Math.sin(t*Math.PI)*(animation.type==='n'?1.5:animation.type==='q'?.5:.18);if(t===1){animation=null;rebuild();event.textContent='';}}
- for(let i=sparks.length-1;i>=0;i--){const s=sparks[i];s.life-=dt;s.velocity.y-=dt*4;s.object.position.addScaledVector(s.velocity,dt);s.object.scale.setScalar(Math.max(0,s.life));if(s.life<=0){scene.remove(s.object);s.object.geometry.dispose();(s.object.material as THREE.Material).dispose();sparks.splice(i,1);}}renderer.render(scene,camera);});
+function pick(square: Square) {
+  if (!canPlay()) {
+    if (scene?.animation) notice("ข้ามฉากเพื่อเดินต่อได้");
+    return;
+  }
+  audio?.resume().catch(() => {});
+  if (selected) {
+    const available = game
+      .moves({ square: selected, verbose: true })
+      .filter((m) => m.to === square);
+    if (available.length) {
+      if (available.some((m) => m.promotion)) {
+        pending = { from: selected, to: square };
+        $<HTMLDialogElement>("#promotion").showModal();
+      } else submitMove(selected, square);
+      return;
+    }
+  }
+  if (game.get(square)?.color === game.turn()) {
+    selected = square;
+    scene?.select(game, square, lastMove);
+  } else {
+    selected = null;
+    scene?.select(game, null, lastMove);
+  }
+  updateUI();
+}
+function playSound(move: Move, event: MoveEvent) {
+  if (!$<HTMLInputElement>("#sound").checked) return;
+  try {
+    audio ||= new AudioContext();
+    void audio.resume();
+    const now = audio.currentTime;
+    for (let i = 0; i < (event.kind === "move" ? 1 : 3); i++) {
+      const o = audio.createOscillator(),
+        g = audio.createGain();
+      o.type = move.piece === "r" ? "sawtooth" : "sine";
+      const base = move.captured ? 100 : 260;
+      o.frequency.setValueAtTime(base + i * 140, now + i * 0.09);
+      o.frequency.exponentialRampToValueAtTime(50, now + i * 0.09 + 0.3);
+      g.gain.setValueAtTime(0, now + i * 0.09);
+      g.gain.linearRampToValueAtTime(0.06, now + i * 0.09 + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.09 + 0.3);
+      o.connect(g).connect(audio.destination);
+      o.start(now + i * 0.09);
+      o.stop(now + i * 0.09 + 0.31);
+    }
+  } catch {}
+}
+function animate(before: Chess, move: Move) {
+  lastMove = { from: move.from, to: move.to };
+  clearSelection();
+  const ev = analyzeMove(before, game, move);
+  $("#event strong").textContent = ev.title;
+  $("#event span").textContent = ev.subtitle;
+  $("#event").classList.toggle("visible", !!ev.title);
+  $("#stage").classList.toggle(
+    "cinematic",
+    !!ev.title && !!scene?.cinematic && !scene.reduced,
+  );
+  scene?.play(before, game, move, ev);
+  playSound(move, ev);
+  updateUI();
+  if (!scene) finishAnimation();
+}
+function finishAnimation() {
+  $("#event").classList.remove("visible");
+  $("#stage").classList.remove("cinematic");
+  scene?.select(game, null, lastMove);
+  updateUI();
+  scheduleBot();
+}
+if (scene) {
+  scene.onPick = pick;
+  scene.onFinish = finishAnimation;
+}
+function submitMove(from: Square, to: Square, promotion: PieceSymbol = "q") {
+  if (!canPlay()) return;
+  if (mode === "online") {
+    send({ type: "move", from, to, promotion, revision: state?.revision });
+    clearSelection();
+    return;
+  }
+  commitMove(from, to, promotion);
+}
+function commitMove(from: Square, to: Square, promotion: PieceSymbol = "q") {
+  const before = new Chess(game.fen());
+  let move;
+  try {
+    move = game.move({ from, to, promotion });
+  } catch {
+    notice("เดินผิดกติกา");
+    return;
+  }
+  saveLocal();
+  animate(before, move);
+}
+function scheduleBot() {
+  stopBot();
+  if (mode !== "bot" || game.turn() !== "b" || game.isGameOver() || localResult)
+    return;
+  botTimer = setTimeout(() => {
+    const fen = game.fen();
+    worker = new Worker(new URL("./bot.ts", import.meta.url), {
+      type: "module",
+    });
+    worker.onmessage = (e) => {
+      worker?.terminate();
+      worker = undefined;
+      if (mode === "bot" && game.fen() === fen && e.data)
+        commitMove(e.data.from, e.data.to, e.data.promotion);
+    };
+    worker.onerror = () => {
+      stopBot();
+      notice("บอตคิดไม่สำเร็จ ลองปรับระดับหรือเริ่มใหม่");
+    };
+    worker.postMessage({
+      fen,
+      depth: Number($<HTMLSelectElement>("#difficulty").value),
+    });
+    updateUI();
+  }, 250);
+}
+function saveLocal() {
+  if (mode !== "online")
+    storage.set(
+      "special-chess-local",
+      JSON.stringify({ mode, initialFen, history: game.history() }),
+    );
+}
+function newLocal() {
+  initialFen = new Chess().fen();
+  $<HTMLSelectElement>("#training-select").value = "";
+  $("#training-hint").textContent = "";
+  stopBot();
+  scene?.cancel();
+  game = new Chess();
+  localResult = null;
+  lastMove = undefined;
+  clearSelection();
+  scene?.renderBoard(game);
+  $("#event").classList.remove("visible");
+  $("#stage").classList.remove("cinematic");
+  saveLocal();
+  updateUI();
+}
+function disconnect() {
+  clearTimeout(reconnectTimer);
+  const socket = ws;
+  ws = undefined;
+  if (socket) {
+    socket.onclose = null;
+    socket.close();
+  }
+  session = null;
+  state = null;
+  requestPending = false;
+  storage.remove("special-chess-session");
+}
+function setMode(next: Mode) {
+  if (mode === next) return;
+  disconnect();
+  mode = next;
+  newLocal();
+  if (next === "online") connect();
+}
+function send(data: unknown) {
+  if (ws?.readyState !== WebSocket.OPEN) {
+    notice("ยังเชื่อมต่อเซิร์ฟเวอร์ไม่ได้");
+    return false;
+  }
+  ws.send(JSON.stringify(data));
+  return true;
+}
+function connect() {
+  if (mode !== "online") return;
+  clearTimeout(reconnectTimer);
+  if (ws) {
+    ws.onclose = null;
+    ws.close();
+  }
+  const socket = new WebSocket(
+    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`,
+  );
+  ws = socket;
+  socket.onopen = () => {
+    requestPending = false;
+    if (session)
+      send({ type: "resume", code: session.code, token: session.token });
+    updateUI();
+  };
+  socket.onmessage = (e) => {
+    if (ws !== socket) return;
+    try {
+      const m = JSON.parse(e.data);
+      if (m.type === "error") {
+        requestPending = false;
+        notice(m.message);
+        if (
+          m.message.includes("กลับเข้าห้อง") ||
+          m.message.includes("ไม่พบห้อง")
+        ) {
+          session = null;
+          state = null;
+          storage.remove("special-chess-session");
+        }
+        updateUI();
+        return;
+      }
+      if (m.type === "session") {
+        session = { code: m.code, color: m.color, token: m.token };
+        storage.set("special-chess-session", JSON.stringify(session));
+        requestPending = false;
+        scene?.resetView(m.color === "b");
+        updateUI();
+        return;
+      }
+      if (m.type === "state") receiveState(m);
+      if (m.type === "left") {
+        disconnect();
+        setMode("local");
+      }
+    } catch {
+      notice("รับข้อมูลจากเซิร์ฟเวอร์ไม่สำเร็จ");
+    }
+  };
+  socket.onclose = (e) => {
+    if (ws !== socket || mode !== "online") return;
+    requestPending = false;
+    updateUI();
+    if (e.code === 4001) {
+      disconnect();
+      notice("ห้องนี้เปิดจากหน้าต่างอื่นแล้ว");
+      updateUI();
+      return;
+    }
+    reconnectTimer = setTimeout(connect, 2000);
+  };
+  socket.onerror = () =>
+    notice("เชื่อมต่อออนไลน์ไม่ได้ ตรวจว่าเซิร์ฟเวอร์กำลังทำงาน");
+  updateUI();
+}
+function receiveState(next: State) {
+  const changed = !state || next.revision !== state.revision;
+  state = next;
+  serverStamp = Date.now();
+  if (changed) {
+    stopBot();
+    scene?.cancel();
+    clearSelection();
+    const rebuilt = new Chess();
+    for (const m of next.history) rebuilt.move(m);
+    game = rebuilt;
+    localResult = null;
+    if (next.latest) {
+      const before = new Chess(next.latest.before);
+      const move = before.move({
+        from: next.latest.from,
+        to: next.latest.to,
+        promotion: next.latest.promotion || "q",
+      });
+      const beforeGame = new Chess(next.latest.before);
+      animate(beforeGame, move);
+    } else {
+      lastMove = undefined;
+      scene?.renderBoard(game);
+      $("#event").classList.remove("visible");
+      $("#stage").classList.remove("cinematic");
+    }
+  }
+  updateUI();
+}
+function updateClocks() {
+  for (const color of ["w", "b"] as const) {
+    let ms = state?.clocks[color] || 0;
+    if (
+      mode === "online" &&
+      state?.started &&
+      !state.result &&
+      game.turn() === color &&
+      ws?.readyState === 1
+    )
+      ms = Math.max(0, ms - (Date.now() - serverStamp));
+    $(`#${color === "w" ? "white" : "black"}-clock`).textContent =
+      mode === "online" && state
+        ? `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`
+        : "—";
+  }
+}
+setInterval(updateClocks, 200);
+for (const b of document.querySelectorAll<HTMLButtonElement>("[data-mode]"))
+  b.onclick = () => setMode(b.dataset.mode as Mode);
+$("#reset").onclick = newLocal;
+$("#undo").onclick = () => {
+  if (mode === "online") return;
+  stopBot();
+  scene?.cancel();
+  const wasBlack = game.turn() === "b";
+  game.undo();
+  if (mode === "bot" && !wasBlack && game.history().length) game.undo();
+  localResult = null;
+  lastMove = undefined;
+  clearSelection();
+  scene?.renderBoard(game);
+  $("#event").classList.remove("visible");
+  $("#stage").classList.remove("cinematic");
+  saveLocal();
+  updateUI();
+  scheduleBot();
+};
+$("#view").onclick = () => {
+  scene?.finish();
+  scene?.resetView();
+};
+$("#flip").onclick = () => {
+  scene?.finish();
+  scene?.resetView(!scene.flipped);
+  updateFlatBoard();
+};
+$("#skip").onclick = () => scene?.finish();
+$("#promotion")
+  .querySelectorAll<HTMLButtonElement>("[data-piece]")
+  .forEach(
+    (b) =>
+      (b.onclick = () => {
+        const p = pending;
+        pending = null;
+        $<HTMLDialogElement>("#promotion").close();
+        if (p) submitMove(p.from, p.to, b.dataset.piece as PieceSymbol);
+      }),
+  );
+$("#promotion").addEventListener("cancel", () => {
+  pending = null;
+});
+$("#cancel-promotion").onclick = () => {
+  pending = null;
+  $<HTMLDialogElement>("#promotion").close();
+};
+$("#create").onclick = () => {
+  if (!requestPending && send({ type: "create" })) requestPending = true;
+};
+$("#join-form").onsubmit = (e) => {
+  e.preventDefault();
+  const code = $<HTMLInputElement>("#room-code").value.trim().toUpperCase();
+  if (
+    /^[A-F0-9]{6}$/.test(code) &&
+    !requestPending &&
+    send({ type: "join", code })
+  )
+    requestPending = true;
+};
+$("#leave").onclick = () => {
+  if (state?.started && !state.result) send({ type: "resign" });
+  send({ type: "leave" });
+  disconnect();
+  mode = "local";
+  newLocal();
+};
+$("#resign").onclick = () => send({ type: "resign" });
+$("#copy").onclick = async () => {
+  if (!session) return;
+  const url = new URL(location.href);
+  url.searchParams.set("room", session.code);
+  try {
+    await navigator.clipboard.writeText(url.href);
+    notice("คัดลอกลิงก์แล้ว ส่งให้เพื่อนได้เลย");
+  } catch {
+    notice(`รหัสห้อง: ${session.code}`);
+  }
+};
+$("#help").onclick = () => $<HTMLDialogElement>("#help-dialog").showModal();
+$("#close-help").onclick = () => $<HTMLDialogElement>("#help-dialog").close();
+$("#training-select").onchange = () => {
+  const key = $<HTMLSelectElement>("#training-select")
+    .value as keyof typeof training;
+  const t = training[key];
+  if (!t) return;
+  if (mode !== "local") setMode("local");
+  stopBot();
+  game = new Chess(t.fen);
+  initialFen = t.fen;
+  localResult = null;
+  lastMove = undefined;
+  clearSelection();
+  scene?.renderBoard(game);
+  $("#event").classList.remove("visible");
+  $("#stage").classList.remove("cinematic");
+  $<HTMLSelectElement>("#training-select").value = key;
+  $("#training-hint").textContent = t.hint;
+  scene?.resetView(false);
+  saveLocal();
+  updateUI();
+  notice(t.hint);
+};
+$("#export").onclick = () => {
+  const blob = new Blob([game.pgn()], { type: "application/x-chess-pgn" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "special-chess.pgn";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+$<HTMLInputElement>("#reduced").checked = scene?.reduced || false;
+for (const key of ["cinematic", "reduced", "sound"]) {
+  const input = $<HTMLInputElement>("#" + key);
+  const saved = storage.get("special-chess-" + key);
+  if (saved !== null) input.checked = saved === "true";
+  input.onchange = () => {
+    storage.set("special-chess-" + key, String(input.checked));
+    if (scene) {
+      scene.finish();
+      scene.cinematic = $<HTMLInputElement>("#cinematic").checked;
+      scene.reduced = $<HTMLInputElement>("#reduced").checked;
+    }
+    if (key === "sound" && input.checked) {
+      try {
+        audio ||= new AudioContext();
+        void audio.resume();
+      } catch {
+        notice("อุปกรณ์นี้เปิดเสียงไม่ได้");
+      }
+    }
+  };
+}
+if (scene) {
+  scene.cinematic = $<HTMLInputElement>("#cinematic").checked;
+  scene.reduced = $<HTMLInputElement>("#reduced").checked;
+}
+try {
+  const saved = JSON.parse(storage.get("special-chess-local") || "null");
+  if (
+    saved &&
+    ["local", "bot"].includes(saved.mode) &&
+    Array.isArray(saved.history)
+  ) {
+    game = new Chess(saved.initialFen || new Chess().fen());
+    initialFen = game.fen();
+    for (const m of saved.history) game.move(m);
+    mode = saved.mode;
+  }
+} catch {
+  game = new Chess();
+}
+const invite = new URLSearchParams(location.search).get("room");
+try {
+  const saved = JSON.parse(storage.get("special-chess-session") || "null");
+  if (
+    saved &&
+    /^[A-F0-9]{6}$/.test(saved.code) &&
+    typeof saved.token === "string" &&
+    (!invite || invite === saved.code)
+  ) {
+    session = saved;
+    mode = "online";
+  }
+} catch {}
+if (invite) {
+  mode = "online";
+  $<HTMLInputElement>("#room-code").value = invite.toUpperCase();
+}
+scene?.renderBoard(game);
+updateUI();
+if (mode === "online") connect();
+else scheduleBot();
