@@ -2,6 +2,12 @@
 
 เวอร์ชันทดสอบแยกสำหรับเล่นกับบอต **ง่าย / ปานกลาง / ยาก**
 
+## เล่นผ่านลิงก์
+
+เตรียมระบบเผยแพร่ GitHub Pages แล้ว หลังเปิด Pages และ workflow **Publish bot game** สำเร็จ ลิงก์เริ่มต้นจะเป็น `https://knight1598.github.io/IAHCARUS-Idle/` ไม่ต้องดาวน์โหลดไฟล์หรือเปิดเซิร์ฟเวอร์เอง
+
+ตั้งค่าครั้งแรก: repository **Settings → Pages → Source: GitHub Actions** แล้วไป **Actions → Publish bot game → Run workflow** หากยังไม่มี deployment สำเร็จ ดู URL ที่ GitHub รายงานหลัง deploy ก่อนแชร์ลิงก์
+
 ## เปิดเล่น
 
 1. ดาวน์โหลดไฟล์ [`Special-Chess-Offline.html`](./Special-Chess-Offline.html) จาก GitHub ด้วยปุ่ม **Download raw file**

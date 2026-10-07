@@ -2,6 +2,25 @@
 
 A playable, procedural 3D chess game with signature attacks, cinematic camera sequences and Thai UI. All piece geometry, textures, effects and synthesized sounds are generated in code. No external art or model downloads.
 
+## Browser link (GitHub Pages)
+
+The repository includes the **Publish bot game** workflow. It builds and tests the bot-only edition, then deploys `dist-pages/index.html` with GitHub's Pages actions. No Node/WebSocket server is needed at runtime.
+
+One-time repository setup (requires permission to manage Pages):
+
+1. Open **Settings → Pages → Build and deployment → Source** and select **GitHub Actions**.
+2. Open **Actions → Publish bot game → Run workflow** on `main` if the latest deployment has not succeeded.
+3. Open the deployment URL reported by that workflow. The expected default URL is `https://knight1598.github.io/IAHCARUS-Idle/`; it is not proof of an active deployment until GitHub reports success.
+
+Subsequent game changes on `main` trigger automatic deployment. Repository visibility and account plan can affect Pages availability; do not change repository visibility to enable it without the owner's instruction.
+
+```sh
+npm run build:pages
+npm run test:pages
+```
+
+The Pages smoke test serves the game from `/IAHCARUS-Idle/`, loads the real browser page, then disconnects networking and verifies all three bot levels. Embedded workers use local blob URLs and make no external requests.
+
 ## Standalone offline test edition
 
 Download [`offline/Special-Chess-Offline.html`](offline/Special-Chess-Offline.html) using GitHub's **Download raw file** button, then open it in desktop Chrome/Edge. This separate single-file edition starts directly against a local bot with Easy/Medium/Hard difficulty. It includes all procedural 3D effects and training scenes, has no multiplayer UI, and requires no Node server or Internet connection. See the [Thai offline guide](offline/README.md).

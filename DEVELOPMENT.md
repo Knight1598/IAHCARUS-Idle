@@ -50,3 +50,9 @@ Dramatic capture/special-event sequences last 2.8 seconds (mate 3.8); normal mov
 Only cinematic + non-reduced mode enables camera cuts, shaking and manga overlays. Reduced mode stays at 180 ms with no overlay. The single soft impact pulse is tested to avoid repeating flashes. Disposal handles mesh, line and point geometry; particles belong to `fx` and are disposed there on cancellation.
 
 Offline browser tests execute a full charge-to-return sequence with sound enabled, capture screenshots, make a real 3D move after camera return, and exercise skip plus non-cinematic/reduced modes. Keep the WebGL canvas selector specific (`canvas.first()`) because the manga layer adds a second canvas.
+
+## Static web deployment
+
+`npm run build:pages` builds the offline edition and packages it as `dist-pages/index.html` plus `.nojekyll`. `.github/workflows/pages.yml` builds, tests the real Pages subpath, uploads the static artifact and deploys via GitHub Pages. Permissions are limited to contents read for build and pages/id-token write for deployment.
+
+One-time Pages source configuration requires repository settings access. This cloud instance denies the `api.github.com` and `knight1598.github.io` network destinations, so API enablement and public URL verification cannot be performed here. Do not claim the site live solely from a Git push or predict a successful deployment; check the workflow's published URL and deployment outcome. Do not request a new token merely because API access is blocked by networking.
