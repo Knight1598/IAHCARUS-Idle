@@ -4,9 +4,9 @@
 
 ## เล่นผ่านลิงก์
 
-เตรียมระบบเผยแพร่ GitHub Pages แล้ว หลังเปิด Pages และ workflow **Publish bot game** สำเร็จ ลิงก์เริ่มต้นจะเป็น `https://knight1598.github.io/IAHCARUS-Idle/` ไม่ต้องดาวน์โหลดไฟล์หรือเปิดเซิร์ฟเวอร์เอง
+workflow **Deploy IAHCARUS to GitHub Pages** คัดลอกไฟล์ `offline/Special-Chess-Offline.html` ที่ commit ไว้ไปเป็นหน้าเว็บหลักโดยตรง ไม่ build หรือแก้ไฟล์เกม หลังเปิด Pages และ deploy สำเร็จ ใช้ลิงก์เดิม `https://knight1598.github.io/IAHCARUS-Idle/` ได้ตลอด ไม่ต้องดาวน์โหลดไฟล์หรือเปิดเซิร์ฟเวอร์เอง
 
-ตั้งค่าครั้งแรก: repository **Settings → Pages → Source: GitHub Actions** แล้วไป **Actions → Publish bot game → Run workflow** หากยังไม่มี deployment สำเร็จ ดู URL ที่ GitHub รายงานหลัง deploy ก่อนแชร์ลิงก์
+ตั้งค่าครั้งแรก: repository **Settings → Pages → Build and deployment → Source → GitHub Actions** แล้วไป **Actions → Deploy IAHCARUS to GitHub Pages → Run workflow** เลือก `main` และกดรัน หลังจากนั้นทุก push เข้า `main` จะ deploy อัตโนมัติ เมื่อต้องการอัปเดตเกมให้แก้ไฟล์ `offline/Special-Chess-Offline.html` แล้ว push เข้า `main`
 
 ## เปิดเล่น
 

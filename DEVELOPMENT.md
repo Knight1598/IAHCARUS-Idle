@@ -101,6 +101,8 @@ Offline browser tests execute black-side play, undo/save restoration, illegal-mo
 
 ## Static web deployment
 
-`npm run build:pages` builds the offline edition and packages it as `dist-pages/index.html` plus `.nojekyll`. `.github/workflows/pages.yml` builds, tests the real Pages subpath, uploads the static artifact and deploys via GitHub Pages. Permissions are limited to contents read for build and pages/id-token write for deployment.
+`.github/workflows/deploy-pages.yml` runs on every push to `main` and on manual dispatch. It copies the committed `offline/Special-Chess-Offline.html` directly to `_site/index.html`, adds `.nojekyll`, verifies byte equality, uploads `_site` as the Pages artifact and deploys to the `github-pages` environment. Permissions are `contents: read`, `pages: write` and `id-token: write`. This replaces the old build-and-deploy workflow so only one workflow publishes the site. Deployment does not rebuild or modify the game or root `index.html`.
+
+For a local Pages smoke test without rebuilding the committed HTML, run `node scripts/package-pages.mjs` then `npm run test:pages`. The existing `npm run build:pages` remains available as a development command to regenerate the offline edition from source; it is not used by deployment.
 
 One-time Pages source configuration requires repository settings access. This cloud instance denies the `api.github.com` and `knight1598.github.io` network destinations, so API enablement and public URL verification cannot be performed here. Do not claim the site live solely from a Git push or predict a successful deployment; check the workflow's published URL and deployment outcome. Do not request a new token merely because API access is blocked by networking.

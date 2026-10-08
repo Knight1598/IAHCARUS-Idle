@@ -4,18 +4,18 @@ A playable fantasy army chess game with a 3D commander lobby, individual piece c
 
 ## Browser link (GitHub Pages)
 
-The repository includes the **Publish bot game** workflow. It builds and tests the bot-only edition, then deploys `dist-pages/index.html` with GitHub's Pages actions. No Node/WebSocket server is needed at runtime.
+The **Deploy IAHCARUS to GitHub Pages** workflow (`.github/workflows/deploy-pages.yml`) publishes the committed `offline/Special-Chess-Offline.html` directly. It copies that file to `_site/index.html`, checks that the bytes match, adds `.nojekyll`, then uploads and deploys with GitHub's Pages actions. It does not rebuild or modify the game. No Node/WebSocket server is needed at runtime.
 
 One-time repository setup (requires permission to manage Pages):
 
 1. Open **Settings → Pages → Build and deployment → Source** and select **GitHub Actions**.
-2. Open **Actions → Publish bot game → Run workflow** on `main` if the latest deployment has not succeeded.
+2. Open **Actions → Deploy IAHCARUS to GitHub Pages → Run workflow** on `main` if the latest deployment has not succeeded.
 3. Open the deployment URL reported by that workflow. The expected default URL is `https://knight1598.github.io/IAHCARUS-Idle/`; it is not proof of an active deployment until GitHub reports success.
 
-Subsequent game changes on `main` trigger automatic deployment. Repository visibility and account plan can affect Pages availability; do not change repository visibility to enable it without the owner's instruction.
+Every push to `main` triggers automatic deployment to the same URL. To publish a new game version, update `offline/Special-Chess-Offline.html` and push it to `main`. Repository visibility and account plan can affect Pages availability; do not change repository visibility to enable it without the owner's instruction.
 
 ```sh
-npm run build:pages
+node scripts/package-pages.mjs
 npm run test:pages
 ```
 
