@@ -11,6 +11,7 @@ import { createAvatar, animateAvatar, animateDefender, createAvatarAura, animate
 import { ArenaEnvironment } from "./arena";
 import { arenas, type ArenaId } from "./arenas";
 import { frameCombat } from "./framing";
+import { CombatVFX } from "./vfx";
 const material = (color: number, metalness = 0.3) =>
   new THREE.MeshStandardMaterial({ color, metalness, roughness: 0.3 });
 const mesh = (
@@ -23,8 +24,9 @@ const mesh = (
 ) => {
   const o = new THREE.Mesh(g, m);
   o.position.set(x, y, z);
-  o.castShadow = true;
-  o.receiveShadow = true;
+  // Energy and labels never cast solid shadows over fighters.
+  o.castShadow = !(m instanceof THREE.MeshBasicMaterial || m instanceof THREE.ShaderMaterial);
+  o.receiveShadow = m instanceof THREE.MeshStandardMaterial;
   parent.add(o);
   return o;
 };
@@ -242,12 +244,10 @@ interface Animation {
   guard?: THREE.Mesh;
   victimOrigin?: THREE.Vector3;
   victimRotation?: THREE.Euler;
-  weaponsGroup?: THREE.Group;
+  vfx?: CombatVFX;
   dramatic: boolean;
-  weapons: boolean;
   launched: boolean;
   lock?: THREE.Group;
-  trail?: THREE.LineSegments;
   cracks?: { dark: THREE.Mesh; core: THREE.LineSegments; stops: number[] };
   aura?: THREE.Group;
   rotation: number;
@@ -418,6 +418,8 @@ export class ChessScene {
     this.scene.background = new THREE.Color("#080d16");
     this.scene.fog = new THREE.Fog("#080d16", 19, 35);
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.autoUpdate = false;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -656,15 +658,17 @@ export class ChessScene {
           if (glow !== 2) geometry.rotateX(-Math.PI / 2);
           geometry.translate(p.x, height, p.z);
           const count = geometry.getAttribute("position").count;
-          const centers = new Float32Array(count * 3), flags = new Float32Array(count), colors = new Float32Array(count * 3), tiers = new Float32Array(count);
+          const centers = new Float32Array(count * 3), flags = new Float32Array(count), colors = new Float32Array(count * 3), tiers = new Float32Array(count), schools = new Float32Array(count);
           for (let i = 0; i < count; i++) {
             centers.set([p.x, sides + p.z * 2, p.z], i * 3); flags[i] = glow;
             colors.set([auraColor.r, auraColor.g, auraColor.b], i * 3); tiers[i] = tier;
+            schools[i] = ["p", "n", "b", "r", "q", "k"].indexOf(piece.type);
           }
           geometry.setAttribute("aCenter", new THREE.BufferAttribute(centers, 3));
           geometry.setAttribute("aGlow", new THREE.BufferAttribute(flags, 1));
           geometry.setAttribute("aColor", new THREE.BufferAttribute(colors, 3));
           geometry.setAttribute("aTier", new THREE.BufferAttribute(tiers, 1));
+          geometry.setAttribute("aSchool", new THREE.BufferAttribute(schools, 1));
           geometries.push(geometry);
         }
       }
@@ -673,19 +677,34 @@ export class ChessScene {
       geometries.forEach((g) => g.dispose());
       const material = new THREE.ShaderMaterial({
         uniforms: { uTime: { value: performance.now() / 1000 }, uColor: { value: new THREE.Color(0xffffff) } },
-        vertexShader: `attribute vec3 aCenter; attribute float aGlow; attribute vec3 aColor; attribute float aTier; uniform float uTime;
-          varying vec2 vLocal; varying float vPhase; varying float vGlow; varying vec3 vColor; varying float vTier; varying float vHeight;
+        vertexShader: `attribute vec3 aCenter; attribute float aGlow; attribute vec3 aColor; attribute float aTier; attribute float aSchool; uniform float uTime;
+          varying vec2 vLocal; varying float vPhase; varying float vGlow; varying vec3 vColor; varying float vTier; varying float vHeight; varying float vSchool;
           void main() { vec3 p = position; vec2 local = p.xz - aCenter.xz;
             float angle = uTime * (aTier > 2.5 ? -0.17 : 0.13) + aCenter.y * 0.2;
             float c = cos(angle), s = sin(angle);
             p.xz = aCenter.xz + mat2(c,-s,s,c) * local;
-            vLocal = local; vPhase = aCenter.y; vGlow = aGlow; vColor = aColor; vTier = aTier; vHeight = p.y;
+            vLocal = local; vPhase = aCenter.y; vGlow = aGlow; vColor = aColor; vTier = aTier; vHeight = p.y; vSchool = aSchool;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(p,1.0); }`,
         fragmentShader: `uniform vec3 uColor; uniform float uTime;
-          varying vec2 vLocal; varying float vPhase; varying float vGlow; varying vec3 vColor; varying float vTier; varying float vHeight;
-          void main() { float pulse = 0.65 + 0.2 * sin(uTime * 1.7 + vPhase);
-            float alpha = vGlow > 1.5 ? max(0.0,1.0-vHeight/0.45)*0.12 : vGlow > 0.5 ? pow(max(0.0,1.0-length(vLocal)/0.46),2.0) * 0.75 : 0.58;
-            gl_FragColor = vec4(uColor * vColor, alpha * pulse * (0.85 + vTier * 0.05));
+          varying vec2 vLocal; varying float vPhase; varying float vGlow; varying vec3 vColor; varying float vTier; varying float vHeight; varying float vSchool;
+          void main() {
+            float radius=length(vLocal)/0.46, angle=atan(vLocal.y,vLocal.x);
+            float pulse=0.72+0.13*sin(uTime*1.5+vPhase);
+            float petals=3.0+vSchool;
+            float flow=pow(0.5+0.5*cos(angle*petals-radius*11.0+uTime*(vSchool==3.0?0.6:1.1)),5.0);
+            float sweep=pow(0.5+0.5*cos(angle-uTime*0.75-vPhase),12.0);
+            float alpha;
+            if(vGlow>1.5){
+              float height=clamp(vHeight/0.45,0.0,1.0);
+              float filaments=pow(0.5+0.5*sin(angle*petals-height*9.0+uTime*2.0),9.0);
+              alpha=(1.0-height)*(0.025+filaments*0.085);
+            } else if(vGlow>0.5) {
+              float halo=pow(max(0.0,1.0-radius),2.0);
+              float petalsGlow=flow*smoothstep(0.12,0.28,radius)*(1.0-smoothstep(0.7,1.0,radius));
+              alpha=halo*0.32+petalsGlow*0.08;
+            } else alpha=0.30+flow*0.17+sweep*0.2;
+            vec3 tint=mix(vColor,vec3(0.88,0.97,1.0),sweep*0.24);
+            gl_FragColor=vec4(uColor*tint*(0.85+sweep*0.4),alpha*pulse*(0.85+vTier*0.05));
             #include <tonemapping_fragment>
             #include <colorspace_fragment>
           }`,
@@ -848,7 +867,6 @@ export class ChessScene {
       impacted: false,
       died: false,
       dramatic,
-      weapons: false,
       launched: false,
       rotation: object.rotation.y,
       camera: this.camera.position.clone(),
@@ -860,16 +878,12 @@ export class ChessScene {
     this.controls.enabled = false;
     if (!this.reduced) {
       this.stage.dataset.attackStyle = move.piece;
-      this.animation.aura = this.chargeAura(this.animation);
-      this.animation.lock = this.targetLock(this.animation);
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(24 * 6), 3).setUsage(THREE.DynamicDrawUsage));
-      const trail = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({
-        color: battleColor(move.color, event.story, skin), transparent: true,
-        opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending,
-      }));
-      trail.frustumCulled = false;
-      this.fx.add(trail); this.animation.trail = trail;
+      const visual = new CombatVFX({ piece: move.piece, color: battleColor(move.color, event.story, skin),
+        skin, quality: this.quality, captured: !!victim });
+      this.animation.vfx = visual;
+      this.animation.aura = visual.chargeGroup;
+      this.animation.lock = visual.lockGroup;
+      this.fx.add(visual.group);
       this.animation.cracks = this.groundCracks(this.animation);
       this.animation.avatar = createAvatar(move.piece, move.color, skin);
       this.animation.avatarAura = createAvatarAura(move.piece, move.color, skin);
@@ -882,7 +896,7 @@ export class ChessScene {
         this.animation.defenderAvatar.name = `defender-${defenderType}-${defenderSkin}`;
         this.animation.defenderAura = createAvatarAura(defenderType, defenderColor, defenderSkin);
         this.fx.add(this.animation.defenderAvatar, this.animation.defenderAura);
-        const guard = mesh(new THREE.SphereGeometry(0.85, 12, 8), this.glow(battleColor(move.color === "w" ? "b" : "w", undefined, victim.userData.skin || this.skin), 0.18), this.fx);
+        const guard = mesh(new THREE.SphereGeometry(0.85, 24, 16), this.barrier(battleColor(move.color === "w" ? "b" : "w", undefined, victim.userData.skin || this.skin)), this.fx);
         guard.name = "defender-guard"; guard.position.copy(victim.position); guard.position.y = 1.15;
         guard.scale.z = 0.55;
         this.animation.guard = guard;
@@ -927,29 +941,11 @@ export class ChessScene {
     const lineGeometry = new THREE.BufferGeometry(); lineGeometry.setAttribute("position", new THREE.Float32BufferAttribute(lines, 3));
     const darkGeometry = new THREE.BufferGeometry(); darkGeometry.setAttribute("position", new THREE.Float32BufferAttribute(ribbons, 3));
     lineGeometry.setDrawRange(0, 0); darkGeometry.setDrawRange(0, 0);
-    const dark = mesh(darkGeometry, new THREE.MeshBasicMaterial({ color: 0x020711, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true }), group);
+    const dark = mesh(darkGeometry, new THREE.MeshBasicMaterial({ color: 0x020711, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true }), group);
     dark.castShadow = dark.receiveShadow = false;
     const core = new THREE.LineSegments(lineGeometry, new THREE.LineBasicMaterial({ color: battleColor(a.move.color, undefined, a.skin), transparent: true, opacity: 0.65, blending: THREE.AdditiveBlending, depthWrite: false }));
     group.add(core); this.groundScars.add(group);
     return { dark, core, stops };
-  }
-  private targetLock(a: Animation) {
-    const group = new THREE.Group();
-    group.name = a.victim ? "enemy-lock" : "destination-lock";
-    group.position.copy(a.to); group.position.y = 0.04;
-    const color = a.victim ? 0xff657c : battleColor(a.move.color, undefined, a.skin);
-    const ring = mesh(new THREE.RingGeometry(0.42, 0.45, combatStyles[a.move.piece].sides), this.glow(color, 0.8), group);
-    ring.rotation.x = -Math.PI / 2;
-    const vertices: number[] = [];
-    for (const x of [-1, 1]) for (const z of [-1, 1]) {
-      vertices.push(x * 0.55, 0, z * 0.32, x * 0.55, 0, z * 0.55,
-        x * 0.55, 0, z * 0.55, x * 0.32, 0, z * 0.55);
-    }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
-    group.add(new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.8 })));
-    this.fx.add(group);
-    return group;
   }
   private beam(
     from: THREE.Vector3,
@@ -960,79 +956,28 @@ export class ChessScene {
     const d = to.clone().sub(from);
     const o = mesh(
       new THREE.CylinderGeometry(radius, radius, d.length(), 8),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8 }),
+      new THREE.ShaderMaterial({
+        uniforms: { uColor: { value: new THREE.Color(color) } },
+        vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+        fragmentShader: `uniform vec3 uColor; varying vec2 vUv;
+          void main() {
+            float core = pow(abs(cos(vUv.x * 6.28318)), 8.0);
+            float taper = smoothstep(0.0, .12, vUv.y) * (1.0 - smoothstep(.88, 1.0, vUv.y));
+            gl_FragColor = vec4(mix(uColor * .7, vec3(.9, .96, 1.0), core * .45), (.16 + core * .42) * taper);
+            #include <colorspace_fragment>
+          }`,
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+      }),
       this.fx,
     );
     o.position.copy(from).add(to).multiplyScalar(0.5);
     o.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
     return o;
   }
-  private weapon(a: Animation) {
-    const color = battleColor(a.move.color, undefined, a.skin);
-    const p = a.to;
-    const group = new THREE.Group(); group.name = `execution-${a.move.piece}-${a.skin}`;
-    group.position.copy(p); this.fx.add(group);
-    const add = (geometry: THREE.BufferGeometry, x = 0, y = 0, z = 0) => mesh(geometry, this.glow(color, 0.85), group, x, y, z);
-    const direction = a.to.clone().sub(a.stop).normalize();
-    if (a.move.piece === "p") {
-      const spear = add(new THREE.CylinderGeometry(0.045, 0.065, 2.2, 6), 0, 1.35);
-      spear.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
-      const point = add(new THREE.ConeGeometry(0.13, 0.4, 4), direction.x * 0.96, 1.35, direction.z * 0.96);
-      point.quaternion.copy(spear.quaternion);
-    }
-    if (a.move.piece === "n") {
-      for (let i = 0; i < (skins[a.skin].tier >= 3 ? 3 : 2); i++) {
-        const slash = add(new THREE.TorusGeometry(1.05 + i * 0.12, 0.035, 4, 32, Math.PI * 1.25), 0, 1.35 + i * 0.15);
-        slash.rotation.set(0.4, i * 0.6, -0.8 + i * 1.4);
-      }
-    }
-    if (a.move.piece === "b" || a.move.piece === "r") {
-      const origin = a.stop.clone().sub(p).addScaledVector(direction, -0.6).add(new THREE.Vector3(0, a.move.piece === "b" ? 1.9 : 1.5, 0));
-      const destination = new THREE.Vector3(direction.x * 0.4, 1.35, direction.z * 0.4);
-      const d = destination.clone().sub(origin);
-      const beam = add(new THREE.CylinderGeometry(a.move.piece === "b" ? 0.12 : 0.2, 0.06, d.length(), 8));
-      beam.position.copy(origin).add(destination).multiplyScalar(0.5);
-      beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
-      for (let i = 0; i < (a.move.piece === "b" ? 3 : 2); i++) {
-        const circle = add(new THREE.TorusGeometry(0.38 + i * 0.13, 0.025, 4, 24), 0, 0.13 + i * 0.06);
-        circle.rotation.x = Math.PI / 2;
-      }
-    }
-    if (a.move.piece === "q") {
-      for (let i = 0; i < 6; i++) {
-        const angle = i * Math.PI / 3;
-        const blade = add(new THREE.ConeGeometry(0.1, 1.3, 4), Math.cos(angle) * 1.1, 2.2, Math.sin(angle) * 1.1);
-        blade.rotation.z = Math.PI; blade.userData.cageBlade = angle;
-      }
-    }
-    if (a.move.piece === "k") {
-      const sword = add(new THREE.BoxGeometry(0.22, 2.8, 0.07), 0, 1.7);
-      sword.rotation.z = -0.6; sword.userData.regalBlade = true;
-      add(new THREE.BoxGeometry(0.8, 0.1, 0.1), 0.23, 2.15);
-    }
-    if (a.skin === "ember") {
-      for (let i = 0; i < 3; i++) {
-        const flame = add(new THREE.ConeGeometry(0.09, 0.7, 3), Math.cos(i * 2.1) * 0.45, 0.6, Math.sin(i * 2.1) * 0.45);
-        flame.rotation.z = 0.2; flame.userData.family = "ember";
-      }
-    } else if (a.skin === "frost") {
-      for (let i = 0; i < 3; i++) {
-        const crystal = add(new THREE.OctahedronGeometry(0.17), Math.cos(i * 2.1) * 0.55, 0.25, Math.sin(i * 2.1) * 0.55);
-        crystal.userData.family = "frost";
-      }
-    } else if (a.skin === "astral" || a.skin === "royal") {
-      const seal = add(new THREE.TorusGeometry(a.skin === "royal" ? 0.85 : 0.65, 0.025, 4, a.skin === "royal" ? 8 : 32), 0, 0.05);
-      seal.rotation.x = Math.PI / 2; seal.userData.family = a.skin;
-      if (a.skin === "royal") for (const side of [-1, 1]) {
-        const wing = add(new THREE.ConeGeometry(0.17, 0.85, 3), side * 0.85, 0.65);
-        wing.rotation.z = side * -0.65; wing.userData.family = "royal";
-      }
-    }
-    return group;
-  }
   private animateExecution(a: Animation, t: number) {
     const frame = captureFrame(t);
     const direction = a.to.clone().sub(a.from).normalize();
+    const facing = direction.clone();
     const skinTier = skins[a.skin].tier;
     if (a.avatar) {
       a.avatar.position.lerpVectors(a.from, a.stop, frame.approach);
@@ -1041,27 +986,39 @@ export class ChessScene {
       a.avatar.position.addScaledVector(direction, -0.6);
       a.avatar.position.y = a.move.piece === "n" ? Math.sin(frame.approach * Math.PI) * 1.2
         : a.move.piece === "q" || a.move.piece === "b" ? 0.15 : 0;
-      a.avatar.rotation.y = Math.atan2(-direction.x, -direction.z);
+      // En passant's defender occupies a different square from the legal destination.
+      if (a.victimOrigin) {
+        facing.copy(a.victimOrigin).addScaledVector(direction, 0.45 + frame.defeat * 0.35).sub(a.avatar.position);
+        facing.y = 0; facing.normalize();
+      }
+      a.avatar.rotation.y = Math.atan2(-facing.x, -facing.z);
       const fade = Math.min(1, t / 0.12) * Math.max(0, 1 - (t - 0.7) / 0.18);
       const scale = 1.12 + skinTier * 0.045;
       a.avatar.scale.setScalar(scale);
-      animateAvatar(a.avatar, a.move.piece, frame.charge, frame.strike, fade, t * a.duration / 1000);
+      animateAvatar(a.avatar, a.move.piece, frame.charge, frame.strike, fade, t * a.duration / 1000,
+        { progress: t, approach: frame.approach, recovery: frame.defeat });
       if (a.avatarAura) animateAvatarAura(a.avatarAura, a.avatar, frame.charge, fade, t * a.duration / 1000);
     }
     if (a.defenderAvatar && a.victimOrigin) {
       const defender = a.defenderAvatar;
       const fade = Math.min(1, t / 0.1) * (1 - frame.defeat);
       defender.position.copy(a.victimOrigin).addScaledVector(direction, 0.45 + frame.defeat * 0.35);
-      defender.rotation.y = Math.atan2(direction.x, direction.z);
+      defender.rotation.y = Math.atan2(facing.x, facing.z);
       defender.scale.setScalar(1.06 - frame.defeat * 0.25);
       const hit = a.impacted ? Math.min(1, (t - 0.56) / 0.12) : 0;
       animateDefender(defender, defender.userData.piece, hit, fade, t * a.duration / 1000);
       if (a.defenderAura) animateAvatarAura(a.defenderAura, defender, 0.25, fade, t * a.duration / 1000);
     }
     if (a.guard) {
+      if (a.defenderAvatar) a.guard.position.copy(a.defenderAvatar.position).add(new THREE.Vector3(0, 1.15, 0));
+      a.guard.rotation.y = Math.atan2(facing.x, facing.z);
       a.guard.visible = t >= 0.2 && t < 0.66;
-      a.guard.scale.setScalar(0.8 + frame.strike * 0.28);
-      (a.guard.material as THREE.MeshBasicMaterial).opacity = t < 0.56 ? 0.065 + Math.sin(t * 35) * 0.015 : Math.max(0, (0.66 - t) * 0.7);
+      const scale = 0.8 + frame.strike * 0.28;
+      a.guard.scale.set(scale, scale, scale * 0.55);
+      const uniforms = (a.guard.material as THREE.ShaderMaterial).uniforms;
+      uniforms.uTime.value = t * 5;
+      uniforms.uHit.value = frame.strike;
+      uniforms.uFade.value = Math.min(1, Math.max(0, (0.66 - t) / 0.1));
     }
     if (a.victim && a.victimOrigin && a.victimRotation) {
       const heavy = a.victim.userData.piece === "r" || a.victim.userData.piece === "k";
@@ -1086,22 +1043,6 @@ export class ChessScene {
         });
       }
     }
-    if (a.weaponsGroup) {
-      const fade = t < 0.64 ? Math.min(1, frame.strike * 2) : Math.max(0, 1 - (t - 0.64) / 0.2);
-      a.weaponsGroup.traverse((part) => {
-        if (part instanceof THREE.Mesh) (part.material as THREE.MeshBasicMaterial).opacity = fade * 0.85;
-        if (part.userData.cageBlade !== undefined) {
-          const angle = part.userData.cageBlade;
-          const radius = 1.1 - frame.strike * 0.65;
-          part.position.set(Math.cos(angle) * radius, 2.2 - frame.strike * 0.9, Math.sin(angle) * radius);
-          part.rotation.z = Math.PI + frame.strike * 0.35;
-        }
-        if (part.userData.regalBlade) part.rotation.z = -0.6 - frame.strike * 1.4;
-        if (part.userData.family === "astral") part.rotation.z = t * 5;
-        if (part.userData.family === "frost") part.scale.y = 0.4 + frame.strike * 1.8;
-        if (part.userData.family === "ember") part.scale.y = 0.8 + Math.sin(t * 70) * 0.3;
-      });
-    }
   }
   private animateMoveAvatar(a: Animation, t: number, travel: number, charge: number) {
     if (!a.avatar) return;
@@ -1110,13 +1051,15 @@ export class ChessScene {
     a.avatar.position.copy(a.object.position).addScaledVector(direction, -0.35);
     a.avatar.rotation.y = Math.atan2(-direction.x, -direction.z);
     a.avatar.scale.setScalar(a.dramatic ? 1.16 : 1.0);
-    animateAvatar(a.avatar, a.move.piece, charge, travel, fade, t * a.duration / 1000);
+    animateAvatar(a.avatar, a.move.piece, charge, travel, fade, t * a.duration / 1000,
+      { approach: travel, recovery: Math.max(0, (t - 0.68) / 0.2) });
     if (a.avatarAura) animateAvatarAura(a.avatarAura, a.avatar, charge, fade, t * a.duration / 1000);
   }
   private death(a: Animation) {
     this.onDeath(a.move, a.event);
     if (this.reduced) { if (a.victim) a.victim.visible = false; return; }
     const color = battleColor(a.move.color, a.event.story, a.skin);
+    const origin = a.victimOrigin || a.to;
     const tier = skins[a.skin].tier;
     const count = Math.min(72, (a.dramatic ? 42 : 26) + tier * 5);
     this.particleMesh = new THREE.InstancedMesh(
@@ -1136,7 +1079,7 @@ export class ChessScene {
       if (a.skin === "ember") velocity.y += 1.5;
       if (a.skin === "astral") { velocity.x *= 0.45; velocity.z *= 0.45; velocity.y += 2; }
       if (a.skin === "royal") velocity.y = i % 2 ? 3 : 0.5;
-      this.sparks.push({ position: a.to.clone().add(new THREE.Vector3(Math.cos(angle) * 0.18, 0.15 + Math.random() * 0.75, Math.sin(angle) * 0.18)),
+      this.sparks.push({ position: origin.clone().add(new THREE.Vector3(Math.cos(angle) * 0.18, 0.15 + Math.random() * 0.75, Math.sin(angle) * 0.18)),
         velocity, life: 1, size: (a.move.piece === "r" ? 0.07 : 0.03) + Math.random() * 0.045 });
     }
   }
@@ -1147,27 +1090,7 @@ export class ChessScene {
       if (a.victim) { a.died = true; this.death(a); }
       return;
     }
-    this.environment.react(a.to);
-    if (a.event.story === "recapture") {
-      for (const angle of [-0.65, 0.65]) {
-        const slash = mesh(new THREE.TorusGeometry(0.7, 0.035, 4, 24, Math.PI),
-          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8 }),
-          this.fx, a.to.x, 0.6, a.to.z);
-        slash.rotation.z = angle;
-        slash.userData.shock = true;
-      }
-    }
-    const ring = mesh(
-      new THREE.TorusGeometry(0.3, 0.025, 6, 48),
-      new THREE.MeshBasicMaterial({ color, transparent: true }),
-      this.fx,
-      a.to.x,
-      0.03,
-      a.to.z,
-    );
-    ring.rotation.x = Math.PI / 2;
-    ring.userData.shock = true;
-    if (a.dramatic) this.finalStrike(a);
+    this.environment.react(a.victimOrigin || a.to);
     for (const target of a.event.targets) {
       this.beam(
         a.to.clone().add(new THREE.Vector3(0, 0.5, 0)),
@@ -1182,12 +1105,7 @@ export class ChessScene {
         const pos = coords(k);
         const shield = mesh(
           new THREE.SphereGeometry(0.8, 24, 12),
-          new THREE.MeshBasicMaterial({
-            color,
-            transparent: true,
-            opacity: 0.18,
-            wireframe: true,
-          }),
+          this.barrier(color),
           this.fx,
           pos.x,
           0.55,
@@ -1196,6 +1114,27 @@ export class ChessScene {
         shield.scale.y = 1.3;
       }
     }
+  }
+  private barrier(color: number) {
+    return new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Color(color) }, uTime: { value: 0 }, uHit: { value: 0 }, uFade: { value: 1 } },
+      vertexShader: `varying vec3 vNormal, vView; varying vec2 vUv;
+        void main() { vec4 p = modelViewMatrix * vec4(position, 1.0); vView = -p.xyz; vNormal = normalize(normalMatrix * normal); vUv = uv;
+          gl_Position = projectionMatrix * p; }`,
+      fragmentShader: `uniform vec3 uColor; uniform float uTime, uHit, uFade;
+        varying vec3 vNormal, vView; varying vec2 vUv;
+        void main() {
+          float rim = pow(1.0 - abs(dot(normalize(vNormal), normalize(vView))), 3.5);
+          float grid = pow(abs(sin(vUv.x * 75.398 + sin(vUv.y * 25.133) * .5)), 24.0) * pow(abs(sin(vUv.y * 37.699)), 8.0);
+          float scan = pow(max(0.0, sin(vUv.y * 18.85 - uTime * 2.0)), 14.0);
+          float alpha = (rim * (.3 + uHit * .25) + grid * .07 + scan * .04) * uFade;
+          if (alpha < .003) discard;
+          gl_FragColor = vec4(mix(uColor * .65, vec3(.87, .95, 1.0), rim * .45), alpha);
+          #include <colorspace_fragment>
+        }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+      side: THREE.DoubleSide, forceSinglePass: true,
+    });
   }
   private glow(color: number, opacity = 0.65) {
     return new THREE.MeshBasicMaterial({
@@ -1208,175 +1147,12 @@ export class ChessScene {
       forceSinglePass: true,
     });
   }
-  private chargeAura(a: Animation) {
-    const color = battleColor(a.move.color, a.event.story, a.skin);
-    const style = combatStyles[a.move.piece];
-    const group = new THREE.Group();
-    this.fx.add(group);
-    group.position.copy(a.from);
-    group.name = `charge-${a.move.piece}`;
-    for (let i = 0; i < (a.dramatic ? 3 : 2); i++) {
-      const ring = mesh(
-        new THREE.TorusGeometry(0.44 + i * 0.16, 0.014, 4, i === 0 ? style.sides : 32),
-        this.glow(color, 0.7 - i * 0.12),
-        group,
-        0,
-        0.08 + i * 0.12,
-      );
-      ring.rotation.x = Math.PI / 2;
-      ring.userData.auraRing = i;
-    }
-    const shellGeometry = a.move.piece === "k" ? new THREE.SphereGeometry(0.65, 12, 8)
-      : a.move.piece === "q" ? new THREE.TorusGeometry(0.65, 0.035, 4, 32)
-      : a.move.piece === "r" ? new THREE.CylinderGeometry(0.5, 0.5, 0.7, 4, 1, true)
-      : new THREE.ConeGeometry(0.45, a.move.piece === "b" ? 2.3 : 1.3, style.sides, 1, true);
-    const shell = mesh(
-      shellGeometry,
-      this.glow(color, 0.13),
-      group,
-      0,
-      a.move.piece === "r" ? 0.4 : 0.8,
-    );
-    shell.userData.auraShell = true;
-    const lightning: number[] = [];
-    for (let i = 0; i < style.sides; i++) {
-      const angle = (i * Math.PI * 2) / style.sides;
-      for (let j = 0; j < 3; j++) {
-        const y = j * 0.45;
-        const r = 0.35 + Math.sin(i * 17 + j * 13) * 0.18;
-        const next = 0.35 + Math.sin(i * 17 + (j + 1) * 13) * 0.18;
-        lightning.push(
-          Math.cos(angle) * r,
-          y,
-          Math.sin(angle) * r,
-          Math.cos(angle + 0.1) * next,
-          y + 0.45,
-          Math.sin(angle + 0.1) * next,
-        );
-      }
-    }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(lightning, 3),
-    );
-    const bolts = new THREE.LineSegments(
-      geometry,
-      new THREE.LineBasicMaterial({
-        color,
-        transparent: true,
-        opacity: 0.85,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
-    );
-    group.add(bolts);
-    for (let i = 0; i < (a.dramatic ? style.sides : 3); i++) {
-      const angle = (i * Math.PI * 2) / style.sides;
-      const shard = mesh(
-        new THREE.OctahedronGeometry(0.065),
-        this.glow(color),
-        group,
-        Math.cos(angle) * 0.7,
-        0.2,
-        Math.sin(angle) * 0.7,
-      );
-      shard.userData.auraShard = i;
-    }
-    return group;
-  }
-  private animateAura(a: Animation, t: number, charge: number, travel: number) {
-    if (!a.aura) return;
-    a.aura.position.lerpVectors(a.from, a.to, travel);
-    a.aura.rotation.y = t * (a.move.piece === "q" ? 10 : a.move.piece === "r" ? 0 : 4);
-    a.aura.scale.setScalar(0.3 + charge * (a.dramatic ? 0.9 : 0.55));
-    a.aura.visible = t < (a.dramatic ? 0.6 : 0.72);
-    for (const o of a.aura.children) {
-      if (o.userData.auraShard !== undefined)
-        o.position.y = 0.2 + ((t * 5 + o.userData.auraShard * 0.22) % 1) * 2;
-    }
-    if (travel === 0) a.object.scale.setScalar(1 + charge * 0.08);
-    else a.object.scale.setScalar(1 + (1 - travel) * 0.08);
-  }
-  private animateTrail(a: Animation, travel: number) {
-    if (!a.trail) return;
-    a.trail.visible = travel > 0 && !a.impacted;
-    const position = a.trail.geometry.getAttribute("position") as THREE.BufferAttribute;
-    const direction = a.to.clone().sub(a.from).normalize();
-    const side = new THREE.Vector3(-direction.z, 0, direction.x);
-    const point = (progress: number, lane: number) => {
-      const p = a.from.clone().lerp(a.to, progress);
-      p.y = 0.12 + Math.sin(progress * Math.PI) * combatStyles[a.move.piece].lift;
-      if (a.move.piece === "q") p.addScaledVector(side, Math.sin(progress * Math.PI * 3 + lane) * 0.2);
-      else p.addScaledVector(side, lane * (a.move.piece === "r" ? 0.15 : 0.045));
-      return p;
-    };
-    for (let i = 0; i < 24; i++) {
-      const lane = Math.floor(i / 8) - 1, segment = i % 8;
-      const start = Math.max(0, travel - 0.5);
-      const p = point(start + (travel - start) * segment / 8, lane);
-      const q = point(start + (travel - start) * (segment + 1) / 8, lane);
-      position.setXYZ(i * 2, p.x, p.y, p.z); position.setXYZ(i * 2 + 1, q.x, q.y, q.z);
-    }
-    position.needsUpdate = true;
-  }
-  private finalStrike(a: Animation) {
-    const color = battleColor(a.move.color, a.event.story, a.skin);
-    const type = a.move.piece;
-    const tier = skins[a.skin].tier;
-    const wave = mesh(new THREE.TorusGeometry(0.36, type === "r" ? 0.055 : 0.022, 4,
-      a.skin === "frost" ? 6 : type === "q" ? 6 : 32), this.glow(color, 0.45),
-      this.fx, a.to.x, 0.055, a.to.z);
-    wave.rotation.x = Math.PI / 2; wave.userData.blast = true; wave.userData.layer = type === "r" ? 2 : 0;
-    if (type === "p") {
-      const direction = a.to.clone().sub(a.stop).normalize();
-      const thrust = this.beam(a.stop.clone().add(new THREE.Vector3(0, 0.5, 0)), a.to.clone().addScaledVector(direction, 0.45).add(new THREE.Vector3(0, 0.5, 0)), color, 0.035);
-      thrust.userData.pierce = true;
-    } else if (type === "n" || type === "k") {
-      for (let i = 0; i < (type === "n" ? 2 : 1); i++) {
-        const slash = mesh(new THREE.TorusGeometry(type === "n" ? 0.75 : 1.05,
-          type === "n" ? 0.032 : 0.065, 4, 32, Math.PI * 1.25), this.glow(color, 0.7),
-          this.fx, a.to.x, type === "n" ? 0.55 : 0.85, a.to.z);
-        slash.rotation.set(type === "n" ? 0.3 : 0.15, i * 0.5, type === "n" ? -0.8 + i * 1.6 : -0.7);
-        slash.userData.slash = true;
-      }
-    } else if (type === "b") {
-      const pillar = mesh(new THREE.CylinderGeometry(0.08, 0.2, 2.6, 12, 1, true),
-        this.glow(color, 0.25), this.fx, a.to.x, 1.3, a.to.z);
-      pillar.userData.pillar = true;
-      for (let i = 0; i < 2; i++) {
-        const halo = mesh(new THREE.TorusGeometry(0.36 + i * 0.16, 0.018, 4, 24),
-          this.glow(color, 0.4), this.fx, a.to.x, 0.5 + i * 0.45, a.to.z);
-        halo.rotation.x = Math.PI / 2; halo.userData.shock = true;
-      }
-    } else if (type === "r") {
-      const shock = mesh(new THREE.ConeGeometry(0.6, 0.7, 8, 1, true), this.glow(color, 0.18),
-        this.fx, a.to.x, 0.35, a.to.z);
-      shock.userData.shock = true;
-    } else if (type === "q") {
-      for (let i = 0; i < 6; i++) {
-        const angle = i * Math.PI / 3;
-        this.beam(a.to.clone().add(new THREE.Vector3(Math.cos(angle) * 0.75, 0.85, Math.sin(angle) * 0.75)),
-          a.to.clone().add(new THREE.Vector3(0, 0.4, 0)), color, 0.018);
-      }
-    }
-    const spokes: number[] = [];
-    const rayCount = tier >= 3 ? 12 : 6;
-    for (let i = 0; i < rayCount; i++) {
-      const angle = i * Math.PI * 2 / rayCount;
-      const radius = type === "r" ? 1.25 : 0.75 + (i % 3) * 0.15;
-      spokes.push(a.to.x + Math.cos(angle) * 0.2, 0.12, a.to.z + Math.sin(angle) * 0.2,
-        a.to.x + Math.cos(angle) * radius, 0.12, a.to.z + Math.sin(angle) * radius);
-    }
-    const geometry = new THREE.BufferGeometry(); geometry.setAttribute("position", new THREE.Float32BufferAttribute(spokes, 3));
-    this.fx.add(new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color, transparent: true,
-      opacity: 0.4, depthWrite: false, blending: THREE.AdditiveBlending })));
-  }
   private directCamera(a: Animation, t: number) {
     const smooth = (value: number) => { const x = Math.max(0, Math.min(1, value)); return x * x * (3 - 2 * x); };
     const attack = a.to.clone().sub(a.from).normalize();
     const side = new THREE.Vector3(-attack.z, 0, attack.x).multiplyScalar(this.flipped ? -1 : 1);
-    const view = side.addScaledVector(attack, 0.22).add(new THREE.Vector3(0, 0.62, 0));
+    const sweep = Math.sin(Math.min(1, t / 0.56) * Math.PI) * (a.move.piece === "n" ? 0.17 : 0.09);
+    const view = side.addScaledVector(attack, 0.22 + sweep).add(new THREE.Vector3(0, 0.54 + sweep * 0.3, 0));
     const actors = [a.avatar, a.defenderAvatar].filter((actor): actor is THREE.Group => !!actor);
     const bounds = actors.map((actor) => {
       const height = actor === a.avatar && a.move.piece === "k" ? 3.9 : 3.5;
@@ -1398,7 +1174,7 @@ export class ChessScene {
     const focus = a.target.clone().lerp(shot.focus, entering).lerp(a.target, returning);
     const contact = a.move.captured ? 0.56 : 0.52;
     if (t >= contact && t < contact + 0.08) {
-      const shake = (1 - (t - contact) / 0.08) * 0.045;
+      const shake = (1 - (t - contact) / 0.08) * (a.move.piece === "r" ? 0.1 : a.move.piece === "k" ? 0.08 : 0.055);
       position.x += Math.sin(t * 200) * shake;
       position.y += Math.cos(t * 150) * shake * 0.5;
     }
@@ -1408,22 +1184,7 @@ export class ChessScene {
     if (this.scene.fog instanceof THREE.Fog) {
       const distance = position.distanceTo(focus);
       this.scene.fog.near = distance + 6; this.scene.fog.far = distance + 18;
-    }
-    for (const o of this.fx.children) {
-      if (o.userData.blast) {
-        const p = Math.max(0, (t - 0.52) / 0.48);
-        o.scale.setScalar(1 + p * (5 + o.userData.layer));
-        (
-          o as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>
-        ).material.opacity = (1 - p) * 0.6;
       }
-      if (o.userData.slash) {
-        o.rotation.z += 0.045;
-        (
-          o as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>
-        ).material.opacity = Math.max(0, 1 - (t - 0.52) * 2);
-      }
-    }
   }
   private frame(now: number) {
     if (this.paused && !this.showcaseHost) { this.previous = now; return; }
@@ -1455,13 +1216,7 @@ export class ChessScene {
           this.stage.dataset.executionPhase = capture.phase;
           this.stage.dataset.defenderStatus = capture.death ? "defeated" : capture.impact ? "hit" : "guard";
         }
-        this.animateAura(a, t, capture ? capture.charge : a.dramatic ? choreography.charge : short.charge, travel);
-        this.animateTrail(a, travel);
-        if (a.lock) {
-          a.lock.visible = !a.impacted;
-          a.lock.scale.setScalar(1.4 - Math.min(1, (a.dramatic ? choreography.charge : short.charge)) * 0.4);
-          a.lock.rotation.y = a.move.piece === "r" ? 0 : (1 - Math.min(1, t * 4)) * 0.6;
-        }
+
       }
       if (!a.launched && t >= (this.reduced ? 0 : capture ? 0.18 : a.dramatic ? 0.3 : 0.22)) {
         a.launched = true; this.onDash(a.move, a.event);
@@ -1473,15 +1228,6 @@ export class ChessScene {
           : t < 0.82 ? 0.6 + (t - 0.64) / 0.18 * 0.24
           : 0.84 + (t - 0.82) / 0.18 * 0.16;
         this.overlay.draw(overlayProgress, a.move.piece, a.move.color, a.event.title);
-      }
-      if (
-        !a.weapons &&
-        !this.reduced &&
-        a.move.captured &&
-        t >= (capture ? 0.48 : a.dramatic ? 0.3 : 0.22)
-      ) {
-        a.weapons = true;
-        a.weaponsGroup = this.weapon(a);
       }
       a.object.position.lerpVectors(a.from, a.to, e);
       a.object.position.y =
@@ -1505,21 +1251,15 @@ export class ChessScene {
         this.animateExecution(a, t);
         if (!a.died && capture.death) { a.died = true; this.death(a); }
       } else if (!this.reduced) this.animateMoveAvatar(a, t, travel, a.dramatic ? choreography.charge : short.charge);
-      for (const o of this.fx.children)
-        if (o.userData.shock) {
-          o.scale.setScalar(1 + Math.max(0, t - contact) * 7);
-          (
-            o as THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial>
-          ).material.opacity = Math.max(0, 1 - (t - contact) * 2);
-        } else if (o.userData.hitEcho) {
-          const release = Math.max(0, (t - contact) / (1 - contact));
-          o.scale.setScalar(1 + release * 0.35);
-          o.position.y = release * 0.5;
-          o.rotation.z = release * 0.5;
-          o.traverse((child) => {
-            if (child instanceof THREE.Mesh) (child.material as THREE.MeshBasicMaterial).opacity = (1 - release) * 0.65;
-          });
-        }
+      if (a.vfx) {
+        a.vfx.update({ time: t * a.duration / 1000, progress: t,
+          phase: capture?.phase || (a.dramatic ? choreography.phase : short.phase),
+          charge: capture?.charge ?? (a.dramatic ? choreography.charge : short.charge),
+          travel, strike: capture?.strike ?? travel, defeat: capture?.defeat ?? 0,
+          from: a.from, to: a.to, actor: a.avatar?.position || a.object.position,
+          target: a.defenderAvatar?.position || a.victimOrigin || a.to,
+          contact: a.impacted, dead: a.died, contactAt: contact });
+      }
       if (a.dramatic) {
         this.directCamera(a, t);
       }
@@ -1561,7 +1301,7 @@ export class ChessScene {
       if (scar.userData.active) continue;
       const fade = Math.max(0, 1 - (now - scar.userData.born) / 7000);
       if (!fade) { disposeObject(scar); this.dirty = true; continue; }
-      for (const child of scar.children) (child as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>).material.opacity = fade * (child instanceof THREE.Line ? 0.65 : 0.9);
+      for (const child of scar.children) (child as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>).material.opacity = fade * (child instanceof THREE.Line ? 0.65 : 0.5);
     }
     // A low-rate idle pulse shares the same two aura batches. Orbit still follows display frames.
     if (((!this.reduced && this.environment.root.children.length) || this.groundAuras.children.length || this.groundScars.children.length) && now - this.lastAuraDraw >= (this.quality === "low" ? 125 : 50)) this.dirty = true;

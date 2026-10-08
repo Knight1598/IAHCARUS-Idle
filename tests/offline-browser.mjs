@@ -202,16 +202,28 @@ try {
   await openPanel(page, "settings");
   await page.locator("#sound").check();
   await closePanel(page);
+  // Observe the actual stage before input: software WebGL can delay the click
+  // response until after a short phase has already appeared and disappeared.
+  await page.evaluate(() => {
+    window.__battlePhases = [];
+    window.__battleObserver = new MutationObserver(() => {
+      const phase = document.querySelector("#stage").dataset.battlePhase;
+      if (phase && window.__battlePhases.at(-1) !== phase) window.__battlePhases.push(phase);
+    });
+    window.__battleObserver.observe(document.querySelector("#stage"), {
+      attributes: true, attributeFilter: ["data-battle-phase"],
+    });
+  });
   await page.locator('[data-square="c3"]').click();
   await closePanel(page);
   await page.locator('[data-square="d5"]').click();
   await page.waitForFunction(
-    () => document.querySelector("#stage").dataset.battlePhase === "charge",
+    () => window.__battlePhases.includes("charge"),
   );
   mkdirSync("test-results", { recursive: true });
-  await page.screenshot({ path: "test-results/anime-charge.png" });
+  await page.screenshot({ path: "test-results/anime-sequence-early.png" });
   await page.waitForFunction(
-    () => document.querySelector("#stage").dataset.battlePhase === "aftermath",
+    () => window.__battlePhases.includes("aftermath"),
     {},
     { timeout: 10000 },
   );
@@ -221,6 +233,10 @@ try {
     {},
     { timeout: 10000 },
   );
+  const phases = await page.evaluate(() => {
+    window.__battleObserver.disconnect(); return window.__battlePhases;
+  });
+  assert.deepEqual(phases, ["charge", "dash", "impact", "aftermath", "return"]);
   assert.match(await page.locator("#moves").innerText(), /Nxd5/);
   assert.match(await page.locator('[data-square="d5"]').innerText(), /♘/);
   // A normal 3D pick after completion exercises camera and pointer restoration.
@@ -368,6 +384,16 @@ try {
   console.log(
     "PASS: single-file game with network disabled; all three bots, saved game/difficulty, undo, cancellation, training, mobile layout; zero external requests, WebSockets or browser errors.",
   );
+} catch (error) {
+  const page = browser.contexts()[0]?.pages()[0];
+  if (page) {
+    console.error("Offline failure state:", await page.evaluate(() => ({
+      phases: window.__battlePhases, stage: { ...document.querySelector("#stage")?.dataset },
+      status: document.querySelector("#status")?.innerText,
+      moves: document.querySelector("#moves")?.innerText,
+    })).catch(() => null));
+  }
+  throw error;
 } finally {
   await browser.close();
 }

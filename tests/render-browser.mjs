@@ -313,7 +313,7 @@ try {
       }, id);
       await page.locator("#stage").screenshot({ path: `test-results/arena-${id}.png` });
     }
-    const poses = [];
+    const poses = [], combatWork = [];
     for (const aspect of [1.28, 0.48]) {
       await page.evaluate((aspect) => {
         document.querySelector("#stage").style.width = aspect < 1 ? "390px" : "900px";
@@ -333,9 +333,14 @@ try {
           const a = fixture.animation;
           if (!a.dramatic || !a.defenderAvatar || !a.defenderAura || !a.avatarAura) throw Error("Missing combat pair or auras");
           const saved = a.camera.toArray();
+          const drawCalls = [];
           for (const t of [0.15, 0.3, 0.42, 0.54, 0.59, 0.69]) {
             const now = performance.now(); fixture.setPaused(false); a.duration = 100000; a.start = now - t * a.duration;
             fixture.frame(now); fixture.setPaused(true); fixture.camera.updateMatrixWorld();
+            fixture.renderer.render(fixture.scene, fixture.camera);
+            drawCalls.push(fixture.renderer.info.render.calls);
+            if (fixture.renderer.info.render.calls > 180) throw Error(`Unbounded ${key} combat draw calls`);
+            if (a.vfx.group.children.length !== 5) throw Error("Combat effects lost their shared batches");
             for (const actor of [a.avatar, a.defenderAvatar, a.avatarAura, a.defenderAura]) {
               const box = new THREE.Box3().setFromObject(actor);
               for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
@@ -347,10 +352,16 @@ try {
           const now = performance.now(); fixture.setPaused(false); a.start = now - 0.54 * a.duration; fixture.frame(now); fixture.setPaused(true);
           const signature = a.avatar.userData.arms.map((arm) => arm.rotation.toArray().slice(0, 3));
           window.combatSavedCamera = saved;
-          return JSON.stringify(signature);
+          return { signature: JSON.stringify(signature), drawCalls };
         }, key);
-        poses.push(pose);
+        poses.push(pose.signature); combatWork.push(...pose.drawCalls);
         await page.locator("#stage").screenshot({ path: `test-results/combat-${key}-${aspect < 1 ? "portrait" : "wide"}.png` });
+        await page.evaluate(() => {
+          const a = fixture.animation, now = performance.now(); fixture.setPaused(false);
+          a.start = now - .6 * a.duration; fixture.frame(now); fixture.setPaused(true);
+          fixture.renderer.render(fixture.scene, fixture.camera);
+        });
+        await page.locator("#stage").screenshot({ path: `test-results/combat-${key}-impact-${aspect < 1 ? "portrait" : "wide"}.png` });
         await page.evaluate(() => {
           fixture.finish();
           if (JSON.stringify(fixture.camera.position.toArray()) !== JSON.stringify(combatSavedCamera)) throw Error("Combat did not restore camera");
@@ -359,7 +370,27 @@ try {
       }
     }
     assert.equal(new Set(poses.slice(0, 6)).size, 6, "Classes share their arm poses");
+    console.log("Combat draw calls:", Math.min(...combatWork), "–", Math.max(...combatWork));
     console.log("PASS: eight distinct fields, stable geometry after 24 switches, field reactions/Low/reduced controls, and six full combat pairs framed on wide/portrait screens");
+    await page.evaluate(async () => {
+      const { analyzeMove } = await import("/shared/events.js");
+      const THREE = await import("/node_modules/three/build/three.module.js");
+      const before = new fixtureChess("7k/8/8/3pP3/8/8/8/K7 w - d6 0 1"), after = new fixtureChess(before.fen());
+      const move = after.move("exd6"); fixture.resetPacing();
+      fixture.play(before, after, move, analyzeMove(before, after, move));
+      const a = fixture.animation, now = performance.now(); fixture.setPaused(false);
+      a.duration = 100000; a.start = now - .42 * a.duration; fixture.frame(now); fixture.setPaused(true);
+      const direction = a.defenderAvatar.position.clone().sub(a.avatar.position); direction.y = 0; direction.normalize();
+      const facing = new THREE.Vector3(-Math.sin(a.avatar.rotation.y), 0, -Math.cos(a.avatar.rotation.y));
+      if (direction.distanceTo(facing) > .00001) throw Error("En passant fighter faces the empty destination");
+      const beamDirection = a.vfx.group.children[0].material.uniforms.uForward.value;
+      if (direction.distanceTo(beamDirection) > .00001) throw Error("En passant attack misses the defender");
+      fixture.finish();
+      if (fixture.pieces.children.some((piece) => piece.userData.square === "d5") ||
+          !fixture.pieces.children.some((piece) => piece.userData.square === "d6" && piece.userData.color === "w"))
+        throw Error("En passant spectacle changed the legal board");
+    });
+    console.log("PASS: en passant fighters and energy aim at the actual defender while legal occupation stays on d6");
     const audio = await page.evaluate(async () => {
       const { SpaceAudio } = await import("/src/sound.ts");
       const results = [], samples = [];
