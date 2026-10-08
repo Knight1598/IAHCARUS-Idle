@@ -9,7 +9,12 @@ import {
 import { ChessScene, type GraphicsQuality } from "./scene";
 import { TitleScreen, type LaunchSettings } from "./title";
 import { arenas, arenaOptions, isArena, type ArenaId } from "./arenas";
-import { SpaceAudio } from "./sound";
+import { SpaceAudio, type MusicState, type SoundPhase } from "./sound";
+import { readAudioPreferences, installAudioControls } from "./audio-controls";
+import "./audio-controls.css";
+import { CombatShowcase, type ShowcaseSettings } from "./showcase";
+import type { CombatCue } from "./combat-profiles";
+import { clampCaptureDuration } from "./combat";
 import { ArenaHUD } from "./hud";
 import { readProfile, claimXP, matchXP, levelProgress, skins, isSkinUnlocked, equipArmy, equipPiece, type SkinId, type Profile } from "./profile";
 import { appearanceMap, avatarNames, skillNames, scenarioLoadout } from "./cosmetics";
@@ -163,7 +168,10 @@ let ws: WebSocket | undefined,
   requestPending = false;
 let audio: AudioContext | undefined;
 let spaceAudio: SpaceAudio | undefined;
-function stopSounds() { spaceAudio?.cancel(); }
+let showcaseActive = false;
+let showcase: CombatShowcase | undefined;
+let showcaseSettings: ShowcaseSettings | undefined;
+function stopSounds() { spaceAudio?.cancelEffects(); }
 const storage = {
   get(key: string) {
     try {
@@ -183,6 +191,28 @@ const storage = {
     } catch {}
   },
 };
+const audioPreferences = readAudioPreferences(storage.get("special-chess-audio-mix"));
+function saveAudioMix() { storage.set("special-chess-audio-mix", JSON.stringify(audioPreferences)); }
+function syncMusic() {
+  if (!spaceAudio || showcaseActive) return;
+  spaceAudio.setPaused(document.hidden || matchPaused);
+  if (document.hidden || matchPaused) return;
+  const result = mode === "online" ? state?.result : localResult;
+  const owner = mode === "online" ? session?.color : mode === "bot" || activeTrial || activeVariant?.id === "rush" ? humanColor : undefined;
+  let music: MusicState = menuOpen ? "menu" : "normal";
+  if (!menuOpen) {
+    if ((scene?.animation?.move as UltimateMove | undefined)?.ultimate) music = "ultimate";
+    else if (scene?.animation?.move.captured) music = "capture";
+    else if (result || game.isGameOver()) {
+      const winner = result?.winner ?? (game.isCheckmate() ? game.turn() === "w" ? "b" : "w" : null);
+      music = winner ? !owner || winner === owner ? "victory" : "defeat" : "mate";
+    } else if (activeTraining && game.history({ verbose: true }).some(move => move.from === training[activeTraining!].from && move.to === training[activeTraining!].to)) music = "victory";
+    else if (game.isCheck()) music = "check";
+    else if (selected && game instanceof SpecialChess && game.armed) music = "ultimate";
+    else if (story().moments.at(-1)?.ply === game.history().length && ["queen-fallen", "comeback", "endgame"].includes(story().moments.at(-1)?.kind || "")) music = "threat";
+  }
+  spaceAudio.setMusicState(music);
+}
 let profile = readProfile(storage.get("special-chess-profile"));
 function saveProfile() { storage.set("special-chess-profile", JSON.stringify(profile)); }
 function selectSkin(skin: SkinId) {
@@ -461,6 +491,7 @@ function updateUI() {
   const replayControl = document.querySelector<HTMLButtonElement>("#replay-capture");
   if (replayControl) replayControl.disabled = !game.history({ verbose: true }).some((move) => move.captured) || isBusy() || mode === "online" && !state?.result;
   updatePresentation();
+  syncMusic();
 }
 function updatePresentation() {
   if (!presentation || menuOpen || scene?.animation || visualReplay || armoryAudition) return;
@@ -678,7 +709,7 @@ $("#ultimate-arm").onclick = () => {
   if (!(game instanceof SpecialChess) || !selected || !canPlay()) return;
   game.armed = game.armed ? null : selected; ultimateTarget = null;
   scene?.select(game, selected, lastMove); updateUI();
-  if (game.armed) soundEngine()?.play(game.get(selected)!.type, "charge", 0.3, false, 0);
+  if (game.armed) soundEngine()?.play(game.get(selected)!.type, "charge", 0.3, false, 0, armyAppearances()[selected] || profile.skin, true);
 };
 $("#ultimate-confirm").onclick = () => {
   if (!(game instanceof SpecialChess) || !selected || !ultimateTarget || !canPlay()) return;
@@ -697,7 +728,7 @@ $("#ultimate-help").onclick = () => {
   const select = $<HTMLSelectElement>("#ultimate-enemy");
   select.innerHTML = '<option value="">เลือกหมากเพื่อดูแนวเดินที่เป็นไปได้</option>' + enemy.board().flat().filter(p => p && p.color === enemy.turn()).map(p => `<option value="${p!.square}" ${!enemy.available(p!.square) ? "disabled" : ""}>${symbols[p!.color][p!.type]} ${names[p!.type]} ${p!.square.toUpperCase()}${!enemy.available(p!.square) ? " · อัลติใช้ไม่ได้แล้ว" : ""}</option>`).join("");
   clearSelection(); updateUI();
-  matchPaused = true; stopBot(); scene?.setPaused(true);
+  matchPaused = true; stopBot(); scene?.setPaused(true); spaceAudio?.setPaused(true);
   $<HTMLDialogElement>("#ultimate-guide").showModal();
 };
 $("#ultimate-enemy").onchange = () => {
@@ -758,7 +789,7 @@ function pick(square: Square) {
     ultimateTarget = null;
     selected = square;
     scene?.select(game, square, lastMove);
-    soundEngine()?.play(game.get(square)!.type, "lock", 0.08, false, (square.charCodeAt(0) - 100.5) / 5);
+    soundEngine()?.play(game.get(square)!.type, "lock", 0.08, false, (square.charCodeAt(0) - 100.5) / 5, armyAppearances()[square] || profile.skin);
   } else if (selected) {
     notice(game.isCheck()
       ? "คิงกำลังถูกรุก ต้องหลบ ขวาง หรือกินหมากที่รุก เลือกช่องเรืองแสง"
@@ -769,36 +800,59 @@ function pick(square: Square) {
   updateUI();
 }
 function soundEngine() {
-  if (!$<HTMLInputElement>("#sound").checked) return;
+  // Audio is created only by the explicit sound control, never by bots or timers.
+  if (!$<HTMLInputElement>("#sound").checked || !spaceAudio) return;
+  return spaceAudio;
+}
+function enableSound() {
   try {
-    audio ||= new AudioContext();
+    const AudioConstructor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    audio ||= new AudioConstructor();
     void audio.resume();
     spaceAudio ||= new SpaceAudio(audio);
-    spaceAudio.setVolume(Number($<HTMLInputElement>("#sound-volume").value) / 100);
-    return spaceAudio;
-  } catch { return undefined; }
+    for (const [bus, value] of Object.entries(audioPreferences.levels)) spaceAudio.setBusVolume(bus as keyof typeof audioPreferences.levels, value);
+    spaceAudio.setMuted(audioPreferences.muted);
+    spaceAudio.setAmbiencePreset(profile.arena);
+    spaceAudio.setPaused(false);
+    if (showcaseActive) spaceAudio.setMusicState("menu"); else syncMusic();
+    showcase?.refreshAudio();
+  } catch { notice("อุปกรณ์นี้เปิดเสียงไม่ได้"); }
 }
 function soundPan(move: Move) { return (move.to.charCodeAt(0) - 100.5) / 5; }
 function playSound(move: Move, _event: MoveEvent) {
   stopSounds();
   const engine = soundEngine();
   if (!engine) return;
-  engine.play(move.piece, "lock", 0.08, !!move.captured, soundPan(move));
+  syncMusic();
+  if (move.captured && scene && !scene.reduced) {
+    const animation = scene?.animation;
+    if (animation) {
+      void engine.prepareCombat(move.piece, animation.skin, animation.duration, !!(move as UltimateMove).ultimate);
+      if (animation.defenderProfile) void engine.prepareCombat(move.captured, animation.defenderProfile.skin, animation.duration);
+    }
+    return;
+  }
+  engine.play(move.piece, "lock", 0.08, !!move.captured, soundPan(move), scene?.animation?.skin || profile.skin);
   if (!scene?.reduced) engine.play(move.piece, "charge",
     (scene?.animation?.duration || 780) * (scene?.animation?.dramatic ? 0.3 : 0.22) / 1000,
-    !!move.captured, soundPan(move));
+    !!move.captured, soundPan(move), scene?.animation?.skin || profile.skin, !!(move as UltimateMove).ultimate);
 }
 function dashSound(move: Move, _event: MoveEvent) {
-  if (!scene?.reduced) soundEngine()?.play(move.piece, "dash", 0.3, !!move.captured, soundPan(move));
+  if (move.captured && scene && !scene.reduced) return;
+  if (!scene?.reduced) soundEngine()?.play(move.piece, "dash", 0.3, !!move.captured, soundPan(move), scene?.animation?.skin || profile.skin, !!(move as UltimateMove).ultimate);
 }
 function impactSound(move: Move, event: MoveEvent) {
-  soundEngine()?.play(move.piece, "impact", 0.3, !!move.captured, soundPan(move));
-  if (["check", "double-check", "discovered-check"].includes(event.kind)) soundEngine()?.play("k", "check", 0.3, false, soundPan(move));
+  if (!move.captured || !scene || scene.reduced) soundEngine()?.play(move.piece, "impact", 0.3, !!move.captured, soundPan(move), scene?.animation?.skin || profile.skin, !!(move as UltimateMove).ultimate);
+  if (["check", "double-check", "discovered-check"].includes(event.kind)) {
+    const king = kingSquare(game, game.turn());
+    soundEngine()?.play("k", "check", 0.3, false, soundPan(move), king ? armyAppearances()[king] || profile.skin : profile.skin);
+  }
   if (!["move", "capture", "check"].includes(event.kind)) soundEngine()?.playEvent(event.kind, soundPan(move));
   else if (event.story && $<HTMLInputElement>("#battle-events").checked) soundEngine()?.playEvent(event.story, soundPan(move));
 }
 function deathSound(move: Move, _event: MoveEvent) {
-  if (move.captured) soundEngine()?.play(move.captured, "death", 0.4, true, soundPan(move));
+  if (move.captured && scene && !scene.reduced) return;
+  if (move.captured) soundEngine()?.play(move.captured, "death", 0.4, true, soundPan(move), scene?.animation?.defenderProfile?.skin || profile.skin);
 }
 function attackEvent(before: Chess, after: Chess, move: Move, skin?: SkinId) {
   const event = analyzeMove(before, after, move);
@@ -849,6 +903,7 @@ function animate(before: Chess, move: Move) {
   else scheduleBot();
 }
 function finishAnimation() {
+  if (showcaseActive) { showcase?.setPlaying(false); soundEngine()?.setMusicState("menu"); return; }
   if (armoryAudition) { armoryAudition = false; restorePreview(); return; }
   if (visualReplay) { visualReplay = false; renderGameBoard(); }
   clearTimeout(eventTimer);
@@ -867,6 +922,12 @@ if (scene) {
   scene.onDeath = deathSound;
   scene.onDash = dashSound;
   scene.onCancel = stopSounds;
+  scene.onCombatCue = (move, _event, cue, actor, skin) => {
+    const piece = actor === "defender" ? move.captured || move.piece : move.piece;
+    const speed = (scene!.animation?.duration || 2600) / 2600;
+    soundEngine()?.playCombatCue(piece, skin, cue, (cue === "charge" ? .53 : cue === "finisher" ? .33 : .3) * speed,
+      actor === "defender" ? -soundPan(move) : soundPan(move), !!(move as UltimateMove).ultimate);
+  };
 }
 function submitMove(from: Square, to: Square, promotion: PieceSymbol = "q") {
   if (!canPlay()) return;
@@ -1166,7 +1227,7 @@ $("#flip").onclick = () => {
   updateFlatBoard();
   updateSpecialHUD();
 };
-$("#skip").onclick = () => scene?.finish();
+$("#skip").onclick = () => scene?.skip();
 $("#promotion")
   .querySelectorAll<HTMLButtonElement>("[data-piece]")
   .forEach(
@@ -1261,6 +1322,7 @@ for (const key of ["cinematic", "reduced", "sound", "battle-events"]) {
   const input = $<HTMLInputElement>("#" + key);
   const saved = storage.get("special-chess-" + key);
   if (saved !== null) input.checked = saved === "true";
+  if (key === "sound") input.checked = false;
   input.onchange = () => {
     storage.set("special-chess-" + key, String(input.checked));
     if (scene && (key === "cinematic" || key === "reduced")) {
@@ -1274,15 +1336,8 @@ for (const key of ["cinematic", "reduced", "sound", "battle-events"]) {
     }
     if (key === "reduced") { renderGameBoard(); scene?.select(game, selected, lastMove); }
     if (key === "sound") hud.syncSound();
-    if (key === "sound" && !input.checked) stopSounds();
-    if (key === "sound" && input.checked) {
-      try {
-        audio ||= new AudioContext();
-        void audio.resume();
-      } catch {
-        notice("อุปกรณ์นี้เปิดเสียงไม่ได้");
-      }
-    }
+    if (key === "sound" && !input.checked) { spaceAudio?.cancel(); showcase?.refreshAudio(); }
+    if (key === "sound" && input.checked) enableSound();
   };
 }
 if (scene) {
@@ -1376,6 +1431,24 @@ volumeInput.value = String(Number.isFinite(savedVolume) ? Math.max(0, Math.min(1
 volumeInput.oninput = () => {
   spaceAudio?.setVolume(Number(volumeInput.value) / 100);
   storage.set("special-chess-sound-volume", volumeInput.value);
+  audioPreferences.levels.master = Number(volumeInput.value) / 100; saveAudioMix();
+};
+audioPreferences.levels.master = Number(volumeInput.value) / 100;
+volumeInput.closest("label")!.firstChild!.textContent = "ระดับเสียงรวม";
+volumeInput.setAttribute("aria-label", "ระดับเสียงรวม");
+installAudioControls($(".settings"), audioPreferences, (bus, value) => {
+  if (bus === "mute") { audioPreferences.muted = !!value; spaceAudio?.setMuted(!!value); }
+  else { audioPreferences.levels[bus] = Number(value); spaceAudio?.setBusVolume(bus, Number(value)); }
+  saveAudioMix();
+});
+$(".settings").insertAdjacentHTML("beforeend", `<label class="setting-select" for="capture-duration">ความยาวฉากต่อสู้<select id="capture-duration"><option value="2000">กระชับ · 2 วินาที</option><option value="2600">เต็มจังหวะ · 2.6 วินาที</option><option value="3000">ชมท่า · 3 วินาที</option></select></label>`);
+const captureDurationInput = $<HTMLSelectElement>("#capture-duration");
+captureDurationInput.value = String(clampCaptureDuration(Number(storage.get("special-chess-capture-duration") || 2600)));
+if (!captureDurationInput.value) captureDurationInput.value = "2600";
+if (scene) scene.captureDuration = Number(captureDurationInput.value);
+captureDurationInput.onchange = () => {
+  scene?.finish(); if (scene) scene.captureDuration = Number(captureDurationInput.value);
+  storage.set("special-chess-capture-duration", captureDurationInput.value);
 };
 const scopeInput = $<HTMLSelectElement>("#cinematic-scope");
 scopeInput.value = storage.get("special-chess-cinematic-scope") === "all" ? "all" : "key";
@@ -1402,6 +1475,7 @@ function selectArena(id: ArenaId) {
   arenaInput.value = id;
   $("#arena-name").textContent = arenas[id].name;
   scene?.setArena(id);
+  spaceAudio?.setAmbiencePreset(id);
 }
 arenaInput.value = profile.arena;
 arenaInput.onchange = () => {
@@ -1415,6 +1489,7 @@ renderGameBoard();
 scene?.resetView((mode === "bot" || (specialDuel || !!activeVariant) && mode === "local") && humanColor === "b");
 updateUI();
 const title = new TitleScreen($("#app"), OFFLINE, {
+  showcase: openShowcase,
   settings: (host) => hud.attachSettings(host),
   help: () => $<HTMLDialogElement>("#help-dialog").showModal(),
   selectSkin: (skin) => { selectSkin(skin); title.refresh(profile); },
@@ -1485,6 +1560,81 @@ function restorePreview() {
   scene?.renderBoard(army);
   scene?.resetView(previewColor === "b");
   scene?.showcasePiece(previewOrigin || null);
+}
+function openShowcase() {
+  if (!menuOpen || !scene) return;
+  clearTimeout(auditionTimer); armoryAudition = false;
+  scene.cancel(); stopSounds();
+  showcaseActive = true;
+  showcase ||= new CombatShowcase($("#app"), {
+    play: playShowcase,
+    stop: () => {
+      scene?.skip(); stopSounds();
+      if (showcase?.root.dataset.panel === "audio") spaceAudio?.cancel();
+      showcase?.setPlaying(false);
+    },
+    close: closeShowcase,
+    enableSound: () => {
+      const input = $<HTMLInputElement>("#sound"); input.checked = true; input.dispatchEvent(new Event("change"));
+    },
+    soundEnabled: () => !!soundEngine(),
+    sound: ({ piece, skin, cue }) => {
+      const engine = soundEngine(); if (!engine) return;
+      engine.cancelCinematic();
+      if (["draw", "charge", "release", "clash", "counter", "finisher", "impact", "armor", "disintegrate"].includes(cue))
+        engine.auditionCombatCue(piece, skin, cue as CombatCue, 0);
+      else engine.auditionPiece(piece, skin, cue as SoundPhase, 0);
+    },
+    music: state => soundEngine()?.setMusicState(state),
+    event: event => soundEngine()?.playEvent(event),
+  });
+  title.root.hidden = true;
+  showcase.show(); scene.setShowcase(showcase.previewHost); scene.showcasePiece(null);
+  showcaseSettings = showcase.selection;
+  renderShowcase(showcaseSettings);
+  soundEngine()?.setMusicState("menu");
+}
+function showcaseBoards(settings: ShowcaseSettings) {
+  // A presentation fixture; these boards are never assigned to the active game.
+  // The king preview may fall visually, while real chess always ends by mate.
+  const before = new Chess(); before.clear();
+  before.put({ type: settings.attacker, color: "w" }, "c4");
+  before.put({ type: settings.defender, color: "b" }, "e5");
+  const after = new Chess(); after.clear(); after.put({ type: settings.attacker, color: "w" }, "e5");
+  return { before, after };
+}
+function renderShowcase(settings: ShowcaseSettings) {
+  if (!scene) return;
+  const { before } = showcaseBoards(settings);
+  scene.setArena(settings.arena);
+  soundEngine()?.setAmbiencePreset(settings.arena);
+  scene.setAppearances({ c4: settings.attackerSkin, e5: settings.defenderSkin });
+  scene.renderBoard(before); scene.resetView(false);
+}
+function playShowcase(settings: ShowcaseSettings) {
+  if (!scene || !showcaseActive) return;
+  scene.cancel(); stopSounds(); showcaseSettings = settings;
+  const { before, after } = showcaseBoards(settings);
+  // Reuse a real Move's methods/shape, changing only this disposable visual fixture.
+  const sample = new Chess(training.knight.fen).move({ from: training.knight.from, to: training.knight.to });
+  const move = { ...sample, from: "c4", to: "e5", piece: settings.attacker, captured: settings.defender,
+    before: before.fen(), after: after.fen(), flags: "c", san: `${settings.attacker.toUpperCase()}xe5` } as Move;
+  const event: MoveEvent = { kind: "capture", title: skillNames[settings.attackerSkin][settings.attacker],
+    subtitle: "COMBAT SHOWCASE", capturedSquare: "e5", checkers: [], targets: [] };
+  scene.setArena(settings.arena); scene.setAppearances({ c4: settings.attackerSkin, e5: settings.defenderSkin }, { e5: settings.attackerSkin });
+  soundEngine()?.setAmbiencePreset(settings.arena);
+  scene.resetPacing(); scene.play(before, after, move, event); showcase?.setPlaying(true);
+  soundEngine()?.setMusicState("capture");
+  playSound(move, event);
+}
+function closeShowcase() {
+  if (!showcaseActive) return;
+  scene?.cancel(); stopSounds(); showcase?.hide(); showcaseActive = false;
+  title.root.hidden = false;
+  scene?.setShowcase(previewHost || null); scene?.setArena(profile.arena);
+  soundEngine()?.setAmbiencePreset(profile.arena);
+  if (previewHost) restorePreview(); else renderGameBoard();
+  syncMusic(); document.querySelector<HTMLButtonElement>("#open-showcase")?.focus();
 }
 function auditionSkill(piece: PieceSymbol, skin: SkinId) {
   if (!scene || !previewHost || !isSkinUnlocked(profile, skin)) return;
@@ -1609,6 +1759,7 @@ function openTitle() {
     training: activeTraining || "pawn",
     trial: activeTrial || "rescue",
   });
+  syncMusic();
   scrollTo(0, 0);
 }
 $("#title-return").onclick = openTitle;
@@ -1619,6 +1770,11 @@ hud.onPauseChange = (paused) => {
   else { scene?.setPaused(false); scheduleBot(); }
   updateUI();
 };
+document.addEventListener("visibilitychange", () => {
+  spaceAudio?.setPaused(document.hidden || matchPaused);
+  if (document.hidden) { stopBot(); scene?.setPaused(true, true); }
+  else { scene?.setPaused(menuOpen || matchPaused); if (!showcaseActive) syncMusic(); scheduleBot(); }
+});
 title.show(profile, { variant: activeVariant?.options, opponent: mode === "local" ? "local" : "bot", mode: activeVariant?.id || (mode === "online" && !OFFLINE ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot"), side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn", trial: activeTrial || "rescue" });
 
 installDesign();

@@ -1,10 +1,37 @@
 import * as THREE from "three";
 import type { PieceSymbol } from "chess.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { skins, type SkinId } from "./profile";
-import { fighterPose, defenderPose, type FighterPose, type MotionContext } from "./motion";
+import { skins, type SkinId } from "./profile.ts";
+import { fighterPose, defenderPose, type FighterPose, type MotionContext } from "./motion.ts";
 
 type BoneName = "hips" | "torso" | "head" | "mantle" | "leftArm" | "rightArm" | "leftElbow" | "rightElbow" | "leftLeg" | "rightLeg" | "leftKnee" | "rightKnee";
+
+interface AvatarTemplate {
+  bones: { name: BoneName; accent: number; geometry: THREE.BufferGeometry }[];
+  weapon: THREE.BufferGeometry;
+}
+// CPU-only immutable templates: new avatars reuse vertex arrays, while their disposable GPU
+// geometry wrappers and fading materials remain independent. The finite class/skin set caps this.
+const avatarTemplates = new Map<string, AvatarTemplate>();
+function geometryView(source: THREE.BufferGeometry) {
+  const geometry = new THREE.BufferGeometry();
+  for (const [name, attribute] of Object.entries(source.attributes)) {
+    if (!(attribute instanceof THREE.BufferAttribute)) continue;
+    geometry.setAttribute(name, new THREE.BufferAttribute(attribute.array, attribute.itemSize, attribute.normalized));
+  }
+  if (source.index) geometry.setIndex(new THREE.BufferAttribute(source.index.array, 1));
+  return geometry;
+}
+
+export function avatarResourceStats() {
+  let geometries = 0, bytes = 0;
+  for (const template of avatarTemplates.values()) {
+    const entries = [...template.bones.map((part) => part.geometry), template.weapon];
+    geometries += entries.length;
+    for (const geometry of entries) for (const attribute of Object.values(geometry.attributes)) bytes += attribute.array.byteLength;
+  }
+  return { profiles: avatarTemplates.size, geometries, bytes, maxProfiles: 30 };
+}
 
 /** Articulated fighters use shared armour materials and one merged mesh per material per bone. */
 export function createAvatar(type: PieceSymbol, side: "w" | "b", skin: SkinId) {
@@ -33,6 +60,29 @@ export function createAvatar(type: PieceSymbol, side: "w" | "b", skin: SkinId) {
     const leg = bone(`${sideName}Leg`, hips, direction * (type === "r" ? 0.4 : 0.18), -0.02);
     bone(`${sideName}Knee`, leg, 0, -0.32);
   }
+  const finish = (weaponGeometry: THREE.BufferGeometry) => {
+    const weapon = new THREE.Group(); weapon.name = "avatar-weapon";
+    // The gauntlet drives the weapon position. Pose orientation is expressed in torso space,
+    // so applyPose resolves it against the articulated arm instead of leaving a floating blade.
+    weapon.position.set(0, -0.245, -0.045); weapon.userData.restPosition = weapon.position.clone();
+    bones.rightElbow.add(weapon);
+    const mesh = new THREE.Mesh(weaponGeometry, materials[1]); mesh.userData.sharedMaterial = true; weapon.add(mesh);
+    const torsoMeshes = bones.torso.children.filter((node): node is THREE.Mesh => node instanceof THREE.Mesh);
+    for (const mesh of torsoMeshes) mesh.userData.sharedMaterial = false;
+    group.userData.weapon = weapon; group.userData.arms = [bones.leftArm, bones.rightArm]; group.userData.bones = bones;
+    group.userData.piece = type; group.userData.skin = skin; group.userData.baseOpacity = materials.map((m) => m.opacity); group.userData.materials = materials;
+    return group;
+  };
+  const key = `${type}:${skin}`;
+  const cached = avatarTemplates.get(key);
+  if (cached) {
+    for (const part of cached.bones) {
+      const mesh = new THREE.Mesh(geometryView(part.geometry), materials[part.accent]); mesh.userData.sharedMaterial = true;
+      bones[part.name].add(mesh);
+    }
+    return finish(geometryView(cached.weapon));
+  }
+  const template: AvatarTemplate = { bones: [], weapon: new THREE.BufferGeometry() };
   const add = (part: BoneName, g: THREE.BufferGeometry, accent = 0, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => {
     g.applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z),
       new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(1, 1, 1)));
@@ -74,7 +124,11 @@ export function createAvatar(type: PieceSymbol, side: "w" | "b", skin: SkinId) {
   if (type === "r") {
     for (const x of [-0.48, 0.48]) add("torso", new THREE.CylinderGeometry(0.15, 0.21, 0.7, 6), 1, x, 0.38, -0.28, Math.PI / 2);
     box("head", 0.52, 0.12, 0.1, 0, -0.04, -0.22, 1);
+    // A real arm-mounted shield visibly follows guard and recoil poses.
+    box("leftElbow", 0.5, 0.58, 0.1, 0, -0.1, -0.18);
+    box("leftElbow", 0.34, 0.07, 0.12, 0, -0.1, -0.2);
   }
+  if (type === "k") add("leftElbow", new THREE.CylinderGeometry(0.25, 0.3, 0.08, 6), 0, 0, -0.1, -0.15, Math.PI / 2);
   if (type === "q" || type === "k") {
     // An open back cape leaves both moving feet visible from the combat camera.
     box("mantle", type === "q" ? 0.65 : 0.86, 1.25, 0.05, 0, 0.17, 0.26);
@@ -97,25 +151,80 @@ export function createAvatar(type: PieceSymbol, side: "w" | "b", skin: SkinId) {
     const geometry = mergeGeometries(prepared)!;
     new Set([...prepared, ...source]).forEach((g) => g.dispose());
     const mesh = new THREE.Mesh(geometry, materials[material]); mesh.userData.sharedMaterial = true; bones[name].add(mesh);
+    template.bones.push({ name, accent: material, geometry: geometryView(geometry) });
   }
-  const weapon = new THREE.Group(); weapon.name = "avatar-weapon";
-  weapon.position.set(type === "r" ? 0 : 0.43, 0.12, -0.08); weapon.userData.restPosition = weapon.position.clone(); torso.add(weapon);
   const shape = type === "p" ? new THREE.CylinderGeometry(0.035, 0.035, 2.2, 6)
     : type === "b" ? new THREE.CylinderGeometry(0.04, 0.04, 1.8, 6)
     : type === "r" ? new THREE.CylinderGeometry(0.2, 0.27, 1.1, 6)
     : new THREE.BoxGeometry(type === "k" ? 0.17 : 0.08, type === "k" ? 1.6 : 1.2, 0.04);
+  if (type === "n" || type === "q" || type === "k") shape.translate(0, 0.32, 0);
   const tip = type === "b" ? new THREE.OctahedronGeometry(0.19)
     : type === "r" ? new THREE.TorusGeometry(0.22, 0.045, 4, 16) : new THREE.ConeGeometry(type === "p" ? 0.13 : 0.1, 0.32, 4);
-  tip.translate(0, type === "p" ? 1.1 : type === "b" ? 0.95 : 0.55, 0);
-  const prepared = [shape, tip].map((g) => g.index ? g.toNonIndexed() : g);
-  const weaponMesh = new THREE.Mesh(mergeGeometries(prepared)!, materials[1]); weaponMesh.userData.sharedMaterial = true; weapon.add(weaponMesh);
-  new Set([...prepared, shape, tip]).forEach((g) => g.dispose());
-  // One material owner is needed for the scene's shared-material disposal convention.
-  const torsoMeshes = bones.torso.children.filter((node): node is THREE.Mesh => node instanceof THREE.Mesh);
-  for (const mesh of torsoMeshes) mesh.userData.sharedMaterial = false;
-  group.userData.weapon = weapon; group.userData.arms = [bones.leftArm, bones.rightArm]; group.userData.bones = bones;
-  group.userData.piece = type; group.userData.baseOpacity = materials.map((m) => m.opacity); group.userData.materials = materials;
-  return group;
+  tip.translate(0, type === "p" ? 1.1 : type === "b" ? 0.95 : type === "k" ? 1.1 : type === "r" ? 0.55 : 0.87, 0);
+  const weaponParts: THREE.BufferGeometry[] = [shape, tip];
+  if (type === "n") {
+    const edge = new THREE.TorusGeometry(0.54, 0.028, 4, 16, Math.PI * 0.72); edge.translate(-0.2, 0.18, 0); weaponParts.push(edge);
+  }
+  if (skin === "frost") {
+    for (const sign of [-1, 1]) { const crystal = new THREE.OctahedronGeometry(0.085); crystal.translate(sign * 0.11, 0.37, 0); weaponParts.push(crystal); }
+  } else if (skin === "astral") {
+    const orbit = new THREE.TorusGeometry(type === "r" ? 0.31 : 0.16, 0.018, 4, 16); orbit.rotateX(Math.PI / 2); orbit.translate(0, 0.32, 0); weaponParts.push(orbit);
+  } else if (skin === "royal") {
+    const guard = new THREE.BoxGeometry(0.36, 0.055, 0.07); guard.translate(0, -0.22, 0); weaponParts.push(guard);
+  } else if (skin === "ember") {
+    const vent = new THREE.ConeGeometry(0.055, 0.23, 3); vent.translate(0.1, 0.22, 0); weaponParts.push(vent);
+  }
+  const prepared = weaponParts.map((g) => g.index ? g.toNonIndexed() : g);
+  const weaponGeometry = mergeGeometries(prepared)!;
+  new Set([...prepared, ...weaponParts]).forEach((g) => g.dispose());
+  template.weapon.dispose(); template.weapon = geometryView(weaponGeometry);
+  avatarTemplates.set(key, template);
+  return finish(weaponGeometry);
+}
+
+const armOrientation = new THREE.Quaternion();
+const desiredWeaponOrientation = new THREE.Quaternion();
+const jointEuler = new THREE.Euler();
+const jointQuaternion = new THREE.Quaternion();
+const aimTarget = new THREE.Vector3();
+const aimOrigin = new THREE.Vector3();
+const aimDirection = new THREE.Vector3();
+const parentOrientation = new THREE.Quaternion();
+const aimOrientation = new THREE.Quaternion();
+const downAxis = new THREE.Vector3(0, -1, 0);
+const upAxis = new THREE.Vector3(0, 1, 0);
+const straightJoint = new THREE.Quaternion();
+const smoothAim = (value: number) => { const t = Math.max(0, Math.min(1, value)); return t * t * (3 - 2 * t); };
+
+/** A contact-directed two-joint reach keeps melee blades on the visible opponent at the hit. */
+function aimAtContact(group: THREE.Group, context: MotionContext, time: number, defender = false) {
+  if (!context.combat) return;
+  const seconds = context.progress === undefined ? time : context.progress * 2.6;
+  const opening = smoothAim((seconds - 0.7) / 0.23) * (1 - smoothAim((seconds - 1.14) / 0.14));
+  const final = smoothAim((seconds - 1.57) / 0.26) * (1 - smoothAim((seconds - 2.14) / 0.3));
+  const counter = Math.sin(Math.max(0, Math.min(1, context.counter ?? (seconds - 1) / 0.5)) * Math.PI);
+  const weight = defender ? counter * 0.9 : Math.max(opening * 0.9, final);
+  if (weight < 0.001) return;
+  group.updateMatrixWorld(true);
+  if (context.contactTarget) aimTarget.set(...context.contactTarget);
+  else { aimTarget.set(0, 1.2, -1.1); group.localToWorld(aimTarget); }
+  const bones = group.userData.bones as Record<BoneName, THREE.Group>;
+  const arm = bones.rightArm, elbow = bones.rightElbow;
+  arm.getWorldPosition(aimOrigin); aimDirection.copy(aimTarget).sub(aimOrigin).normalize();
+  if (!aimDirection.lengthSq()) return;
+  aimOrientation.setFromUnitVectors(downAxis, aimDirection);
+  bones.torso.getWorldQuaternion(parentOrientation).invert();
+  aimOrientation.premultiply(parentOrientation);
+  arm.quaternion.slerp(aimOrientation, weight);
+  elbow.quaternion.slerp(straightJoint, weight * 0.9);
+  group.updateMatrixWorld(true);
+  const weapon = group.userData.weapon as THREE.Group;
+  weapon.getWorldPosition(aimOrigin); aimDirection.copy(aimTarget).sub(aimOrigin).normalize();
+  if (!aimDirection.lengthSq()) return;
+  aimOrientation.setFromUnitVectors(upAxis, aimDirection);
+  elbow.getWorldQuaternion(parentOrientation).invert();
+  aimOrientation.premultiply(parentOrientation);
+  weapon.quaternion.slerp(aimOrientation, weight);
 }
 
 function applyPose(group: THREE.Group, pose: FighterPose, fade: number) {
@@ -123,11 +232,18 @@ function applyPose(group: THREE.Group, pose: FighterPose, fade: number) {
   for (const name of Object.keys(bones) as BoneName[]) {
     bones[name].position.copy(bones[name].userData.restPosition);
     bones[name].rotation.set(...pose[name]);
+    // A negative procedural lift means raising an arm toward the -Z facing direction.
+    // Convert that semantic angle at the rig boundary; the old rig swung its hands backward.
+    if (name.endsWith("Arm") || name.endsWith("Elbow")) bones[name].rotation.x *= -1;
   }
   const weapon = group.userData.weapon as THREE.Group;
   weapon.position.copy(weapon.userData.restPosition);
   weapon.position.x += pose.weaponOffset[0]; weapon.position.y += pose.weaponOffset[1]; weapon.position.z += pose.weaponOffset[2];
-  weapon.rotation.set(...pose.weapon);
+  // Preserve the intended class-specific weapon angle while deriving its pivot from the hand.
+  armOrientation.setFromEuler(bones.rightArm.rotation);
+  jointQuaternion.setFromEuler(bones.rightElbow.rotation); armOrientation.multiply(jointQuaternion).invert();
+  desiredWeaponOrientation.setFromEuler(jointEuler.set(...pose.weapon));
+  weapon.quaternion.copy(armOrientation.multiply(desiredWeaponOrientation));
   // Local offsets belong to the skeleton: repeated sampling cannot drift the scene-owned root.
   bones.hips.position.x += pose.offset[0]; bones.hips.position.y += pose.offset[1]; bones.hips.position.z += pose.offset[2];
   group.rotation.x = pose.body[0]; group.rotation.z = pose.body[2];
@@ -137,15 +253,17 @@ function applyPose(group: THREE.Group, pose: FighterPose, fade: number) {
 }
 
 export function animateAvatar(group: THREE.Group, type: PieceSymbol, charge: number, strike: number, fade: number, time: number, context: MotionContext = {}) {
-  applyPose(group, fighterPose(type, charge, strike, time, context), fade);
+  applyPose(group, fighterPose(type, charge, strike, time, { skin: group.userData.skin, ...context }), fade);
+  aimAtContact(group, context, time);
 }
 
-export function animateDefender(group: THREE.Group, type: PieceSymbol, hit: number, fade: number, time: number) {
-  applyPose(group, defenderPose(type, hit, time), fade);
+export function animateDefender(group: THREE.Group, type: PieceSymbol, hit: number, fade: number, time: number, context: MotionContext = {}) {
+  applyPose(group, defenderPose(type, hit, time, { skin: group.userData.skin, ...context }), fade);
+  aimAtContact(group, context, time, true);
 }
 
 const auraVertex = `
-  uniform float uTime; uniform float uCharge; uniform float uLayer; uniform float uStyle;
+  uniform float uTime; uniform float uCharge; uniform float uLayer; uniform float uStyle; uniform float uSkin;
   varying vec3 vLocal; varying vec2 vUv;
   void main() {
     vec3 p = position; vUv = uv;
@@ -154,6 +272,16 @@ const auraVertex = `
       float flow = uTime * (1.8 + uCharge) + atan(p.z, p.x) * (3.0 + uStyle * 0.5);
       p.xz *= 1.0 + sin(flow - p.y * 5.0) * (0.025 + uCharge * 0.045) * height;
       p.y += sin(flow * 1.3 + p.y * 3.0) * height * 0.035;
+      if (uSkin > 0.5 && uSkin < 1.5) {
+        // Hot filaments flare outward near their tips; the armoured centre stays readable.
+        p.xz *= 1.0 + height * height * (0.04 + uCharge * 0.08);
+      } else if (uSkin > 1.5 && uSkin < 2.5) {
+        float facet = cos(atan(p.z, p.x) * 6.0);
+        p.xz *= 1.0 + facet * height * 0.055;
+      } else if (uSkin > 2.5 && uSkin < 3.5) {
+        float twist = sin(p.y * 2.5 - uTime * 1.2) * (0.045 + uCharge * 0.035);
+        p.xz = mat2(cos(twist), -sin(twist), sin(twist), cos(twist)) * p.xz;
+      }
     }
     vLocal = p; gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
   }
@@ -166,6 +294,7 @@ const auraFragment = `
   void main() {
     float angle = atan(vLocal.z, vLocal.x); float height = clamp(vLocal.y / 2.3, 0.0, 1.0);
     float flow = angle * (3.0 + uStyle) - vLocal.y * (5.0 + uSkin) + uTime * (2.0 + uCharge * 1.5);
+    if (uSkin > 2.5 && uSkin < 3.5) flow = angle * (4.0 + uStyle) + vLocal.y * 6.0 - uTime * 1.8;
     float edge = pow(abs(sin(flow)), 14.0);
     float energy = 0.45 + uCharge * 0.55;
     float alpha = 0.0; float core = 0.0;
@@ -178,6 +307,15 @@ const auraFragment = `
       float flame = band(sin(flow), 0.09) * (0.28 + 0.35 * sin(vLocal.y * 12.0 - uTime * 4.0) * sin(vLocal.y * 12.0 - uTime * 4.0));
       alpha = (0.012 + flame * 0.2 + edge * 0.025) * envelope * energy;
       core = edge * 0.5;
+      if (uSkin > 1.5 && uSkin < 2.5) {
+        float lattice = band(sin(angle * 6.0 + vLocal.y * 5.0), 0.08);
+        alpha = (0.008 + lattice * 0.09 + edge * 0.025) * envelope * energy;
+        core = lattice * 0.6;
+      } else if (uSkin > 3.5) {
+        float crest = band(sin(vLocal.y * 9.0 + uTime * 0.8), 0.09) * band(sin(angle * 8.0), 0.24);
+        alpha += crest * envelope * energy * 0.09;
+        core = max(core, crest * 0.55);
+      }
     } else {
       float tip = pow(max(0.0, sin(vUv.x * 6.28318 - uTime * 2.8)), 4.0);
       alpha = (0.12 + tip * 0.5) * energy; core = tip * 0.7;

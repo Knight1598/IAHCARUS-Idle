@@ -1,3 +1,4 @@
+import { CAPTURE_CONTACT, CAPTURE_DEATH } from "./combat.ts";
 /** Choreography is visual only; authoritative chess state is already committed. */
 export function cinematicFrame(progress: number) {
   const t = Math.max(0, Math.min(1, progress));
@@ -42,6 +43,16 @@ export class BattleOverlay {
   clear() {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     delete this.stage.dataset.battlePhase;
+  }
+  /** Reuse the same overlay; its soft contact flash follows the final strike. */
+  drawCapture(t: number, type: string, color: "w" | "b", title: string) {
+    const opening = 0.4 / 2.6, contactEnd = CAPTURE_CONTACT + 0.045;
+    const progress = t < opening ? t / opening * 0.3
+      : t < CAPTURE_CONTACT ? 0.3 + (t - opening) / (CAPTURE_CONTACT - opening) * 0.22
+      : t < contactEnd ? 0.52 + (t - CAPTURE_CONTACT) / (contactEnd - CAPTURE_CONTACT) * 0.08
+      : t < CAPTURE_DEATH ? 0.6 + (t - contactEnd) / (CAPTURE_DEATH - contactEnd) * 0.24
+      : 0.84 + (t - CAPTURE_DEATH) / (1 - CAPTURE_DEATH) * 0.16;
+    this.draw(progress, type, color, title);
   }
   draw(t: number, type: string, color: "w" | "b", _title: string) {
     const w = this.stage.clientWidth,

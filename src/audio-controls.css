@@ -1,0 +1,7 @@
+.audio-mix { border: 1px solid #365d73; background: #081723ad; padding: 12px; margin: 8px 0; min-width: 0; }
+.audio-mix legend { padding: 0 6px; color: #8eddeb; font-weight: 700; letter-spacing: .06em; }
+.audio-mix p { font-size: .75rem; color: #9bacbe; margin: 0 0 10px; }
+.audio-mix .setting-select > span { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.audio-mix input[type="range"] { min-width: 70px; width: 100%; accent-color: #76e3f6; }
+.audio-mix output { width: 3em; text-align: right; color: #cfeefa; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: no-preference) { .audio-mix input { transition: filter .2s; } .audio-mix input:focus-visible { filter: drop-shadow(0 0 6px #64dbef); } }

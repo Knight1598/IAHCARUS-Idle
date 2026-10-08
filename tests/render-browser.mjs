@@ -150,7 +150,7 @@ try {
       fixture.play(before, game, move, analyzeMove(before, game, move));
       const now = performance.now();
       fixture.animation.duration = 10000;
-      fixture.animation.start = now - 7400;
+      fixture.animation.start = now - 8400;
       fixture.frame(now); fixture.setPaused(true);
     });
     assert.equal(await page.evaluate(() => fixture.animation.died), true);
@@ -173,7 +173,7 @@ try {
       if (!play("Qxd5")) throw Error("First major capture lost its camera cut");
       fixture.finish();
       play("Kh7"); fixture.finish();
-      if (play("Qxh5+")) throw Error("Nearby check ignored cinematic cooldown");
+      if (!play("Qxh5+")) throw Error("Capture incorrectly lost its automatic camera to cooldown");
       fixture.finish();
       const mate = new fixtureChess();
       for (const san of ["f3", "e5", "g4"]) mate.move(san);
@@ -304,6 +304,8 @@ try {
           const sample = training[key], before = new fixtureChess(sample.fen), after = new fixtureChess(sample.fen);
           const move = after.move({ from: sample.from, to: sample.to });
           let impact = 0, death = 0;
+          const cues = [];
+          fixture.onCombatCue = (_move, _event, cue, actor, skin) => cues.push({ cue, actor, skin });
           fixture.onImpact = () => impact++; fixture.onDeath = () => death++;
           fixture.setAppearances({ [move.from]: "ember", [move.to]: "frost" }, { [move.to]: "ember" });
           fixture.play(before, after, move, analyzeMove(before, after, move));
@@ -317,12 +319,15 @@ try {
           frame(0.4);
           if (animation.object.position.distanceTo(animation.to) < 0.7) throw Error("Attacker overlaps during windup");
           if (impact || death) throw Error("Execution contacts before its strike");
-          frame(0.6);
+          frame(0.73);
           if (impact !== 1 || death !== 0 || !animation.victim.visible) throw Error("Defender vanished at contact");
-          frame(0.75); frame(0.76);
+          frame(0.85); frame(0.86);
           if (impact !== 1 || death !== 1) throw Error("Execution callbacks are repeated or missing");
-          frame(0.95);
+          frame(0.99);
           if (animation.object.position.distanceTo(animation.to) > 0.01) throw Error("Attacker failed to occupy final square");
+          if (cues.map(point => point.cue).join() !== "draw,charge,release,clash,counter,finisher,impact,armor,disintegrate") throw Error("Actual-frame cinematic cues repeated or skipped");
+          if (cues.some(point => point.skin !== (point.actor === "defender" ? "frost" : "ember"))) throw Error("Cinematic audio lost the actor's equipped skin");
+          if (!animation.reaction || animation.profile.id !== `${move.piece}:ember` || animation.defenderProfile.skin !== "frost") throw Error("Capture has no class/skin reactive profile");
           fixture.finish();
           if (fixture.fx.children.length) throw Error("Finisher left temporary FX");
           const piece = fixture.pieces.children.find(piece => piece.userData.square === move.to);
@@ -332,6 +337,7 @@ try {
         fixture.renderer.render(fixture.scene, fixture.camera);
         memory.push(fixture.renderer.info.memory.geometries);
       }
+      fixture.onCombatCue = () => {};
       const host = document.createElement("div"); host.style.cssText = "width:900px;height:700px"; document.body.append(host);
       const canvas = fixture.renderer.domElement, context = fixture.renderer.getContext();
       fixture.setShowcase(host); fixture.showcasePiece("b1"); fixture.frame(performance.now());
@@ -406,13 +412,13 @@ try {
           if (!a.dramatic || !a.defenderAvatar || !a.defenderAura || !a.avatarAura) throw Error("Missing combat pair or auras");
           const saved = a.camera.toArray();
           const drawCalls = [];
-          for (const t of [0.15, 0.3, 0.42, 0.54, 0.59, 0.69]) {
+          for (const t of [0.18, 0.3, 0.43, 0.53, 0.63, 0.715, 0.76, 0.8]) {
             const now = performance.now(); fixture.setPaused(false); a.duration = 100000; a.start = now - t * a.duration;
             fixture.frame(now); fixture.setPaused(true); fixture.camera.updateMatrixWorld();
             fixture.renderer.render(fixture.scene, fixture.camera);
             drawCalls.push(fixture.renderer.info.render.calls);
             if (fixture.renderer.info.render.calls > 180) throw Error(`Unbounded ${key} combat draw calls`);
-            if (a.vfx.group.children.length !== 5) throw Error("Combat effects lost their shared batches");
+            if (a.vfx.group.children.length !== (fixture.camera.aspect < 0.8 ? 4 : 5)) throw Error("Combat effects lost their viewport budget");
             for (const actor of [a.avatar, a.defenderAvatar, a.avatarAura, a.defenderAura]) {
               const box = new THREE.Box3().setFromObject(actor);
               for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
@@ -430,7 +436,7 @@ try {
         await page.locator("#stage").screenshot({ path: `test-results/combat-${key}-${aspect < 1 ? "portrait" : "wide"}.png` });
         await page.evaluate(() => {
           const a = fixture.animation, now = performance.now(); fixture.setPaused(false);
-          a.start = now - .6 * a.duration; fixture.frame(now); fixture.setPaused(true);
+          a.start = now - .73 * a.duration; fixture.frame(now); fixture.setPaused(true);
           fixture.renderer.render(fixture.scene, fixture.camera);
         });
         await page.locator("#stage").screenshot({ path: `test-results/combat-${key}-impact-${aspect < 1 ? "portrait" : "wide"}.png` });
@@ -463,11 +469,93 @@ try {
         throw Error("En passant spectacle changed the legal board");
     });
     console.log("PASS: en passant fighters and energy aim at the actual defender while legal occupation stays on d6");
+
+    const skipSafety = await page.evaluate(async () => {
+      const { analyzeMove } = await import("/shared/events.js");
+      const { captureCuePoints } = await import("/src/combat.ts");
+      const before = new fixtureChess("7k/8/8/3r4/8/2N5/8/K7 w - - 0 1");
+      const after = new fixtureChess(before.fen()), move = after.move("Nxd5"), event = analyzeMove(before, after, move);
+      fixture.captureDuration = 9999;
+      if (fixture.captureDuration !== 3000) throw Error("Capture duration exceeded its ceiling");
+      fixture.captureDuration = 0;
+      if (fixture.captureDuration !== 2000) throw Error("Capture duration fell below its floor");
+      fixture.captureDuration = NaN;
+      if (fixture.captureDuration !== 2600) throw Error("Invalid timing lost the 2.6-second default");
+      const records = [];
+      for (const progress of [0.05, 0.46, 0.74, 0.86]) {
+        fixture.setPaused(false); fixture.cinematic = true;
+        let finished = 0; const cues = [];
+        fixture.onFinish = () => finished++;
+        fixture.onCombatCue = (_move, _event, cue) => cues.push(cue);
+        fixture.play(before, after, move, event);
+        const a = fixture.animation, now = performance.now();
+        a.duration = 100000; a.start = now - progress * a.duration; fixture.frame(now);
+        const emitted = cues.length, camera = a.camera.toArray();
+        for (let i = 0; i < 10; i++) fixture.skip();
+        if (fixture.animation || fixture.fx.children.length || finished !== 1) throw Error("Rapid skip repeated settlement or leaked actors");
+        if (fixture.pieces.children.some(piece => piece.userData.square === "c3") ||
+            fixture.pieces.children.filter(piece => piece.userData.square === "d5" && piece.userData.color === "w").length !== 1) throw Error("Skip did not show exactly the committed capture");
+        fixture.frame(performance.now() + 200);
+        if (cues.length !== emitted || JSON.stringify(fixture.camera.position.toArray()) !== JSON.stringify(camera)) throw Error("Skipped timeline emitted late cues or lost camera return");
+        records.push({ progress, emitted, finished });
+      }
+      let canceledCues = 0, finishes = 0;
+      fixture.onFinish = () => finishes++;
+      fixture.onCombatCue = () => { canceledCues++; fixture.skip(); };
+      fixture.play(before, after, move, event);
+      const a = fixture.animation, now = performance.now(); a.duration = 100000; a.start = now - .9 * a.duration;
+      fixture.frame(now); fixture.frame(performance.now() + 200);
+      if (canceledCues !== 1 || finishes !== 1 || fixture.animation) throw Error("Reentrant skip failed to invalidate remaining cue callbacks");
+      fixture.onFinish = () => {}; fixture.onCombatCue = () => {};
+      fixture.renderBoard(new fixtureChess()); fixture.setPaused(true);
+      return { records, expectedCues: captureCuePoints.length, canceledCues, finishes };
+    });
+    console.log("PASS: v2 duration clamps, nine actual-frame cues, repeated skip at four combat phases, smooth camera return, authoritative capture once and reentrant cancellation", JSON.stringify(skipSafety));
+
+    const hiddenUpdate = await page.evaluate(async () => {
+      const { analyzeMove } = await import("/shared/events.js");
+      fixture.finish(); fixture.setPaused(true);
+      // Simulate a fresh server update after a minute in a hidden tab.
+      fixture.pausedAt = performance.now() - 60000;
+      const before = new fixtureChess("7k/8/8/3r4/8/2N5/8/K7 w - - 0 1"), after = new fixtureChess(before.fen());
+      const move = after.move({ from: "c3", to: "d5" });
+      fixture.play(before, after, move, analyzeMove(before, after, move));
+      fixture.setPaused(false);
+      const delay = fixture.animation.start - performance.now();
+      if (delay > 5) throw Error(`Hidden-tab server update delayed ${delay}ms into the future`);
+      fixture.skip(); fixture.setPaused(true);
+      return { delay, board: fixture.pieces.children.filter(piece => piece.userData.square === "d5").length };
+    });
+    assert.equal(hiddenUpdate.board, 1);
+    console.log("PASS: a new server presentation received during a long pause resumes immediately", hiddenUpdate);
+    const previewPause = await page.evaluate(async () => {
+      const { analyzeMove } = await import("/shared/events.js");
+      const host = document.createElement("div"); host.style.cssText = "width:900px;height:700px"; document.body.append(host);
+      fixture.setShowcase(host); fixture.setPaused(true);
+      const before = new fixtureChess("7k/8/8/3r4/8/2N5/8/K7 w - - 0 1"), after = new fixtureChess(before.fen());
+      const move = after.move({ from: "c3", to: "d5" });
+      let cues = 0; fixture.onCombatCue = () => cues++;
+      fixture.play(before, after, move, analyzeMove(before, after, move));
+      const animation = fixture.animation, now = performance.now();
+      animation.duration = 100000; animation.start = now - .45 * animation.duration; fixture.frame(now);
+      const beforePause = cues, phase = document.querySelector("#stage").dataset.combatPhase;
+      fixture.setPaused(true, true); fixture.frame(now + 60000);
+      if (cues !== beforePause || fixture.animation !== animation) throw Error("Hidden preview advanced or dispatched overdue cues");
+      // Model a minute actually spent hidden while keeping the browser test quick.
+      fixture.pausedAt -= 60000; animation.start -= 60000;
+      fixture.setPaused(true); fixture.frame(performance.now());
+      if (cues !== beforePause || document.querySelector("#stage").dataset.combatPhase !== phase) throw Error("Preview resume jumped to a later combat phase");
+      if (fixture.presentationPaused) throw Error("Ordinary menu preview remained frozen after tab return");
+      fixture.finish(); fixture.onCombatCue = () => {}; fixture.setShowcase(null); fixture.setPaused(true); host.remove();
+      return { cues, phase, board: fixture.pieces.children.filter(piece => piece.userData.square === "d5").length };
+    });
+    assert.equal(previewPause.board, 1);
+    console.log("PASS: hidden showcase freezes both cue dispatch and timeline, then resumes the same phase", previewPause);
     const audio = await page.evaluate(async () => {
       const { SpaceAudio } = await import("/src/sound.ts");
       const results = [], samples = [];
       for (const piece of ["p", "n", "b", "r", "q", "k"]) {
-        const context = new OfflineAudioContext(2, 44100 * 1.6, 44100);
+        const context = new OfflineAudioContext(2, 44100 * 2.4, 44100);
         const sound = new SpaceAudio(context);
         sound.play(piece, "lock"); sound.play(piece, "charge", 0.35);
         const suspended = context.suspend(0.35), rendered = context.startRendering();

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { SoundVariantBag, SOUND_VARIANTS, pieceSoundRecipe, eventSoundRecipe, SpaceAudio } from "../src/sound.ts";
+import { SoundVariantBag, SOUND_VARIANTS, pieceSoundRecipe, eventSoundRecipe, combatSoundRecipe, SpaceAudio, AUDIO_VOICE_LIMIT, AUDIO_CACHE_LIMIT } from "../src/sound.ts";
 
 const pieces = ["p", "n", "b", "r", "q", "k"];
 const phases = ["lock", "charge", "dash", "impact", "death", "check"];
@@ -66,8 +66,8 @@ test("move/attack aliases retain their bags and ordinary arrival impacts remain 
   }
 });
 
-// Source scheduling is observable without a speaker or browser: catch future FM carriers
-// that were previously left alive when an animation was skipped or sound was muted.
+// PCM source scheduling is observable without a browser. Internal delayed layers and room
+// reflections must stop together when the owning visual sequence is canceled.
 function audioContext() {
   const params = () => ({ value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {}, linearRampToValueAtTime() {}, setTargetAtTime() {}, cancelScheduledValues() {} });
   const context = { currentTime: 0, sampleRate: 44100, destination: {}, scheduled: [] };
@@ -80,22 +80,85 @@ function audioContext() {
   Object.assign(context, {
     createGain: node, createBiquadFilter: node, createStereoPanner: node, createDelay: node,
     createDynamicsCompressor: () => ({ ...node(), threshold: params(), knee: params(), ratio: params(), attack: params(), release: params() }),
-    createBuffer: (_, length) => ({ getChannelData: () => new Float32Array(length) }),
+    createBuffer: (channels, length, sampleRate) => {
+      const data = Array.from({ length: channels }, () => new Float32Array(length));
+      return { length, numberOfChannels: channels, sampleRate, duration: length / sampleRate, getChannelData: (channel) => data[channel] };
+    },
     createOscillator: source, createBufferSource: source,
   });
   return context;
 }
 
-test("cancel stops every scheduled carrier, FM modulator and noise voice, including future starts", () => {
+test("cancel stops every PCM voice including its delayed layer and reverberation content", () => {
   const context = audioContext(), sound = new SpaceAudio(context, () => 0.5);
   for (let i = 0; i < SOUND_VARIANTS; i++) sound.play("n", "charge", 0.7, true);
   sound.play("q", "dash"); sound.play("r", "death"); sound.playEvent("mate");
-  assert.ok(context.scheduled.some((source) => source.started > 0.2));
+  assert.equal(context.scheduled.length, 7, "one voice owns all layered sound content per cue");
+  assert.ok(context.scheduled.some((source) => source.buffer.duration > .8));
   assert.equal(sound.activeVoices, context.scheduled.length);
   context.currentTime = 0.05;
   sound.cancel();
   assert.ok(context.scheduled.every((source) => source.stopped === 0.07500000000000001));
   context.scheduled.forEach((source) => source.onended());
   assert.equal(sound.activeVoices, 0);
+  sound.dispose();
+});
+
+
+test("skin combat signatures change material and rhythm for all thirty class/skin combinations", () => {
+  const signatures = new Set();
+  for (const piece of pieces) for (const skin of ["classic", "ember", "frost", "astral", "royal"]) {
+    const recipe = combatSoundRecipe(piece, skin, "impact", 0);
+    assert.ok(recipe.every((layer) => layer.kind !== "tone" || layer.wave === "sine"));
+    signatures.add(JSON.stringify(recipe));
+  }
+  assert.equal(signatures.size, 30);
+});
+
+test("effect cancellation preserves music buses, mute and volume remain independent", () => {
+  const context = audioContext(), sound = new SpaceAudio(context);
+  sound.setBusVolume("music", .2); sound.setBusVolume("cinematic", .8); sound.setVolume(.6);
+  sound.play("p", "dash"); sound.playCombatCue("n", "astral", "release");
+  sound.cancelEffects();
+  assert.ok(context.scheduled.every((source) => source.stopped === .025));
+  assert.equal(sound.diagnostics.busLevels.music, .2); assert.equal(sound.diagnostics.busLevels.cinematic, .8);
+  assert.equal(sound.diagnostics.busLevels.master, .6);
+  sound.setMuted(true); const before = context.scheduled.length; sound.playEvent("mate");
+  assert.equal(context.scheduled.length, before);
+  sound.setMuted(false); sound.setPaused(true); sound.playCombatCue("r", "royal", "impact");
+  assert.equal(context.scheduled.length, before);
+  sound.dispose(); assert.equal(sound.activeVoices, 0); assert.equal(sound.diagnostics.cacheBytes, 0);
+});
+
+test("PCM cache and source graph remain bounded under repeated attacks", () => {
+  const context = audioContext(), sound = new SpaceAudio(context);
+  for (let i = 0; i < 100; i++) sound.playCombatCue("p", "classic", "impact");
+  assert.ok(sound.activeVoices <= AUDIO_VOICE_LIMIT);
+  assert.ok(sound.diagnostics.cacheBytes <= AUDIO_CACHE_LIMIT);
+  assert.equal(sound.diagnostics.cacheEntries, 4, "takes reuse their PCM buffers");
+  sound.dispose(); assert.equal(sound.activeVoices, 0);
+});
+
+
+test("a cold frame racing worker preparation keeps one cache entry per take", async () => {
+  const context = audioContext(), sound = new SpaceAudio(context, () => .25);
+  const warming = sound.prepareCombat("n", "astral");
+  sound.playCombatCue("n", "astral", "impact");
+  await warming;
+  assert.equal(sound.diagnostics.cacheEntries, 9);
+  assert.equal(sound.diagnostics.cacheBytes, sound.diagnostics.residentBytes, "in-flight preparation must not count or retain a duplicate buffer");
+  sound.dispose();
+});
+
+
+test("rapid preview cancellation resolves obsolete preparation and never starts effects", async () => {
+  const context = audioContext(), sound = new SpaceAudio(context);
+  const requests = [];
+  for (const skin of ["classic", "ember", "frost", "astral", "royal"]) {
+    requests.push(sound.prepareCombat("q", skin)); sound.cancelEffects();
+  }
+  await Promise.all(requests);
+  assert.equal(sound.activeVoices, 0);
+  assert.ok(sound.diagnostics.cacheEntries <= 1, "only the active worker job may finish after cancellation");
   sound.dispose();
 });

@@ -67,11 +67,17 @@ try {
   assert.equal(await page.locator("#stage").getAttribute("data-move-phase"), pausedPhase);
   assert.equal(await page.evaluate(() => localStorage.getItem("special-chess-offline-game")), pausedSave);
   await page.screenshot({ path: "test-results/pause-mobile.png" });
-  await closePanel(page);
-  // Quick mute must leave the attack running, rather than skip the animation.
-  await page.locator("#hud-mute").click();
-  assert.equal(await page.locator("#sound").isChecked(), false);
-  assert.ok(await page.locator("#stage").getAttribute("data-move-phase"));
+  // Resume and invoke mute in one task, before a slow software-rendered frame
+  // can naturally finish the fight between independent Playwright operations.
+  const quickMute = await page.evaluate(() => {
+    document.querySelector("#drawer-close").click();
+    const stage = document.querySelector("#stage"), before = stage.dataset.movePhase;
+    document.querySelector("#hud-mute").click();
+    return { before, after: stage.dataset.movePhase, enabled: document.querySelector("#sound").checked };
+  });
+  assert.ok(quickMute.before, "resume must retain the paused fight");
+  assert.equal(quickMute.after, quickMute.before, "quick mute must not settle or skip the fight");
+  assert.equal(quickMute.enabled, false);
   const event = await page.locator("#battle-toast").boundingBox();
   assert.ok(event.width <= 230 && event.height <= 100);
   await page.locator("#skip").click();
@@ -81,9 +87,17 @@ try {
   await page.locator("#cinematic").uncheck();
   await closePanel(page);
   await page.locator("#board-details summary").click();
+  await page.evaluate(() => {
+    window.hudCaptureSeen = false;
+    const stage = document.querySelector("#stage");
+    const observer = new MutationObserver(() => {
+      if (stage.dataset.executionPhase) { window.hudCaptureSeen = true; observer.disconnect(); }
+    });
+    observer.observe(stage, { attributes: true, attributeFilter: ["data-execution-phase"] });
+  });
   await page.locator('[data-square="c3"]').click();
   await page.locator('[data-square="d5"]').click();
-  await page.waitForFunction(() => document.querySelector("#stage").dataset.movePhase === "impact");
+  await page.waitForFunction(() => window.hudCaptureSeen);
   await page.screenshot({ path: "test-results/hud-event-mobile.png" });
   await page.locator("#skip").click();
   assert.deepEqual(errors, []);

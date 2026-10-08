@@ -24,6 +24,7 @@ interface TitleCallbacks {
   audition?: (piece: PieceSymbol, skin: SkinId) => void;
   settings?: (host: HTMLElement | null) => void;
   help?: () => void;
+  showcase?: () => void;
 }
 type MenuView = "title" | "menu" | "mode" | "setup" | "army" | "arena" | "armory" | "settings";
 const journey: MenuView[] = ["mode", "setup", "army", "arena"];
@@ -152,6 +153,7 @@ export class TitleScreen {
     };
     this.get<HTMLButtonElement>("#launch-resume").onclick = () => callbacks.resume(this.skin);
     this.get<HTMLButtonElement>("#title-enter").onclick = () => this.go("menu");
+    this.get<HTMLButtonElement>("#open-showcase").onclick = () => callbacks.showcase?.();
     this.get<HTMLButtonElement>("#daily-enter").onclick = () => this.chooseMode("daily");
     this.get<HTMLSelectElement>("#special-opponent").onchange = () => this.setMode(this.selected);
     this.root.querySelectorAll<HTMLButtonElement>("[data-mode-category]").forEach((button) => button.onclick = () => {
@@ -230,7 +232,7 @@ export class TitleScreen {
     this.root.innerHTML = `<div class="menu-world"></div><div class="menu-shade"></div>
       <header class="game-menu-top"><button id="flow-back" aria-label="ย้อนกลับ">${icon("arrow-left")} <span>ย้อนกลับ</span></button><span class="game-wordmark">${logo()}</span><div class="menu-commander"></div></header>
       <main class="game-menu-content"><section class="menu-page title-cover" data-menu-view="title"><small>TACTICAL BOARD COMBAT</small><div class="title-logo">${logo("hero")}</div><p>คิดให้เฉียบ · เดินให้เด็ด · ปะทะให้เดือด</p><button id="title-enter" class="primary">เริ่มดวล <span>${icon("arrow-right")}</span></button><small class="start-prompt">กด Enter หรือแตะเพื่อเริ่ม</small></section>
-      <section class="menu-page" data-menu-view="menu" hidden><small>YOUR NEXT MOVE</small><h1>ทุกตาเดิน<br><em>เปลี่ยนเกมได้</em></h1><nav class="main-game-menu" aria-label="เมนูหลัก"><div id="resume-slot"></div><button id="lobby-battle-tab">เข้าสู่ศึก <span>${icon("arrow-right")}</span></button><button data-menu-go="armory">คลังแสง <span>${icon("armory")}</span></button><button data-menu-go="settings">ตั้งค่า <span>${icon("settings")}</span></button><button data-menu-go="help">วิธีเล่น <span>${icon("help")}</span></button></nav><div id="menu-progress"></div></section>
+      <section class="menu-page" data-menu-view="menu" hidden><small>YOUR NEXT MOVE</small><h1>ทุกตาเดิน<br><em>เปลี่ยนเกมได้</em></h1><nav class="main-game-menu" aria-label="เมนูหลัก"><div id="resume-slot"></div><button id="lobby-battle-tab">เข้าสู่ศึก <span>${icon("arrow-right")}</span></button><button data-menu-go="armory">คลังแสง <span>${icon("armory")}</span></button><button id="open-showcase">ห้องทดลองการต่อสู้ <span>${icon("duel")}</span></button><button data-menu-go="settings">ตั้งค่า <span>${icon("settings")}</span></button><button data-menu-go="help">วิธีเล่น <span>${icon("help")}</span></button></nav><div id="menu-progress"></div></section>
       <section class="menu-page" data-menu-view="mode" hidden><small>01 / CHOOSE YOUR BATTLE</small><h1>เลือกกติกา</h1><p>กระดานเดียว หลายวิธีตัดสินชัยชนะ</p><nav id="mode-categories" class="mode-categories" aria-label="ประเภทโหมด"><button data-mode-category="duel" aria-pressed="true">${icon("duel")} ดวลหมาก</button><button data-mode-category="arena" aria-pressed="false">${icon("draft")} อารีนา</button><button data-mode-category="tactics" aria-pressed="false">${icon("puzzle")} ท้าฝีมือ</button></nav><div id="mode-slot"></div></section>
       <section class="menu-page" data-menu-view="setup" hidden><small>02 / PREPARE FOR BATTLE</small><h1 id="setup-heading">เตรียมศึก</h1><div id="setup-slot"></div></section>
       <section class="menu-page" data-menu-view="army" hidden><small>03 / YOUR ARMY</small><h1>กองทัพของคุณ</h1><p>เลือกชุดกองทัพ หรือแต่งอวตารให้หมากแต่ละตัว</p><div id="army-slot"></div></section>

@@ -140,7 +140,7 @@ try {
   await openPanel(page, "settings"); await page.locator("#human-side").selectOption("w"); await closePanel(page);
   await page.waitForTimeout(400);
   assert.equal(await page.locator("#moves .san").count(), 0);
-  // An ordinary pawn capture stays short; all-events mode restores its cutscene.
+  // Every enabled capture, including a pawn in Key Moments mode, uses the v2 score.
   await openPanel(page, "training");
   await page.locator("#training-panel summary").click();
   await openPanel(page, "training");
@@ -150,10 +150,20 @@ try {
   await closePanel(page);
   await page.locator('[data-square="c4"]').click();
   await closePanel(page);
+  await page.evaluate(() => {
+    const stage = document.querySelector("#stage"); window.captureSnapshots = [];
+    window.captureObserver = new MutationObserver(() => window.captureSnapshots.push({
+      cinematic: stage.classList.contains("cinematic"), duration: stage.dataset.cinematicDuration, phase: stage.dataset.battlePhase,
+    }));
+    window.captureObserver.observe(stage, { attributes: true });
+  });
   await page.locator('[data-square="d5"]').click();
-  await page.waitForTimeout(100);
-  assert.equal(await page.locator("#stage").getAttribute("data-battle-phase"), null);
-  assert.equal(await page.locator("#stage").evaluate((el) => el.classList.contains("cinematic")), false);
+  await page.waitForFunction(() => window.captureSnapshots.some(sample => sample.cinematic && sample.duration === "2600" && sample.phase));
+  const capturePlayed = await page.evaluate(() => {
+    window.captureObserver.disconnect();
+    return window.captureSnapshots.some(sample => sample.cinematic && sample.duration === "2600" && sample.phase);
+  });
+  assert.equal(capturePlayed, true, "pawn capture enters a full v2 cinematic even in Key Moments mode");
   await page.waitForFunction(() => !document.querySelector("#event").classList.contains("visible"));
   assert.equal(await page.locator('#white-captured svg[data-piece="p"][data-color="b"]').count(), 1);
   assert.equal(await page.locator("#white-material").innerText(), "+1");
@@ -203,13 +213,15 @@ try {
   // Observe the actual stage before input: software WebGL can delay the click
   // response until after a short phase has already appeared and disappeared.
   await page.evaluate(() => {
-    window.__battlePhases = [];
+    window.__battlePhases = []; window.__combatPhases = [];
     window.__battleObserver = new MutationObserver(() => {
-      const phase = document.querySelector("#stage").dataset.battlePhase;
+      const stage = document.querySelector("#stage"), phase = stage.dataset.battlePhase;
       if (phase && window.__battlePhases.at(-1) !== phase) window.__battlePhases.push(phase);
+      const combat = stage.dataset.combatPhase;
+      if (combat && window.__combatPhases.at(-1) !== combat) window.__combatPhases.push(combat);
     });
     window.__battleObserver.observe(document.querySelector("#stage"), {
-      attributes: true, attributeFilter: ["data-battle-phase"],
+      attributes: true, attributeFilter: ["data-battle-phase", "data-combat-phase"],
     });
   });
   await page.locator('[data-square="c3"]').click();
@@ -234,7 +246,10 @@ try {
   const phases = await page.evaluate(() => {
     window.__battleObserver.disconnect(); return window.__battlePhases;
   });
-  assert.deepEqual(phases, ["charge", "dash", "impact", "aftermath", "return"]);
+  assert.deepEqual(await page.evaluate(() => window.__combatPhases), ["faceoff", "opening", "defense", "finisher", "defeat"]);
+  // The 117 ms overlay contact accent can fall between software WebGL frames;
+  // the five actual combat phases and once-only contact are covered separately.
+  assert.equal(phases[0], "charge"); assert.equal(phases.at(-1), "return");
   assert.match(await page.locator("#moves").innerText(), /Nxd5/);
   assert.equal(await page.locator('[data-square="d5"] svg[data-piece="n"][data-color="w"]').count(), 1);
   // A normal 3D pick after completion exercises camera and pointer restoration.

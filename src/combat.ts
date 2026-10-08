@@ -1,4 +1,34 @@
 import type { PieceSymbol } from "chess.js";
+import type { CombatCue, CombatPhase } from "./combat-profiles.ts";
+export type { CombatCue, CombatPhase } from "./combat-profiles.ts";
+
+export const CAPTURE_DURATION = 2600;
+export const CAPTURE_CLASH = 1.12 / 2.6;
+export const CAPTURE_CONTACT = 1.85 / 2.6;
+export const CAPTURE_DEATH = 2.1 / 2.6;
+
+/** A server update can create a new presentation while the tab is paused. */
+export function resumeAnimationStart(start: number, pausedAt: number, now: number) {
+  return start + Math.max(0, now - Math.max(pausedAt, start));
+}
+
+/** Longer timings are configurable, but never extend the match presentation. */
+export function clampCaptureDuration(milliseconds: number) {
+  return Number.isFinite(milliseconds) ? Math.max(2000, Math.min(3000, milliseconds)) : CAPTURE_DURATION;
+}
+
+/** Audio is dispatched when real render frames cross these points, not timers. */
+export const captureCuePoints: readonly Readonly<{ cue: CombatCue; at: number; actor: "attacker" | "defender" }>[] = Object.freeze([
+  { cue: "draw", at: .09 / 2.6, actor: "attacker" },
+  { cue: "charge", at: .23 / 2.6, actor: "attacker" },
+  { cue: "release", at: .76 / 2.6, actor: "attacker" },
+  { cue: "clash", at: CAPTURE_CLASH, actor: "defender" },
+  { cue: "counter", at: 1.34 / 2.6, actor: "defender" },
+  { cue: "finisher", at: 1.57 / 2.6, actor: "attacker" },
+  { cue: "impact", at: CAPTURE_CONTACT, actor: "attacker" },
+  { cue: "armor", at: 1.91 / 2.6, actor: "defender" },
+  { cue: "disintegrate", at: CAPTURE_DEATH, actor: "defender" },
+].map(point => Object.freeze(point)) as Readonly<{ cue: CombatCue; at: number; actor: "attacker" | "defender" }>[]);
 
 // Shape and movement identities remain the same across cosmetic skins.
 export const combatStyles = {
@@ -24,19 +54,30 @@ export function moveFrame(progress: number) {
 }
 
 export function captureFrame(progress: number) {
-  const t = Math.max(0, Math.min(1, progress));
+  const t = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+  const seconds = t * 2.6;
   const smooth = (x: number) => { const p = Math.max(0, Math.min(1, x)); return p * p * (3 - 2 * p); };
-  // A capture reaches a combat position first. Occupying the legal destination
-  // happens after the defender falls, rather than sliding through their mesh.
-  const approach = smooth((t - 0.18) / 0.18);
+  const combatPhase: CombatPhase = seconds < .4 ? "faceoff" : seconds < 1 ? "opening"
+    : seconds < 1.5 ? "defense" : seconds < 2.1 ? "finisher" : "defeat";
+  // Both actors remain outside one another until the visual defender has fallen.
+  // Initial attack and counter pose progress are separate from the final blow.
+  const approach = smooth((seconds - .24) / .66);
+  const finisher = smooth((seconds - 1.5) / .35);
+  const clash = Math.max(0, 1 - Math.abs(seconds - 1.12) / .1);
+  const contactHold = seconds >= 1.85 && seconds < 1.97;
+  const clashHold = seconds >= 1.12 && seconds < 1.2;
   return {
-    phase: t < 0.18 ? "charge" : t < 0.36 ? "approach" : t < 0.48 ? "windup"
-      : t < 0.56 ? "strike" : t < 0.64 ? "impact" : t < 0.78 ? "defeat" : "occupy",
-    charge: smooth(t / 0.18), approach,
-    strike: smooth((t - 0.48) / 0.08),
-    defeat: smooth((t - 0.64) / 0.14),
-    occupy: smooth((t - 0.78) / 0.17),
-    impact: t >= 0.56, death: t >= 0.72,
-    particleSpeed: t >= 0.56 && t < 0.64 ? 0 : t < 0.8 ? 0.3 : 1,
+    // Legacy overlay aliases stay compatible with quiet moves and armory UI.
+    phase: seconds < .4 ? "charge" : seconds < .9 ? "approach" : seconds < 1.5 ? "windup"
+      : seconds < 1.85 ? "strike" : seconds < 2.1 ? "impact" : seconds < 2.33 ? "defeat" : "occupy",
+    combatPhase, seconds,
+    charge: smooth(seconds / .4), approach,
+    opening: smooth((seconds - .4) / .6), counter: smooth((seconds - 1) / .5),
+    clash, finisher, strike: finisher,
+    defeat: smooth((seconds - 2.1) / .28),
+    occupy: smooth((seconds - 2.33) / .22),
+    recovery: smooth((seconds - 2.1) / .5),
+    impact: t >= CAPTURE_CONTACT, death: t >= CAPTURE_DEATH,
+    particleSpeed: contactHold || clashHold ? 0 : seconds >= 1.2 && seconds < 2.35 ? .3 : 1,
   };
 }
