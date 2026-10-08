@@ -1,6 +1,6 @@
 # Special Chess 3D
 
-A playable fantasy army chess game with a 3D commander lobby, individual piece cosmetics, spectral combat avatars, signature finishers, eight reactive arenas, tactical chapters and Thai UI. All piece geometry, textures, effects and synthesized sounds are generated in code. No external art or model downloads.
+A playable fantasy army chess game with a 3D commander lobby, individual piece cosmetics, spectral combat avatars, signature finishers, eight reactive arenas, tactical chapters, rotating daily challenges and Thai UI. All piece geometry, textures, effects and synthesized sounds are generated in code. No external art or model downloads.
 
 ## Browser link (GitHub Pages)
 
@@ -64,6 +64,10 @@ The server serves the built game on port **3000**. Open that port's address in y
 
 ## RPG progression and skins
 
+The electric fantasy UI uses cyan, violet and orange accents, distinct colors and emblems for each mode, skin-colored collection cards and arena-colored selections. Its menu ornaments animate transforms and opacity only; reduced effects disables them. A compact objective button on the battlefield shows progress and opens the mission drawer without covering the board with a central panel.
+
+**ศึกประจำวัน / Daily Rift** is available from the main menu or mode selection, including offline. Four tactical objectives (royal rescue, knight fork, mate in one and forced mate in two) rotate through sixteen legal mirrored/color-swapped positions, with a recommended arena that you can change. The calendar resets at **00:00 UTC / 07:00 Thailand time** using the device clock. A clear awards **80 XP**, plus **10 XP per consecutive previously completed day**, capped at **120 XP**; retries, undo and reload cannot claim that date twice. A missed day resets the streak. An unfinished saved puzzle retains its original date and board after midnight; selecting a new daily challenge uses today's puzzle. Claims and streaks use the existing browser-local profile and require no network or extra assets.
+
 The commander profile earns a level every **200 XP**. Royal Origin, Ember Knights and Frost Guard are available immediately; Astral Order unlocks at **Lv.2 / 200 XP** and Golden Sovereign at **Lv.4 / 600 XP**. Choose a skin independently for each physical piece in either army, including all eight pawns. Origin-square identities follow moves, captures, castling, en passant, promotion and undo. A whole-army selection resets individual overrides. Themes change every class’s geometry, summoned avatar and effect family, with cosmetic rarity and named skills. All shapes are procedural; skins preserve the same chess rules.
 
 The three tactical chapters teach royal rescue, a two-target fork, and a forced mate in two player moves. They use legal chess moves with a turn budget and actual objective detection; the opponent replies through the normal bot. First clears award 60 / 80 / 100 XP. Custom chapter/training positions deploy your equipped class skins. The result panel shows rewards, a physical piece MVP and a brief victory pose; its replay restores the actual board without changing history or claiming XP again. The three standard bot difficulties are named rival armies (Ignis, Selene and Astra).
@@ -91,6 +95,7 @@ npm run test:browser
 npm run test:render
 npm run build:offline
 npm run test:title
+npm run test:daily
 npm run test:hud
 npm run test:army
 npm run test:audio

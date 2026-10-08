@@ -26,6 +26,14 @@ export class ArenaHUD {
     for (const id of ["black-player", "white-player"]) players.append(children.find((el) => el.id === id)!);
     for (const id of ["status", "result", "xp-reward"]) info.append(children.find((el) => el.id === id)!);
     stage.append(info);
+    const objective = document.createElement("button");
+    objective.id = "objective-peek";
+    objective.innerHTML = '<span aria-hidden="true">◈</span><span><strong id="objective-label"></strong><small id="objective-progress"></small></span><b aria-hidden="true">→</b>';
+    objective.setAttribute("aria-label", "ติดตามเป้าหมายและภารกิจ");
+    objective.setAttribute("aria-controls", "arena-drawer");
+    objective.setAttribute("aria-expanded", "false");
+    objective.onclick = () => this.open("missions", objective);
+    stage.querySelector(".arena-bottom")!.append(objective);
     stage.append(children.find((el) => el.id === "notice")!);
     const groups: Record<Panel, string[]> = {
       pause: [],
@@ -101,7 +109,7 @@ export class ArenaHUD {
     });
     this.syncSound();
   }
-  open(name: Panel) {
+  open(name: Panel, trigger?: HTMLButtonElement) {
     const titles = { pause: "พักการประลอง", settings: "ภาพและเสียง", training: "สนามฝึก", history: "บันทึกการประลอง", missions: "ภารกิจและสถานการณ์", room: "ห้องออนไลน์" };
     if (this.drawer.hidden) this.onPauseChange?.(true);
     for (const [key, panel] of this.panels) panel.hidden = key !== name;
@@ -111,8 +119,9 @@ export class ArenaHUD {
     this.drawer.scrollTop = 0;
     this.drawer.querySelector("#drawer-title")!.textContent = titles[name];
     document.querySelectorAll<HTMLButtonElement>("[data-hud-open]").forEach((button) => button.setAttribute("aria-expanded", String(button.dataset.hudOpen === name)));
-    this.trigger = document.querySelector("#pause-game");
-    this.trigger?.setAttribute("aria-expanded", "true");
+    this.trigger = trigger || document.querySelector("#pause-game");
+    document.querySelector("#pause-game")!.setAttribute("aria-expanded", "true");
+    document.querySelector("#objective-peek")!.setAttribute("aria-expanded", String(name === "missions"));
     this.drawer.querySelector<HTMLButtonElement>(name === "pause" ? "#pause-resume" : "#drawer-close")!.focus({ preventScroll: true });
   }
   close() {
@@ -123,6 +132,8 @@ export class ArenaHUD {
     document.querySelectorAll<HTMLButtonElement>("[data-hud-open]").forEach((button) => button.setAttribute("aria-expanded", "false"));
     this.trigger?.focus({ preventScroll: true });
     this.trigger?.setAttribute("aria-expanded", "false");
+    document.querySelector("#pause-game")!.setAttribute("aria-expanded", "false");
+    document.querySelector("#objective-peek")!.setAttribute("aria-expanded", "false");
   }
   attachSettings(host: HTMLElement | null) {
     (host || this.settingsHome).prepend(document.querySelector(".settings")!);

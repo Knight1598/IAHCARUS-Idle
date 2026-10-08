@@ -4,10 +4,12 @@ import { initialArmySlots, avatarNames, skillNames, pieceNames } from "./cosmeti
 import { training } from "./training";
 import { trials, rivals } from "./progression";
 import { arenas, arenaIds, type ArenaId } from "./arenas";
+import { dailyChallenge, dailyProgress, utcDay } from "./daily";
 import "./lobby.css";
+import "./royal-ui.css";
 
-export type TitleMode = "bot" | "local" | "training" | "campaign" | "online";
-export interface LaunchSettings { mode: TitleMode; side: "w" | "b"; depth: string; skin: SkinId; training: string; trial?: string }
+export type TitleMode = "bot" | "local" | "training" | "campaign" | "online" | "daily";
+export interface LaunchSettings { mode: TitleMode; side: "w" | "b"; depth: string; skin: SkinId; training: string; trial?: string; day?: string }
 interface TitleCallbacks {
   start: (settings: LaunchSettings) => void;
   resume: (skin: SkinId) => void;
@@ -36,6 +38,7 @@ export class TitleScreen {
   private view: MenuView = "title";
   private armoryReturn: MenuView = "menu";
   private previewKey = "";
+  private dailyDay = utcDay();
 
   constructor(host: HTMLElement, offline: boolean, private callbacks: TitleCallbacks) {
     this.root = document.createElement("section");
@@ -72,7 +75,7 @@ export class TitleScreen {
       callbacks.selectArena?.(button.dataset.arenaOption as ArenaId);
     });
     this.root.querySelectorAll<HTMLButtonElement>("[data-title-mode]").forEach((button) => button.onclick = () => {
-      this.setMode(button.dataset.titleMode as TitleMode); this.go("setup");
+      this.chooseMode(button.dataset.titleMode as TitleMode);
     });
     this.root.querySelectorAll<HTMLButtonElement>("[data-skin-option]").forEach((button) => button.onclick = () => {
       const skin = button.dataset.skinOption as SkinId;
@@ -127,11 +130,16 @@ export class TitleScreen {
       depth: this.get<HTMLSelectElement>("#launch-depth").value,
       training: this.get<HTMLSelectElement>("#launch-scenario").value,
       trial: this.get<HTMLSelectElement>("#launch-trial").value,
+      day: this.selected === "daily" ? this.dailyDay : undefined,
     });
     this.get<HTMLButtonElement>("#launch-resume").onclick = () => callbacks.resume(this.skin);
     this.get<HTMLButtonElement>("#title-enter").onclick = () => this.go("menu");
+    this.get<HTMLButtonElement>("#daily-enter").onclick = () => this.chooseMode("daily");
     this.get<HTMLButtonElement>("#flow-back").onclick = () => this.back();
-    this.get<HTMLButtonElement>("#flow-next").onclick = () => this.go(journey[Math.min(3, journey.indexOf(this.view) + 1)]);
+    this.get<HTMLButtonElement>("#flow-next").onclick = () => {
+      if (this.view === "mode") this.chooseMode(this.selected);
+      else this.go(journey[Math.min(3, journey.indexOf(this.view) + 1)]);
+    };
     this.root.querySelectorAll<HTMLButtonElement>("[data-menu-go]").forEach((button) => button.onclick = () => {
       if (button.dataset.menuGo === "armory") this.openArmory();
       else if (button.dataset.menuGo === "help") callbacks.help?.();
@@ -178,15 +186,46 @@ export class TitleScreen {
     progress.querySelector(".title-start")?.remove(); progress.querySelector(".lobby-save-note")?.remove();
     this.get("#menu-progress").append(progress);
     customize.textContent = "✦ แต่งหมากรายตัว"; start.textContent = "เข้าสู่สนาม →";
+    const dailyMode = document.createElement("button");
+    dailyMode.dataset.titleMode = "daily";
+    dailyMode.innerHTML = '<strong>◈ ศึกประจำวัน</strong><small>โจทย์ใหม่ · รางวัลต่อเนื่อง · รับสูงสุด 120 XP</small>';
+    modes.prepend(dailyMode);
+    const dailyCard = document.createElement("button");
+    dailyCard.id = "daily-enter";
+    dailyCard.innerHTML = '<span class="daily-emblem" aria-hidden="true">◈</span><span><small>DAILY RIFT</small><strong id="daily-name"></strong><span id="daily-reward"></span></span><b aria-hidden="true">→</b>';
+    this.get(".main-game-menu").before(dailyCard);
+    const brief = document.createElement("div"); brief.id = "daily-brief"; brief.hidden = true;
+    brief.innerHTML = '<div class="daily-portal" aria-hidden="true">♛</div><h2 id="daily-title"></h2><p id="daily-story"></p><div class="daily-facts"><span id="daily-budget"></span><span id="daily-streak"></span><span id="daily-prize"></span></div><small>โจทย์เปลี่ยนทุกวัน 07:00 น. เวลาไทย (00:00 UTC)<br>เล่นซ้ำได้ · รางวัลรับครั้งเดียวต่อวัน</small>';
+    this.get("#setup-slot").prepend(brief);
+    const accents = ["◈", "⚔", "✧", "♟", "✦", "⌘"];
+    modes.querySelectorAll<HTMLButtonElement>("button").forEach((button, index) => {
+      const mark = document.createElement("span"); mark.className = "mode-emblem"; mark.textContent = accents[index]; mark.setAttribute("aria-hidden", "true"); button.prepend(mark);
+      const label = button.querySelector("strong")!;
+      label.textContent = label.textContent!.replace(/^\S+\s/, "");
+    });
+    this.get("#lobby-battle-tab").innerHTML = '<span class="menu-battle-icon" aria-hidden="true">⚔</span><span><strong>เข้าสู่ศึก</strong><small>บัญชาการกองทัพ สร้างตำนานของคุณ</small></span><b aria-hidden="true">→</b>';
+    const facets = document.createElement("div"); facets.className = "menu-facets"; facets.setAttribute("aria-hidden", "true");
+    facets.innerHTML = '<i></i><i></i><i></i>';
+    this.root.prepend(facets);
     this.root.dataset.menuView = "title";
   }
   private openArmory() { this.armoryReturn = this.view; this.go("armory"); }
+  private chooseMode(mode: TitleMode) {
+    if (mode === "daily") {
+      this.dailyDay = utcDay();
+      const daily = dailyChallenge(this.dailyDay);
+      this.get<HTMLSelectElement>("#launch-side").value = daily.trial.side;
+      this.callbacks.selectArena?.(daily.arena);
+    }
+    this.setMode(mode); this.go("setup");
+  }
   private back() {
     const index = journey.indexOf(this.view);
     this.go(this.view === "armory" ? this.armoryReturn : this.view === "settings" ? "menu" :
       index > 0 ? journey[index - 1] : index === 0 ? "menu" : "title");
   }
   private go(view: MenuView) {
+    if (view === "menu") { this.dailyDay = utcDay(); this.refreshDaily(); }
     this.callbacks.settings?.(view === "settings" ? this.get("#title-settings-slot") : null);
     this.view = view; this.root.dataset.menuView = view; this.armory = view === "armory";
     this.root.querySelectorAll<HTMLElement>("[data-menu-view]").forEach((page) => { page.hidden = page.dataset.menuView !== view; page.scrollTop = 0; });
@@ -210,9 +249,9 @@ export class TitleScreen {
   }
   private updateBrief() {
     if (!this.profile) return;
-    const modeNames = { bot: "ศึกแม่ทัพ", local: "ศึกสองกองทัพ", training: "สนามฝึก", campaign: "บันทึกสงคราม", online: "ดวลออนไลน์" };
+    const modeNames = { bot: "ศึกแม่ทัพ", local: "ศึกสองกองทัพ", training: "สนามฝึก", campaign: "บันทึกสงคราม", online: "ดวลออนไลน์", daily: "ศึกประจำวัน" };
     this.get("#setup-heading").textContent = modeNames[this.selected];
-    const opponent = this.selected === "bot" ? rivals[Number(this.get<HTMLSelectElement>("#launch-depth").value) as 1 | 2 | 3].name : modeNames[this.selected];
+    const opponent = this.selected === "daily" ? dailyChallenge(this.dailyDay).title : this.selected === "bot" ? rivals[Number(this.get<HTMLSelectElement>("#launch-depth").value) as 1 | 2 | 3].name : modeNames[this.selected];
     this.get("#battle-brief").textContent = `${opponent} · ${skins[this.skin].name} · ${arenas[this.profile.arena].name}`;
   }
   private get<T extends HTMLElement = HTMLElement>(selector: string) { return this.root.querySelector<T>(selector)!; }
@@ -241,9 +280,23 @@ export class TitleScreen {
     this.get("#launch-bot").hidden = mode !== "bot";
     this.get("#launch-training").hidden = mode !== "training";
     this.get("#launch-campaign").hidden = mode !== "campaign";
+    this.get("#daily-brief").hidden = mode !== "daily";
+    this.refreshDaily();
     const trial = trials[this.get<HTMLSelectElement>("#launch-trial").value as keyof typeof trials];
     const scenario = training[this.get<HTMLSelectElement>("#launch-scenario").value as keyof typeof training];
     this.get("#title-mode-note").textContent = mode === "bot" ? "เอาชนะแม่ทัพและทำภารกิจ รับ XP ปลดล็อกอวตารใหม่" : mode === "campaign" ? `${trial?.story || "เรื่องราวสั้นและเป้าหมายเฉพาะ"} · รางวัลเมื่อผ่านครั้งแรก` : mode === "training" ? `${scenario?.hint || "ฝึกยุทธวิธี"} · ผ่านครั้งแรก รับ 40 XP` : mode === "online" ? "ห้องท้าดวลส่วนตัว · ฝ่ายละ 5 นาที · รับ XP เมื่อศึกจบ" : "เลือกกองทัพทั้งสองฝั่ง แล้วผลัดกันบัญชาการบนเครื่องเดียว";
+    if (mode === "daily") this.get("#title-mode-note").textContent = dailyChallenge(this.dailyDay).trial.hint;
+  }
+  private refreshDaily() {
+    const daily = dailyChallenge(this.dailyDay), progress = dailyProgress(this.profile?.claimed || [], this.dailyDay);
+    this.get("#daily-name").textContent = daily.title;
+    this.get("#daily-reward").textContent = `${progress.done ? "✓ สำเร็จแล้ววันนี้" : `+${progress.reward} XP`} · ต่อเนื่อง ${progress.streak} วัน`;
+    this.get("#daily-enter").classList.toggle("completed", progress.done);
+    this.get("#daily-title").textContent = daily.title;
+    this.get("#daily-story").textContent = daily.trial.story;
+    this.get("#daily-budget").textContent = `${daily.trial.maxMoves} ตาของคุณ`;
+    this.get("#daily-streak").textContent = `ต่อเนื่อง ${progress.streak} วัน`;
+    this.get("#daily-prize").textContent = progress.done ? "✓ รับรางวัลแล้ว" : `+${progress.reward} XP`;
   }
   private renderSkins() {
     if (!this.profile) return;
@@ -307,6 +360,7 @@ export class TitleScreen {
     this.get("#title-xp").textContent = `${progress.current} / ${progress.next} XP`;
     this.get<HTMLProgressElement>("#title-xp-bar").value = progress.current;
     this.renderSkins();
+    this.refreshDaily();
     this.updateBrief();
     if (!this.root.hidden) this.preview();
   }

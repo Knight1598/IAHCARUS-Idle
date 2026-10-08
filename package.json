@@ -20,7 +20,8 @@
     "test:title": "node tests/title-browser.mjs",
     "test:hud": "node tests/hud-browser.mjs",
     "test:army": "node tests/army-browser.mjs",
-    "test:audio": "node tests/audio-browser.mjs"
+    "test:audio": "node tests/audio-browser.mjs",
+    "test:daily": "node tests/daily-browser.mjs"
   },
   "dependencies": {
     "chess.js": "^1.4.0",

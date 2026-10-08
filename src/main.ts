@@ -14,6 +14,7 @@ import { ArenaHUD } from "./hud";
 import { readProfile, claimXP, matchXP, levelProgress, skins, isSkinUnlocked, equipArmy, equipPiece, type SkinId, type Profile } from "./profile";
 import { appearanceMap, avatarNames, skillNames, scenarioLoadout } from "./cosmetics";
 import { rivals, trials, evaluateTrial, battleMVP } from "./progression";
+import { dailyChallenge, dailyProgress, utcDay, validDailyDay } from "./daily";
 import { BattlePresentation } from "./presentation";
 import type { ArmyCosmetics } from "../shared/cosmetics.js";
 import { matchStory, latestMoment } from "./battle";
@@ -80,6 +81,8 @@ let matchId = newMatchId();
 let hasSavedLocalGame = false;
 let activeTraining: keyof typeof training | null = null;
 let activeTrial: keyof typeof trials | null = null;
+let activeDaily: string | null = null;
+function activeTrialDefinition() { return activeDaily ? dailyChallenge(activeDaily).trial : trials[activeTrial!]; }
 let presentation: BattlePresentation | undefined;
 let resultPresentationKey = "";
 let visualReplay = false;
@@ -215,13 +218,14 @@ function checkRewards() {
   let rewardVisible = false;
   const stars = (color: Color) => Object.values(story().missions[color]).filter(Boolean).length;
   if (activeTrial) {
-    const trial = trials[activeTrial];
+    const trial = activeTrialDefinition();
     const outcome = evaluateTrial(trial, game);
     if (outcome !== "active") {
       localResult = { winner: outcome === "won" ? trial.side : trial.side === "w" ? "b" : "w", reason: "objective" };
       if (outcome === "won") {
         rewardVisible = true;
-        grantReward("trial:" + activeTrial, activeTrial === "boss" ? 100 : activeTrial === "fork" ? 80 : 60);
+        if (activeDaily) grantReward(`daily:${activeDaily}`, dailyProgress(profile.claimed, activeDaily).reward);
+        else grantReward("trial:" + activeTrial, activeTrial === "boss" ? 100 : activeTrial === "fork" ? 80 : 60);
       }
     } else localResult = null;
   } else if (activeTraining) {
@@ -346,7 +350,7 @@ function updateUI() {
         : "○ กำลังเชื่อมต่อ"
       : "OFFLINE READY";
   $("#mode-tag").textContent =
-    activeTrial ? "TACTICAL CHAPTER" : mode === "bot"
+    activeDaily ? "DAILY RIFT" : activeTrial ? "TACTICAL CHAPTER" : mode === "bot"
       ? "SOLO CHALLENGE"
       : mode === "online"
         ? "ONLINE DUEL"
@@ -355,7 +359,7 @@ function updateUI() {
     ? `${names[game.get(selected)!.type]} · ${selected.toUpperCase()} — เลือกช่องปลายทาง`
     : mode === "online" && !state?.started
       ? "ส่งรหัสห้องให้เพื่อนเพื่อเริ่ม"
-      : activeTrial ? trials[activeTrial].hint : "แตะหมาก · ลากหมุน · เลื่อนซูม";
+      : activeTrial ? activeTrialDefinition().hint : "แตะหมาก · ลากหมุน · เลื่อนซูม";
   if (mode === "bot") {
     const rival = currentRival();
     $(`#${humanColor === "w" ? "black" : "white"}-label`).textContent = `${rival.name} · ${rival.title}`;
@@ -421,15 +425,15 @@ function updatePresentation() {
   const winner = result?.winner ?? (game.isCheckmate() ? game.turn() === "w" ? "b" : "w" : null);
   const mvp = battleMVP(initialFen, game.history({ verbose: true }), owner);
   const mvpSkin = mvp ? armyAppearances([])[mvp.origin] || profile.skin : profile.skin;
-  const titleText = trainingWon ? "ฝึกสำเร็จ" : activeTrial ? winner === humanColor ? "ภารกิจสำเร็จ" : "ลองวางแผนใหม่" : winner === null ? "ศึกเสมอ" : owner ? winner === owner ? "ชัยชนะของกองทัพคุณ" : "ราชันรอการกลับมา" : `ชัยชนะฝ่าย${winner === "w" ? "ขาว" : "ดำ"}`;
+  const titleText = activeDaily ? winner === humanColor ? "พิชิตศึกประจำวัน" : "ราชันรอการแก้มือ" : trainingWon ? "ฝึกสำเร็จ" : activeTrial ? winner === humanColor ? "ภารกิจสำเร็จ" : "ลองวางแผนใหม่" : winner === null ? "ศึกเสมอ" : owner ? winner === owner ? "ชัยชนะของกองทัพคุณ" : "ราชันรอการกลับมา" : `ชัยชนะฝ่าย${winner === "w" ? "ขาว" : "ดำ"}`;
   presentation.showResult({
     title: titleText,
-    subtitle: activeTrial ? trials[activeTrial].name : result ? resultText(result) : game.isCheckmate() ? "รุกฆาต · ราชันคู่แข่งพ่ายแพ้" : trainingWon ? "ลองท่าอื่นในสนามฝึก หรือเข้าสู่ศึกจริง" : "ทุกตาสร้างเรื่องราวของกองทัพ",
+    subtitle: activeDaily ? `${dailyChallenge(activeDaily).title} · ต่อเนื่อง ${dailyProgress(profile.claimed, activeDaily).streak} วัน` : activeTrial ? activeTrialDefinition().name : result ? resultText(result) : game.isCheckmate() ? "รุกฆาต · ราชันคู่แข่งพ่ายแพ้" : trainingWon ? "ลองท่าอื่นในสนามฝึก หรือเข้าสู่ศึกจริง" : "ทุกตาสร้างเรื่องราวของกองทัพ",
     xp: matchReward?.amount || 0,
     mvp: mvp ? `${avatarNames[mvpSkin][mvp.piece]} · ${mvp.origin.toUpperCase()} · สังหาร ${mvp.kills} ตัว` : undefined,
     unlocks: matchReward?.message.includes("ปลดล็อก") ? [matchReward.message.split("ปลดล็อก ")[1]] : [],
     replay: game.history({ verbose: true }).some((move) => !!move.captured),
-    continueLabel: mode === "online" ? "กลับค่าย" : activeTrial && winner !== humanColor ? "ลองบทนี้อีกครั้ง" : activeTrial ? "บทถัดไป" : trainingWon ? "ฝึกท่าถัดไป" : "ประลองอีกครั้ง",
+    continueLabel: activeDaily ? winner === humanColor ? "กลับค่าย · ดูศึกประจำวัน" : "ลองศึกนี้อีกครั้ง" : mode === "online" ? "กลับค่าย" : activeTrial && winner !== humanColor ? "ลองบทนี้อีกครั้ง" : activeTrial ? "บทถัดไป" : trainingWon ? "ฝึกท่าถัดไป" : "ประลองอีกครั้ง",
   });
   scene?.celebrate(trainingWon ? game.history({ verbose: true }).at(-1)?.color || null : winner, mvp?.square);
   soundEngine()?.playEvent(trainingWon || winner === owner || !owner && winner ? "victory" : winner === null ? "mission" : "defeat");
@@ -452,13 +456,17 @@ function updateBattleUI() {
     ["castle", "เข้าป้อมปกป้องคิง"],
   ] as const).map(([key, label]) => `<div class="mission ${missions[key] ? "complete" : ""}"><span>${missions[key] ? "★" : "☆"}</span>${label}</div>`).join("");
   if (activeTrial) {
-    const trial = trials[activeTrial];
+    const trial = activeTrialDefinition();
     const outcome = evaluateTrial(trial, game);
     const used = game.history({ verbose: true }).filter((move) => move.color === trial.side).length;
-    $("#mission-title").textContent = trial.name;
+    $("#mission-title").textContent = activeDaily ? dailyChallenge(activeDaily).title : trial.name;
     $("#mission-stars").textContent = `${used} / ${trial.maxMoves} ตา`;
     $("#mission-list").innerHTML = `<div class="mission ${outcome === "won" ? "complete" : ""}"><span>${outcome === "won" ? "★" : "☆"}</span>${trial.hint}</div>`;
   }
+  $("#objective-peek").hidden = !enabled && !activeTrial;
+  $("#objective-label").textContent = activeDaily ? "ศึกประจำวัน" : activeTrial ? activeTrialDefinition().name : "ภารกิจกองทัพ";
+  $("#objective-progress").textContent = activeTrial ? $("#mission-stars").textContent : `${count} / 3 เป้าหมาย · แตะดูรายละเอียด`;
+  $("#objective-peek").classList.toggle("quest-complete", activeTrial ? evaluateTrial(activeTrialDefinition(), game) === "won" : count === 3);
   $("#battle-log").innerHTML = data.moments.length ? data.moments.slice(-8).reverse().map((moment) =>
     `<div data-battle-kind="${moment.kind}"><strong>${moment.title}</strong><small>${moment.description}</small></div>`).join("")
     : '<p class="muted">อีเวนท์จะเกิดตามจังหวะของการต่อสู้</p>';
@@ -693,7 +701,7 @@ function saveLocal() {
   if (mode !== "online") {
     storage.set(
       saveKey,
-      JSON.stringify({ mode, humanColor, initialFen, history: game.history(), matchId, activeTraining, activeTrial, matchReward }),
+      JSON.stringify({ mode, humanColor, initialFen, history: game.history(), matchId, activeTraining, activeTrial, activeDaily, matchReward }),
     );
     hasSavedLocalGame = true;
   }
@@ -701,7 +709,7 @@ function saveLocal() {
 function newLocal() {
   matchId = newMatchId();
   activeTraining = null;
-  activeTrial = null;
+  activeTrial = null; activeDaily = null;
   resetPresentation();
   matchReward = null;
   clearBattleToast();
@@ -835,7 +843,7 @@ function receiveState(next: State) {
   if (changed) {
     initialFen = new Chess().fen();
     activeTraining = null;
-    activeTrial = null;
+    activeTrial = null; activeDaily = null;
     resetPresentation();
     matchReward = null;
     stopBot();
@@ -887,7 +895,7 @@ for (const b of document.querySelectorAll<HTMLButtonElement>("[data-mode]"))
   b.onclick = () => setMode(b.dataset.mode as Mode);
 $("#reset").onclick = () => {
   hud.close();
-  if (activeTrial) { launchTrial(activeTrial); return; }
+  if (activeTrial) { launchTrial(activeTrial, activeDaily); return; }
   if (OFFLINE && activeTraining) mode = "bot";
   newLocal();
 };
@@ -985,7 +993,7 @@ $("#training-select").onchange = () => {
   game = new Chess(t.fen);
   initialFen = t.fen;
   activeTraining = key;
-  activeTrial = null;
+  activeTrial = null; activeDaily = null;
   resetPresentation();
   matchReward = null;
   localResult = null;
@@ -1064,7 +1072,9 @@ try {
     }
     if (typeof saved.activeTrial === "string" && Object.hasOwn(trials, saved.activeTrial)) {
       const key = saved.activeTrial as keyof typeof trials;
-      if (trials[key].fen === initialFen) { activeTrial = key; activeTraining = null; humanColor = trials[key].side; }
+      const daily = validDailyDay(saved.activeDaily) ? dailyChallenge(saved.activeDaily) : null;
+      const trial = daily?.trial || trials[key];
+      if (trial.fen === initialFen && (saved.activeDaily == null || daily) && (!daily || daily.base === key)) { activeTrial = key; activeDaily = daily?.day || null; activeTraining = null; humanColor = trial.side; }
     }
     if (saved.matchReward && typeof saved.matchReward.message === "string" && Number.isSafeInteger(saved.matchReward.amount)) matchReward = saved.matchReward;
     hasSavedLocalGame = true;
@@ -1184,6 +1194,11 @@ presentation = new BattlePresentation($("#stage"), {
   continue: () => {
     resetPresentation();
     if (mode === "online") { openTitle(); return; }
+    if (activeDaily) {
+      if (localResult?.winner === humanColor) openTitle();
+      else launchTrial(activeTrial!, activeDaily);
+      return;
+    }
     if (activeTrial) {
       const keys = Object.keys(trials) as (keyof typeof trials)[];
       const next = localResult?.winner === humanColor ? keys[(keys.indexOf(activeTrial) + 1) % keys.length] : activeTrial;
@@ -1262,10 +1277,11 @@ function replayLastCapture() {
   playSound(replayMove, event);
   if (!scene) { visualReplay = false; updateUI(); }
 }
-function launchTrial(key: keyof typeof trials) {
-  const trial = trials[key];
+function launchTrial(key: keyof typeof trials, day: string | null = null) {
+  const daily = day ? dailyChallenge(day) : null;
+  const trial = daily?.trial || trials[key];
   resetPresentation(); stopBot(); scene?.cancel(); clearBattleToast();
-  matchId = newMatchId(); matchReward = null; activeTraining = null; activeTrial = key;
+  matchId = newMatchId(); matchReward = null; activeTraining = null; activeTrial = key; activeDaily = day;
   game = new Chess(trial.fen); initialFen = trial.fen; mode = "bot"; humanColor = trial.side;
   $<HTMLSelectElement>("#difficulty").value = "2";
   localResult = null; lastMove = undefined; clearSelection();
@@ -1293,8 +1309,11 @@ function launchGame(settings: LaunchSettings) {
   $<HTMLSelectElement>("#difficulty").value = settings.depth;
   storage.set(difficultyKey, settings.depth);
   scene?.setSkin(profile.skin);
-  mode = settings.mode === "training" ? "local" : settings.mode === "campaign" ? "bot" : settings.mode;
+  mode = settings.mode === "training" ? "local" : (settings.mode === "campaign" || settings.mode === "daily") ? "bot" : settings.mode;
   enterBoard();
+  if (settings.mode === "daily") {
+    const daily = dailyChallenge(settings.day || utcDay()); launchTrial(daily.base, daily.day); return;
+  }
   if (settings.mode === "campaign") { launchTrial((settings.trial || "rescue") as keyof typeof trials); return; }
   newLocal();
   if (settings.mode === "training") {
@@ -1329,7 +1348,7 @@ function openTitle() {
   $("#game-shell").hidden = true;
   title.show(profile, {
     view: "menu",
-    mode: mode === "online" && !OFFLINE ? "online" : activeTrial ? "campaign" : activeTraining ? "training" : mode,
+    mode: mode === "online" && !OFFLINE ? "online" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : mode,
     side: humanColor,
     depth: $<HTMLSelectElement>("#difficulty").value,
     resume: mode === "online" ? !!session : hasSavedLocalGame,
@@ -1346,4 +1365,4 @@ hud.onPauseChange = (paused) => {
   else { scene?.setPaused(false); scheduleBot(); }
   updateUI();
 };
-title.show(profile, { mode: mode === "online" && !OFFLINE ? "online" : activeTrial ? "campaign" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot", side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn", trial: activeTrial || "rescue" });
+title.show(profile, { mode: mode === "online" && !OFFLINE ? "online" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot", side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn", trial: activeTrial || "rescue" });
