@@ -27,7 +27,8 @@ try {
   mkdirSync('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/royal-title.png' });
   await enterMenu(page);
-  assert.match(await page.locator('#daily-reward').innerText(), /80 XP/);
+  assert.match(await page.locator('#daily-reward').innerText(), /ช่วยคิง.*1 ตา/);
+  assert.doesNotMatch(await page.locator('#daily-reward').innerText(), /XP/);
   await page.screenshot({ path: 'test-results/royal-menu.png' });
   await page.locator('#daily-enter').click();
   assert.equal(await page.locator('#title-screen').getAttribute('data-menu-view'), 'setup');
@@ -83,7 +84,8 @@ try {
   await move('g7', 'f6');
   assert.equal((await profile()).xp, 80);
   await page.locator('[data-result="continue"]').click();
-  assert.match(await page.locator('#daily-reward').innerText(), /สำเร็จแล้ววันนี้.*1 วัน/);
+  assert.match(await page.locator('#daily-reward').innerText(), /สำเร็จแล้ววันนี้/);
+  assert.match(await page.locator('#daily-streak').textContent(), /1 วัน/);
   // Start again before midnight, then resume after midnight: this is still yesterday's puzzle.
   await page.locator('#daily-enter').click(); await launchPrepared(page);
   await page.evaluate(() => sessionStorage.setItem('daily-test-time', String(Date.UTC(2026, 9, 11, 1))));
@@ -93,7 +95,8 @@ try {
   assert.equal((await profile()).xp, 80);
   assert.equal((await profile()).claimed.includes('daily:2026-10-11'), false);
   await page.locator('[data-result="continue"]').click();
-  assert.match(await page.locator('#daily-reward').innerText(), /90 XP.*1 วัน/);
+  assert.match(await page.locator('#daily-reward').innerText(), /ขู่สองเป้าหมาย/);
+  assert.match(await page.locator('#daily-prize').textContent(), /90 XP/);
   await page.locator('#daily-enter').click();
   assert.equal(await page.locator('#launch-side').inputValue(), 'w');
   await launchPrepared(page);

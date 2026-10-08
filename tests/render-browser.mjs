@@ -65,14 +65,39 @@ try {
   assert.deepEqual(after.picks, []);
   console.log("Renderer workload:", JSON.stringify({ initial, orbitDrawCalls: after.calls }));
   if (!process.env.RENDER_BASELINE) {
-    // Original optimized board: 102. All fields add exactly four shared batches.
-    assert.ok(after.calls <= 106, `Orbit still draws ${after.calls} batches`);
+    // Coordinates share one atlas/batch; all four luminous edge rails share one mesh.
+    assert.ok(after.calls <= 92, `Orbit still draws ${after.calls} batches`);
     assert.ok(initial.geometries <= 80, `Board uses ${initial.geometries} geometries`);
     await page.evaluate(() => {
       for (let i = 0; i < 5; i++) fixture.renderBoard(new fixtureChess());
     });
     await page.waitForTimeout(150);
     assert.equal(await page.evaluate(() => fixture.renderer.info.memory.geometries), initial.geometries);
+    const hoverPoint = await page.evaluate(async () => {
+      const { coords } = await import('/src/scene.ts');
+      window.tacticalBoard = new fixtureChess('7k/8/8/3r4/8/2N5/8/K7 w - - 0 1');
+      fixture.renderBoard(tacticalBoard); fixture.select(tacticalBoard, 'c3');
+      const targets = fixture.markers.children.filter(o => o.isInstancedMesh);
+      if (targets.length !== 2 || targets.find(o => o.userData.role === 'capture-targets').userData.squares.join() !== 'd5') throw Error('Capture markers must be distinct and batched');
+      const point = coords('d5').project(fixture.camera), rect = fixture.renderer.domElement.getBoundingClientRect();
+      return { x: rect.left + (point.x + 1) / 2 * rect.width, y: rect.top + (1 - point.y) / 2 * rect.height };
+    });
+    await page.mouse.move(hoverPoint.x, hoverPoint.y);
+    await page.waitForFunction(() => document.querySelector('#stage').dataset.previewTarget === 'd5');
+    assert.equal(await page.evaluate(() => tacticalBoard.history().length), 0);
+    assert.ok(await page.evaluate(() => fixture.aim.children.some(o => o.userData.role === 'move-preview')));
+    await page.screenshot({ path: 'test-results/tactical-reticle.png' });
+    await page.mouse.move(960, 730);
+    await page.waitForFunction(() => !document.querySelector('#stage').dataset.previewTarget);
+    assert.equal(await page.evaluate(() => fixture.aim.children.length), 0);
+    for (let i = 0; i < 6; i++) {
+      await page.evaluate(() => { fixture.select(tacticalBoard, 'c3'); fixture.previewTarget('d5'); });
+      await page.waitForTimeout(40);
+      await page.evaluate(() => { fixture.select(tacticalBoard, null); fixture.renderBoard(new fixtureChess()); });
+    }
+    await page.waitForTimeout(150);
+    assert.equal(await page.evaluate(() => fixture.renderer.info.memory.geometries), initial.geometries, 'target previews must release transient geometry');
+    console.log('PASS: procedural board plates, batched coordinates/reticles, real 3D hover capture preview without moving, leave cleanup and repeated selection memory');
     await page.evaluate(() => {
       window.savedCamera = fixture.camera.position.toArray();
       fixture.setQuality("low");

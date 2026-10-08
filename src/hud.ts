@@ -34,6 +34,11 @@ export class ArenaHUD {
     objective.setAttribute("aria-expanded", "false");
     objective.onclick = () => this.open("missions", objective);
     stage.querySelector(".arena-bottom")!.append(objective);
+    const readout = document.createElement("section");
+    readout.id = "tactical-readout"; readout.hidden = true;
+    readout.setAttribute("aria-label", "พรีวิวการเดิน");
+    readout.innerHTML = '<strong></strong><span></span>';
+    stage.append(readout);
     stage.append(children.find((el) => el.id === "notice")!);
     const groups: Record<Panel, string[]> = {
       pause: [],

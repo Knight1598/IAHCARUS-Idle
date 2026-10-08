@@ -12,6 +12,7 @@ import { ArenaEnvironment } from "./arena";
 import { arenas, type ArenaId } from "./arenas";
 import { frameCombat } from "./framing";
 import { CombatVFX } from "./vfx";
+import { previewMove, type MovePreview } from "./tactics";
 const material = (color: number, metalness = 0.3) =>
   new THREE.MeshStandardMaterial({ color, metalness, roughness: 0.3 });
 const mesh = (
@@ -262,6 +263,7 @@ export class ChessScene {
   readonly controls: OrbitControls;
   readonly pieces = new THREE.Group();
   readonly markers = new THREE.Group();
+  readonly aim = new THREE.Group();
   readonly fx = new THREE.Group();
   readonly board = new THREE.Group();
   readonly groundAuras = new THREE.Group();
@@ -271,6 +273,14 @@ export class ChessScene {
   private arenaSky?: THREE.HemisphereLight;
   private arenaRim?: THREE.PointLight;
   private arenaFloor?: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+  private boardRail?: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+  private selectionGame: Chess | null = null;
+  private selectionSquare: Square | null = null;
+  private hoveredSquare: Square | null = null;
+  private hoverInput: Square | null = null;
+  private pointerHeld = false;
+  private pointerPosition?: { x: number; y: number };
+  private hoverFrame = 0;
   animation: Animation | null = null;
   reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
   cinematic = true;
@@ -303,6 +313,7 @@ export class ChessScene {
       }
     }
     this.paused = paused;
+    if (paused) this.previewTarget(null);
     this.controls.enabled = (!paused || !!this.showcaseHost) && !this.animation;
     this.dirty = true;
   }
@@ -323,6 +334,7 @@ export class ChessScene {
     this.arenaSky?.color.setHex(theme.sky);
     this.arenaRim?.color.setHex(theme.glow);
     this.arenaSun?.color.setHex(theme.sky);
+    this.boardRail?.material.color.setHex(theme.glow);
     this.environment.setMotion(this.quality === "low", this.reduced);
     this.renderer.shadowMap.needsUpdate = true; this.dirty = true;
   }
@@ -401,6 +413,7 @@ export class ChessScene {
     }
   }
   onPick: (s: Square) => void = () => {};
+  onPreview: (preview: MovePreview | null) => void = () => {};
   onFinish: () => void = () => {};
   onImpact: (move: Move, event: MoveEvent) => void = () => {};
   onDash: (move: Move, event: MoveEvent) => void = () => {};
@@ -466,10 +479,25 @@ export class ChessScene {
     rim.position.set(-5, 3, -4);
     this.scene.add(rim);
     this.arenaRim = rim;
-    this.scene.add(this.board, this.pieces, this.markers, this.fx, this.groundAuras, this.groundScars, this.environment.root);
+    this.scene.add(this.board, this.pieces, this.markers, this.aim, this.fx, this.groundAuras, this.groundScars, this.environment.root);
     const tileGeometry = new THREE.BoxGeometry(0.98, 0.16, 0.98);
+    const plate = document.createElement("canvas"); plate.width = plate.height = 256;
+    const ink = plate.getContext("2d")!;
+    const sheen = ink.createLinearGradient(0, 0, 256, 256);
+    sheen.addColorStop(0, "#ffffff"); sheen.addColorStop(1, "#cbd2dc");
+    ink.fillStyle = sheen; ink.fillRect(0, 0, 256, 256);
+    ink.strokeStyle = "#7c8a9c"; ink.lineWidth = 2; ink.strokeRect(6, 6, 244, 244);
+    ink.strokeStyle = "#f4f8ff"; ink.lineWidth = 3;
+    for (const [x, y, dx, dy] of [[17, 17, 1, 1], [239, 17, -1, 1], [17, 239, 1, -1], [239, 239, -1, -1]]) {
+      ink.beginPath(); ink.moveTo(x + dx * 24, y); ink.lineTo(x, y); ink.lineTo(x, y + dy * 24); ink.stroke();
+    }
+    ink.fillStyle = "#afbbc9";
+    for (let y = 28; y < 235; y += 24) for (let x = 28; x < 235; x += 24) ink.fillRect(x, y, 1, 1);
+    const plateTexture = new THREE.CanvasTexture(plate); plateTexture.colorSpace = THREE.SRGBColorSpace;
     for (const parity of [0, 1]) {
-      const tiles = new THREE.InstancedMesh(tileGeometry, material(parity ? 0x1a2b40 : 0x58738b), 32);
+      const surface = material(parity ? 0x1a2b40 : 0x58738b, 0.55);
+      surface.map = plateTexture; surface.roughness = 0.38;
+      const tiles = new THREE.InstancedMesh(tileGeometry, surface, 32);
       const squares: Square[] = [];
       for (let rank = 1; rank <= 8; rank++)
         for (let file = 0; file < 8; file++) {
@@ -491,6 +519,14 @@ export class ChessScene {
       0,
       -0.27,
     );
+    const rails: THREE.BufferGeometry[] = [];
+    for (const edge of [-4.04, 4.04]) {
+      rails.push(new THREE.BoxGeometry(8.18, 0.024, 0.025).translate(0, 0.006, edge));
+      rails.push(new THREE.BoxGeometry(0.025, 0.024, 8.18).translate(edge, 0.006, 0));
+    }
+    this.boardRail = mesh(mergeGeometries(rails)!, new THREE.MeshBasicMaterial({ color: 0x70ddff, transparent: true, opacity: 0.7 }), this.board) as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+    this.boardRail.userData.role = "board-rail";
+    rails.forEach(g => g.dispose());
     const floor = mesh(
       new THREE.PlaneGeometry(100, 100),
       material(0x0a121f, 0.05),
@@ -501,15 +537,14 @@ export class ChessScene {
     floor.rotation.x = -Math.PI / 2;
     this.arenaFloor = floor as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
     this.setArena("citadel");
-    for (let i = 0; i < 8; i++) {
-      this.label(String.fromCharCode(97 + i), i - 3.5, 4.08);
-      this.label(String(i + 1), -4.1, 3.5 - i);
-    }
+    this.labels();
     let down = { x: 0, y: 0 };
     this.renderer.domElement.addEventListener("pointerdown", (e) => {
       down = { x: e.clientX, y: e.clientY };
+      this.pointerHeld = true; this.previewTarget(null);
     });
     this.renderer.domElement.addEventListener("pointerup", (e) => {
+      this.pointerHeld = false;
       if (
         this.showcaseHost || this.paused ||
         this.animation ||
@@ -540,6 +575,29 @@ export class ChessScene {
           return;
         }
       }
+    });
+    this.renderer.domElement.addEventListener("pointermove", e => {
+      if (e.pointerType === "touch" || this.pointerHeld || !this.selectionSquare || this.animation || this.paused || this.showcaseHost) return;
+      this.pointerPosition = { x: e.clientX, y: e.clientY };
+      if (this.hoverFrame) return;
+      this.hoverFrame = requestAnimationFrame(() => {
+        this.hoverFrame = 0;
+        if (!this.pointerPosition || this.pointerHeld || this.animation || this.paused || this.showcaseHost || !this.selectionSquare) return;
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        const ray = new THREE.Raycaster();
+        ray.setFromCamera(new THREE.Vector2((this.pointerPosition.x - rect.left) / rect.width * 2 - 1, -(this.pointerPosition.y - rect.top) / rect.height * 2 + 1), this.camera);
+        let square: Square | null = null;
+        for (const hit of ray.intersectObjects([...this.pieces.children, ...this.board.children], true)) {
+          if (hit.object instanceof THREE.InstancedMesh && hit.object.userData.squares && hit.instanceId !== undefined) { square = hit.object.userData.squares[hit.instanceId]; break; }
+          let object: THREE.Object3D | null = hit.object;
+          while (object && !object.userData.square) object = object.parent;
+          if (object?.userData.square) { square = object.userData.square; break; }
+        }
+        this.previewTarget(square);
+      });
+    });
+    for (const event of ["pointerleave", "pointercancel", "lostpointercapture"]) this.renderer.domElement.addEventListener(event, () => {
+      this.pointerHeld = false; this.pointerPosition = undefined; this.previewTarget(null);
     });
     this.resizeObserver = new ResizeObserver(() => {
       const surface = this.showcaseHost || this.stage;
@@ -595,28 +653,36 @@ export class ChessScene {
     this.stage.dataset.graphics = quality;
     this.environment.setMotion(quality === "low", this.reduced);
   }
-  private label(text: string, x: number, z: number) {
+  private labels() {
     const c = document.createElement("canvas");
-    c.width = c.height = 64;
+    c.width = 1024; c.height = 64;
     const ctx = c.getContext("2d")!;
     ctx.font = "32px monospace";
-    ctx.fillStyle = "#91a8b9";
+    ctx.fillStyle = "#bdd9e9";
     ctx.textAlign = "center";
-    ctx.fillText(text, 32, 43);
+    const planes: THREE.BufferGeometry[] = [];
+    for (let i = 0; i < 16; i++) {
+      const index = i % 8;
+      ctx.fillText(i < 8 ? String.fromCharCode(97 + index) : String(index + 1), i * 64 + 32, 43);
+      const plane = new THREE.PlaneGeometry(0.32, 0.32);
+      const uv = plane.getAttribute("uv");
+      for (let v = 0; v < uv.count; v++) uv.setX(v, (uv.getX(v) + i) / 16);
+      plane.rotateX(-Math.PI / 2).translate(i < 8 ? index - 3.5 : -4.1, -0.1, i < 8 ? 4.12 : 3.5 - index);
+      planes.push(plane);
+    }
     const texture = new THREE.CanvasTexture(c);
+    texture.colorSpace = THREE.SRGBColorSpace;
     const o = mesh(
-      new THREE.PlaneGeometry(0.3, 0.3),
+      mergeGeometries(planes)!,
       new THREE.MeshBasicMaterial({
         map: texture,
         transparent: true,
         side: THREE.DoubleSide,
       }),
       this.board,
-      x,
-      -0.115,
-      z,
     );
-    o.rotation.x = -Math.PI / 2;
+    o.userData.role = "coordinates";
+    planes.forEach(g => g.dispose());
   }
   renderBoard(game: Chess, preserveField = false) {
     this.dirty = true;
@@ -624,6 +690,7 @@ export class ChessScene {
     this.cancel(preserveField);
     clear(this.pieces);
     clear(this.markers);
+    this.selectionGame = null; this.selectionSquare = null; this.previewTarget(null);
     clear(this.groundAuras);
     if (game.fen() === new Chess().fen() || this.reduced) clear(this.groundScars);
     for (const row of game.board())
@@ -742,17 +809,60 @@ export class ChessScene {
     );
     o.rotation.x = -Math.PI / 2;
   }
+  private brackets(squares: Square[], color: number, parent = this.markers) {
+    const vertices: number[] = [];
+    for (const square of squares) {
+      const p = coords(square);
+      for (const x of [-1, 1]) for (const z of [-1, 1]) {
+        const a = p.x + x * 0.43, b = p.z + z * 0.43;
+        vertices.push(a - x * 0.15, 0.026, b, a, 0.026, b, a, 0.026, b, a, 0.026, b - z * 0.15);
+      }
+    }
+    if (!vertices.length) return;
+    const lines = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3)),
+      new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 }));
+    lines.userData.role = "target-brackets"; parent.add(lines);
+  }
+  previewTarget(square: Square | null) {
+    if (square === this.hoverInput) return;
+    this.hoverInput = square;
+    const target = this.selectionGame && this.selectionSquare && square && !this.animation && !this.paused && !this.showcaseHost
+      ? previewMove(this.selectionGame, this.selectionSquare, square) : null;
+    const next = target?.to || null;
+    if (next === this.hoveredSquare) return;
+    this.hoveredSquare = next;
+    clear(this.aim); delete this.stage.dataset.previewTarget;
+    this.onPreview(target); this.dirty = true;
+    if (!target) return;
+    this.stage.dataset.previewTarget = target.to;
+    const color = target.captured ? 0xff8097 : target.controlled ? 0xffc16f : 0x6beafa;
+    const from = coords(target.from).setY(0.04), to = coords(target.to).setY(0.04);
+    const points = target.piece === "n"
+      ? [from, new THREE.Vector3(from.x, 0.04, to.z), to]
+      : [from, to];
+    const route = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), new THREE.LineDashedMaterial({ color, dashSize: 0.12, gapSize: 0.07, transparent: true, opacity: 0.85 }));
+    route.computeLineDistances(); route.userData.role = "move-preview"; this.aim.add(route);
+    const direction = to.clone().sub(points.at(-2)!).normalize();
+    const head = mesh(new THREE.ConeGeometry(0.09, 0.24, 3), new THREE.MeshBasicMaterial({ color }), this.aim);
+    head.position.copy(to).addScaledVector(direction, -0.15).setY(0.07);
+    head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
+    this.brackets([target.to], color, this.aim);
+    if (target.capturedSquare && target.capturedSquare !== target.to) this.brackets([target.capturedSquare], 0xff8097, this.aim);
+  }
   select(game: Chess, s: Square | null, last?: { from: Square; to: Square }) {
     this.dirty = true;
+    this.selectionGame = null; this.selectionSquare = null; this.previewTarget(null);
     clear(this.markers);
     if (last) {
       this.ring(last.from, 0xd1a35b, 0.4);
       this.ring(last.to, 0xd1a35b, 0.4);
     }
     const k = kingSquare(game, game.turn());
-    if (k && game.isCheck()) this.ring(k, 0xff557a, 0.38);
+    if (k && game.isCheck()) { this.ring(k, 0xff557a, 0.38); this.brackets([k], 0xff557a); }
     if (!s) return;
+    this.selectionGame = game; this.selectionSquare = s;
     this.ring(s, 0xffffff, 0.44);
+    this.brackets([s], 0x8af2ff);
     if (!this.reduced) {
       const piece = game.get(s)!;
       const halo = mesh(new THREE.RingGeometry(0.46, 0.49, combatStyles[piece.type].sides),
@@ -760,8 +870,18 @@ export class ChessScene {
       halo.position.copy(coords(s)); halo.position.y = 0.022;
       halo.rotation.x = -Math.PI / 2;
     }
-    for (const m of game.moves({ square: s, verbose: true }))
-      this.ring(m.to, m.captured ? 0xff657c : 0x58e5d1);
+    const moves = game.moves({ square: s, verbose: true });
+    for (const capture of [false, true]) {
+      const destinations = [...new Set(moves.filter(m => !!m.captured === capture).map(m => m.to))];
+      if (!destinations.length) continue;
+      const geometry = capture ? new THREE.RingGeometry(0.35, 0.39, 6) : new THREE.CircleGeometry(0.065, 12);
+      geometry.rotateX(-Math.PI / 2);
+      const targets = new THREE.InstancedMesh(geometry, new THREE.MeshBasicMaterial({ color: capture ? 0xff8097 : 0x70efdc, transparent: true, opacity: 0.9, side: THREE.DoubleSide }), destinations.length);
+      destinations.forEach((square, index) => { const p = coords(square); targets.setMatrixAt(index, new THREE.Matrix4().makeTranslation(p.x, 0.025, p.z)); });
+      targets.userData.role = capture ? "capture-targets" : "move-targets";
+      targets.userData.squares = destinations; this.markers.add(targets);
+      if (capture) this.brackets(destinations, 0xff8097);
+    }
   }
   resetView(flip = this.flipped) {
     this.flipped = flip;

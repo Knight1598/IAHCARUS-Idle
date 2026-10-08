@@ -15,6 +15,7 @@ import { readProfile, claimXP, matchXP, levelProgress, skins, isSkinUnlocked, eq
 import { appearanceMap, avatarNames, skillNames, scenarioLoadout } from "./cosmetics";
 import { rivals, trials, evaluateTrial, battleMVP } from "./progression";
 import { dailyChallenge, dailyProgress, utcDay, validDailyDay } from "./daily";
+import { previewMove, type MovePreview } from "./tactics";
 import { BattlePresentation } from "./presentation";
 import type { ArmyCosmetics } from "../shared/cosmetics.js";
 import { matchStory, latestMoment } from "./battle";
@@ -26,7 +27,7 @@ const difficultyKey = OFFLINE
   ? "special-chess-offline-difficulty"
   : "special-chess-difficulty";
 import { training } from "./training";
-import { analyzeMove, type MoveEvent } from "../shared/events.js";
+import { analyzeMove, kingSquare, type MoveEvent } from "../shared/events.js";
 
 type Mode = "local" | "bot" | "online";
 type Result = { winner: "w" | "b" | null; reason: string } | null;
@@ -408,6 +409,7 @@ function updateUI() {
   $("#moves").scrollTop = $("#moves").scrollHeight;
   updateBattleUI();
   updateFlatBoard();
+  updateTactics();
   updateClocks();
   const replayControl = document.querySelector<HTMLButtonElement>("#replay-capture");
   if (replayControl) replayControl.disabled = !game.history({ verbose: true }).some((move) => move.captured) || isBusy() || mode === "online" && !state?.result;
@@ -476,9 +478,10 @@ function updateFlatBoard() {
     document.activeElement instanceof HTMLElement
       ? document.activeElement.dataset.square
       : undefined;
-  const legal = selected
-    ? game.moves({ square: selected, verbose: true }).map((m) => m.to)
-    : [];
+  const moves = selected ? game.moves({ square: selected, verbose: true }) : [];
+  const legal = moves.map(m => m.to);
+  const captures = moves.filter(m => m.captured).map(m => m.to);
+  const checkedKing = game.isCheck() ? kingSquare(game, game.turn()) : null;
   const flipped = scene?.flipped ?? (mode === "bot" && humanColor === "b");
   const order = flipped
     ? [1, 2, 3, 4, 5, 6, 7, 8]
@@ -489,7 +492,7 @@ function updateFlatBoard() {
     for (const file of files) {
       const s = (file + rank) as Square,
         p = game.get(s);
-      html += `<button data-square="${s}" class="square ${(file.charCodeAt(0) + rank) % 2 ? "dark" : "light"} ${selected === s ? "selected" : ""} ${legal.includes(s) ? "legal" : ""} ${p?.color === "w" ? "white-piece" : "black-piece"}" aria-label="${s}${p ? " " + (p.color === "w" ? "ขาว" : "ดำ") + " " + names[p.type] : ""}${legal.includes(s) ? " เดินได้" : ""}"><span>${p ? symbols[p.color][p.type] : ""}</span><small>${s}</small></button>`;
+      html += `<button data-square="${s}" class="square ${(file.charCodeAt(0) + rank) % 2 ? "dark" : "light"} ${selected === s ? "selected" : ""} ${legal.includes(s) ? "legal" : ""} ${captures.includes(s) ? "capture" : ""} ${s === lastMove?.from || s === lastMove?.to ? "last" : ""} ${s === checkedKing ? "checked" : ""} ${p?.color === "w" ? "white-piece" : "black-piece"}" aria-label="${s}${p ? " " + (p.color === "w" ? "ขาว" : "ดำ") + " " + names[p.type] : ""}${legal.includes(s) ? captures.includes(s) ? " กินหมากได้" : " เดินได้" : ""}"><span>${p ? symbols[p.color][p.type] : ""}</span><small>${s}</small></button>`;
     }
   $("#flat-board").innerHTML = html;
   if (focused)
@@ -497,6 +500,30 @@ function updateFlatBoard() {
       .querySelector<HTMLButtonElement>(`[data-square="${focused}"]`)
       ?.focus({ preventScroll: true });
 }
+function updateTactics(target: MovePreview | null = null) {
+  const panel = $("#tactical-readout");
+  const piece = selected && game.get(selected);
+  panel.hidden = !piece || !canPlay();
+  document.querySelectorAll("#flat-board .preview").forEach(el => el.classList.remove("preview"));
+  if (!piece || !selected) return;
+  const options = new Set(game.moves({ square: selected, verbose: true }).map(m => m.to)).size;
+  panel.querySelector("strong")!.textContent = `${symbols[piece.color][piece.type]} ${names[piece.type]} ${selected.toUpperCase()} · ${options} ทางเดิน`;
+  panel.dataset.tone = target?.mate || target?.check ? "check" : target?.controlled ? "danger" : target?.captured ? "capture" : "move";
+  panel.querySelector("span")!.textContent = target
+    ? `${target.castle ? "เข้าป้อม" : target.captured ? "กิน" + names[target.captured] : target.piece === "n" ? "กระโดด" : "เดิน"} → ${target.to.toUpperCase()}${target.promotion ? " · ตัวอย่างเลื่อนขั้นเป็น" + names[target.promotion] : ""}${target.mate ? " · รุกฆาต" : target.check ? " · รุกคิง" : ""}${target.controlled && !target.mate ? " · อยู่ในแนวคุมคู่แข่ง" : ""}`
+    : "จุดเขียว = เดิน · กรอบชมพู = กินหมาก";
+  if (target) document.querySelector(`[data-square="${target.to}"]`)?.classList.add("preview");
+}
+function previewSquare(square: Square | null) {
+  if (!canPlay() || !selected) return;
+  if (scene) scene.previewTarget(square);
+  else updateTactics(square ? previewMove(game, selected, square) : null);
+}
+for (const event of ["mouseover", "focusin"]) $("#flat-board").addEventListener(event, e => {
+  const square = (e.target as HTMLElement).closest<HTMLElement>("[data-square]")?.dataset.square as Square | undefined;
+  previewSquare(square || null);
+});
+for (const event of ["mouseleave", "focusout"]) $("#flat-board").addEventListener(event, () => previewSquare(null));
 $("#flat-board").addEventListener("click", (e) => {
   const b = (e.target as HTMLElement).closest<HTMLButtonElement>(
     "[data-square]",
@@ -627,6 +654,7 @@ function finishAnimation() {
 }
 if (scene) {
   scene.onPick = pick;
+  scene.onPreview = updateTactics;
   scene.onFinish = finishAnimation;
   scene.onImpact = impactSound;
   scene.onDeath = deathSound;

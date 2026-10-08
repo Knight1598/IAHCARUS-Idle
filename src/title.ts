@@ -43,7 +43,7 @@ export class TitleScreen {
   constructor(host: HTMLElement, offline: boolean, private callbacks: TitleCallbacks) {
     this.root = document.createElement("section");
     this.root.id = "title-screen";
-    this.root.setAttribute("aria-label", "ค่ายบัญชาการ Special Chess");
+    this.root.setAttribute("aria-label", "เมนูเกม Special Chess");
     this.root.innerHTML = `
       <header class="lobby-top"><div class="lobby-brand"><span>♞</span><div><strong>SPECIAL CHESS</strong><small>กองทัพของคุณ · ตำนานของคุณ</small></div></div><span class="lobby-edition">${offline ? "SOLO CHRONICLES" : "THE ROYAL DUEL"}</span><div class="commander-card"><div class="commander-emblem">♔</div><div><small id="commander-level"></small><strong id="commander-rank"></strong></div><span id="commander-record"></span></div></header>
       <div class="lobby-layout">
@@ -55,18 +55,18 @@ export class TitleScreen {
         <section class="lobby-command"><nav class="lobby-tabs" aria-label="เมนูค่าย"><button id="lobby-battle-tab" class="active" aria-pressed="true">⚔ เข้าสู่ศึก</button><button id="lobby-armory-tab" aria-pressed="false">✦ คลังแสง</button></nav>
           <div class="lobby-scroll">
             <section id="lobby-battle"><div class="lobby-section-title"><small>CHOOSE YOUR BATTLE</small><h2>เลือกสนามประลอง</h2></div><div class="title-modes">
-              <button data-title-mode="bot"><strong>⚔ ศึกแม่ทัพ</strong><small>คู่ปรับ 3 ระดับ · เลเวลและรางวัล</small></button>
-              <button data-title-mode="campaign"><strong>✧ บันทึกสงคราม</strong><small>ภารกิจสั้น · ฝ่าวงล้อมและปราบบอส</small></button>
+              <button data-title-mode="bot"><strong>⚔ ศึกแม่ทัพ</strong><small>ดวลกับบอต 3 ระดับ · วางแผนแล้วปะทะ</small></button>
+              <button data-title-mode="campaign"><strong>✧ โจทย์ยุทธวิธี</strong><small>ช่วยคิง · ขู่สองตัว · รุกฆาต</small></button>
               <button data-title-mode="local"><strong>♟ ศึกสองกองทัพ</strong><small>ประลองกับเพื่อนบนเครื่องเดียว</small></button>
               <button data-title-mode="training"><strong>✦ ฝึกยุทธวิธี</strong><small>โจทย์ต่อสู้ · ฝึกจังหวะสังหาร</small></button>
               ${offline ? "" : '<button data-title-mode="online"><strong>⌘ ดวลออนไลน์</strong><small>เปิดห้องท้าดวลกับเพื่อน</small></button>'}</div>
               <div class="arena-picker"><div class="lobby-section-title"><h3>โลกแห่งการประลอง</h3><small>8 สนาม · เอฟเฟกต์เฉพาะสนาม</small></div><div class="arena-options">${arenaIds.map((id) => `<button data-arena-option="${id}" style="--arena-glow:${arenas[id].color}" aria-pressed="false"><span>${arenas[id].icon}</span><strong>${arenas[id].name}</strong></button>`).join("")}</div><p id="arena-description"></p></div>
               <div id="launch-bot"><div class="lobby-section-title"><h3>คู่ปรับของคุณ</h3></div><div class="rival-options">${rivalCards.map((rival) => `<button data-rival-depth="${rival.depth}" data-rival-skin="${rival.skin}"><span>${rival.icon}</span><div><strong>${rival.name}</strong><small>${rival.title}</small><em>${rival.description}</em></div><b>${["ฝึกหัด", "ท้าทาย", "เชี่ยวชาญ"][Number(rival.depth) - 1]}</b></button>`).join("")}</div><div class="launch-options"><label>กองทัพที่คุณบัญชาการ<select id="launch-side"><option value="w">ฝ่ายขาว · เปิดศึกก่อน</option><option value="b">ฝ่ายดำ · ตอบโต้</option></select></label><label>ระดับคู่ปรับ<select id="launch-depth"><option value="1">อิกนิส · ง่าย</option><option value="2">เซเลน · ปานกลาง</option><option value="3">อัสตรา · ยาก</option></select></label></div></div>
-              <label id="launch-training" hidden>ภารกิจฝึก<select id="launch-scenario">${Object.entries(training).map(([key, value]) => `<option value="${key}">${value.name}</option>`).join("")}</select></label><label id="launch-campaign" hidden>เลือกบทสงคราม<select id="launch-trial">${Object.entries(trials).map(([key, trial]) => `<option value="${key}">${trial.name}</option>`).join("")}</select></label><p id="title-mode-note" class="lobby-mode-note"></p>
+              <label id="launch-training" hidden>ภารกิจฝึก<select id="launch-scenario">${Object.entries(training).map(([key, value]) => `<option value="${key}">${value.name}</option>`).join("")}</select></label><label id="launch-campaign" hidden>เลือกโจทย์หมากรุก<select id="launch-trial">${Object.entries(trials).map(([key, trial]) => `<option value="${key}">${trial.name}</option>`).join("")}</select></label><p id="title-mode-note" class="lobby-mode-note"></p>
             </section>
             <section id="lobby-armory" hidden><div class="lobby-section-title"><small>BUILD YOUR ARMY</small><h2>ทุกตัวเลือกชุดของตัวเองได้</h2><p>เลือกหมาก แล้วสวมอวตารและท่าสังหารที่ชอบ</p></div><div class="armory-sides"><button data-armory-side="w" class="active">กองทัพขาว</button><button data-armory-side="b">กองทัพดำ</button></div><div class="piece-slots">${(["w", "b"] as Color[]).flatMap((color) => initialArmySlots(color).map((slot) => `<button data-piece-origin="${slot.origin}" data-piece-color="${color}" data-piece-type="${slot.type}" title="${pieceNames[slot.type]} ${slot.origin}" aria-label="${pieceNames[slot.type]} ${slot.origin}"><span>${glyphs[slot.type]}</span><small>${slot.origin}</small><i></i></button>`)).join("")}</div><div class="armory-detail"><span id="armory-glyph">♞</span><div><small id="armory-slot"></small><strong id="armory-avatar"></strong><span id="armory-skill"></span></div></div><div class="piece-skin-options">${Object.entries(skins).map(([id, skin]) => `<button data-piece-skin-option="${id}" style="--skin-glow:${skin.glow}"><span class="piece-skin-avatar">♞</span><div><strong>${skin.name}</strong><small class="piece-skill-name"></small><span class="piece-skin-rarity">${skin.rarity}</span></div><em></em></button>`).join("")}</div><p class="armory-rule-note">ความหายากเพิ่มรายละเอียดอวตารและเอฟเฟกต์ ทุกชุดใช้กติกาหมากรุกเดียวกัน</p></section>
           </div>
-          <footer class="lobby-launch"><div class="xp-line"><span>ความก้าวหน้าแม่ทัพ</span><span id="title-xp"></span></div><progress id="title-xp-bar" max="200" value="0"></progress><div class="title-start"><button id="launch-start" class="primary">⚔ เข้าสู่ศึก</button><button id="launch-resume" hidden>เล่นศึกที่บันทึกไว้ต่อ</button></div><span class="lobby-save-note">กองทัพและความก้าวหน้าบันทึกในเครื่องนี้</span></footer>
+          <footer class="lobby-launch"><div class="xp-line"><span>แต้มสะสมปลดล็อกสกิน</span><span id="title-xp"></span></div><progress id="title-xp-bar" max="200" value="0"></progress><div class="title-start"><button id="launch-start" class="primary">⚔ เข้าสู่ศึก</button><button id="launch-resume" hidden>เล่นศึกที่บันทึกไว้ต่อ</button></div><span class="lobby-save-note">กองทัพและความก้าวหน้าบันทึกในเครื่องนี้</span></footer>
         </section>
       </div>`;
     this.composeFlow();
@@ -168,9 +168,9 @@ export class TitleScreen {
     const customize = this.get("#lobby-armory-tab");
     this.root.innerHTML = `<div class="menu-world"></div><div class="menu-shade"></div>
       <header class="game-menu-top"><button id="flow-back" aria-label="ย้อนกลับ">← <span>ย้อนกลับ</span></button><span class="game-wordmark">♞ SPECIAL CHESS</span><div class="menu-commander"></div></header>
-      <main class="game-menu-content"><section class="menu-page title-cover" data-menu-view="title"><small>THE ROYAL CHRONICLES</small><h1>SPECIAL<br><em>CHESS</em></h1><p>ทุกหมากมีตำนาน · ทุกศึกมีเรื่องราว</p><button id="title-enter" class="primary">เริ่มตำนาน <span>→</span></button><small class="start-prompt">กด Enter หรือแตะเพื่อเริ่ม</small></section>
-      <section class="menu-page" data-menu-view="menu" hidden><small>YOUR LEGEND CONTINUES</small><h1>บัญชาการ<br><em>ตำนานของคุณ</em></h1><nav class="main-game-menu" aria-label="เมนูหลัก"><div id="resume-slot"></div><button id="lobby-battle-tab">เข้าสู่ศึก <span>→</span></button><button data-menu-go="armory">คลังแสง <span>✦</span></button><button data-menu-go="settings">ตั้งค่า <span>⚙</span></button><button data-menu-go="help">วิธีเล่น <span>?</span></button></nav><div id="menu-progress"></div></section>
-      <section class="menu-page" data-menu-view="mode" hidden><small>01 / CHOOSE YOUR BATTLE</small><h1>เลือกเส้นทาง</h1><p>วันนี้กองทัพของคุณจะสร้างตำนานแบบไหน?</p><div id="mode-slot"></div></section>
+      <main class="game-menu-content"><section class="menu-page title-cover" data-menu-view="title"><small>TACTICAL BOARD COMBAT</small><h1>SPECIAL<br><em>CHESS</em></h1><p>คิดให้เฉียบ · เดินให้เด็ด · ปะทะให้เดือด</p><button id="title-enter" class="primary">เริ่มดวล <span>→</span></button><small class="start-prompt">กด Enter หรือแตะเพื่อเริ่ม</small></section>
+      <section class="menu-page" data-menu-view="menu" hidden><small>YOUR NEXT MOVE</small><h1>ทุกตาเดิน<br><em>เปลี่ยนเกมได้</em></h1><nav class="main-game-menu" aria-label="เมนูหลัก"><div id="resume-slot"></div><button id="lobby-battle-tab">เข้าสู่ศึก <span>→</span></button><button data-menu-go="armory">คลังแสง <span>✦</span></button><button data-menu-go="settings">ตั้งค่า <span>⚙</span></button><button data-menu-go="help">วิธีเล่น <span>?</span></button></nav><div id="menu-progress"></div></section>
+      <section class="menu-page" data-menu-view="mode" hidden><small>01 / CHOOSE YOUR BATTLE</small><h1>เลือกเส้นทาง</h1><p>เลือกคู่แข่ง แล้วตัดสินกันบนกระดาน</p><div id="mode-slot"></div></section>
       <section class="menu-page" data-menu-view="setup" hidden><small>02 / PREPARE FOR BATTLE</small><h1 id="setup-heading">เตรียมศึก</h1><div id="setup-slot"></div></section>
       <section class="menu-page" data-menu-view="army" hidden><small>03 / YOUR ARMY</small><h1>กองทัพของคุณ</h1><p>เลือกชุดกองทัพ หรือแต่งอวตารให้หมากแต่ละตัว</p><div id="army-slot"></div></section>
       <section class="menu-page" data-menu-view="arena" hidden><small>04 / ENTER THE ARENA</small><h1>เลือกโลกแห่งศึก</h1><div id="arena-slot"></div><div id="battle-brief" class="battle-brief"></div></section>
@@ -184,16 +184,16 @@ export class TitleScreen {
     this.get("#armory-slot-content").append(armory); armory.hidden = false;
     this.get(".menu-continue").append(start); this.get("#resume-slot").append(resume);
     progress.querySelector(".title-start")?.remove(); progress.querySelector(".lobby-save-note")?.remove();
-    this.get("#menu-progress").append(progress);
+    this.get("#armory-slot-content").append(progress);
     customize.textContent = "✦ แต่งหมากรายตัว"; start.textContent = "เข้าสู่สนาม →";
     const dailyMode = document.createElement("button");
     dailyMode.dataset.titleMode = "daily";
-    dailyMode.innerHTML = '<strong>◈ ศึกประจำวัน</strong><small>โจทย์ใหม่ · รางวัลต่อเนื่อง · รับสูงสุด 120 XP</small>';
+    dailyMode.innerHTML = '<strong>◈ ศึกประจำวัน</strong><small>โจทย์หมากรุกหมุนเวียน · ท้าฝีมือวันละกระดาน</small>';
     modes.prepend(dailyMode);
     const dailyCard = document.createElement("button");
     dailyCard.id = "daily-enter";
-    dailyCard.innerHTML = '<span class="daily-emblem" aria-hidden="true">◈</span><span><small>DAILY RIFT</small><strong id="daily-name"></strong><span id="daily-reward"></span></span><b aria-hidden="true">→</b>';
-    this.get(".main-game-menu").before(dailyCard);
+    dailyCard.innerHTML = '<span class="daily-emblem" aria-hidden="true">◈</span><span><small>DAILY TACTICS</small><strong id="daily-name"></strong><span id="daily-reward"></span></span><b aria-hidden="true">→</b>';
+    this.get(".main-game-menu").after(dailyCard);
     const brief = document.createElement("div"); brief.id = "daily-brief"; brief.hidden = true;
     brief.innerHTML = '<div class="daily-portal" aria-hidden="true">♛</div><h2 id="daily-title"></h2><p id="daily-story"></p><div class="daily-facts"><span id="daily-budget"></span><span id="daily-streak"></span><span id="daily-prize"></span></div><small>โจทย์เปลี่ยนทุกวัน 07:00 น. เวลาไทย (00:00 UTC)<br>เล่นซ้ำได้ · รางวัลรับครั้งเดียวต่อวัน</small>';
     this.get("#setup-slot").prepend(brief);
@@ -203,7 +203,7 @@ export class TitleScreen {
       const label = button.querySelector("strong")!;
       label.textContent = label.textContent!.replace(/^\S+\s/, "");
     });
-    this.get("#lobby-battle-tab").innerHTML = '<span class="menu-battle-icon" aria-hidden="true">⚔</span><span><strong>เข้าสู่ศึก</strong><small>บัญชาการกองทัพ สร้างตำนานของคุณ</small></span><b aria-hidden="true">→</b>';
+    this.get("#lobby-battle-tab").innerHTML = '<span class="menu-battle-icon" aria-hidden="true">⚔</span><span><strong>เข้าสู่ศึก</strong><small>อ่านกระดาน วางหมาก ตัดสินด้วยฝีมือ</small></span><b aria-hidden="true">→</b>';
     const facets = document.createElement("div"); facets.className = "menu-facets"; facets.setAttribute("aria-hidden", "true");
     facets.innerHTML = '<i></i><i></i><i></i>';
     this.root.prepend(facets);
@@ -249,7 +249,7 @@ export class TitleScreen {
   }
   private updateBrief() {
     if (!this.profile) return;
-    const modeNames = { bot: "ศึกแม่ทัพ", local: "ศึกสองกองทัพ", training: "สนามฝึก", campaign: "บันทึกสงคราม", online: "ดวลออนไลน์", daily: "ศึกประจำวัน" };
+    const modeNames = { bot: "ศึกแม่ทัพ", local: "ศึกสองกองทัพ", training: "สนามฝึก", campaign: "โจทย์ยุทธวิธี", online: "ดวลออนไลน์", daily: "ศึกประจำวัน" };
     this.get("#setup-heading").textContent = modeNames[this.selected];
     const opponent = this.selected === "daily" ? dailyChallenge(this.dailyDay).title : this.selected === "bot" ? rivals[Number(this.get<HTMLSelectElement>("#launch-depth").value) as 1 | 2 | 3].name : modeNames[this.selected];
     this.get("#battle-brief").textContent = `${opponent} · ${skins[this.skin].name} · ${arenas[this.profile.arena].name}`;
@@ -284,13 +284,13 @@ export class TitleScreen {
     this.refreshDaily();
     const trial = trials[this.get<HTMLSelectElement>("#launch-trial").value as keyof typeof trials];
     const scenario = training[this.get<HTMLSelectElement>("#launch-scenario").value as keyof typeof training];
-    this.get("#title-mode-note").textContent = mode === "bot" ? "เอาชนะแม่ทัพและทำภารกิจ รับ XP ปลดล็อกอวตารใหม่" : mode === "campaign" ? `${trial?.story || "เรื่องราวสั้นและเป้าหมายเฉพาะ"} · รางวัลเมื่อผ่านครั้งแรก` : mode === "training" ? `${scenario?.hint || "ฝึกยุทธวิธี"} · ผ่านครั้งแรก รับ 40 XP` : mode === "online" ? "ห้องท้าดวลส่วนตัว · ฝ่ายละ 5 นาที · รับ XP เมื่อศึกจบ" : "เลือกกองทัพทั้งสองฝั่ง แล้วผลัดกันบัญชาการบนเครื่องเดียว";
+    this.get("#title-mode-note").textContent = mode === "bot" ? "หมากรุกเต็มกระดาน · คู่แข่งสามระดับ · ท่าปะทะเฉพาะหมาก" : mode === "campaign" ? `${trial?.story || "เรื่องราวสั้นและเป้าหมายเฉพาะ"} · รางวัลเมื่อผ่านครั้งแรก` : mode === "training" ? `${scenario?.hint || "ฝึกยุทธวิธี"} · ผ่านครั้งแรก รับ 40 XP` : mode === "online" ? "ห้องท้าดวลส่วนตัว · ฝ่ายละ 5 นาที · รับ XP เมื่อศึกจบ" : "เลือกกองทัพทั้งสองฝั่ง แล้วผลัดกันบัญชาการบนเครื่องเดียว";
     if (mode === "daily") this.get("#title-mode-note").textContent = dailyChallenge(this.dailyDay).trial.hint;
   }
   private refreshDaily() {
     const daily = dailyChallenge(this.dailyDay), progress = dailyProgress(this.profile?.claimed || [], this.dailyDay);
     this.get("#daily-name").textContent = daily.title;
-    this.get("#daily-reward").textContent = `${progress.done ? "✓ สำเร็จแล้ววันนี้" : `+${progress.reward} XP`} · ต่อเนื่อง ${progress.streak} วัน`;
+    this.get("#daily-reward").textContent = `${progress.done ? "✓ สำเร็จแล้ววันนี้" : daily.trial.objective === "mate" ? "รุกฆาต" : daily.trial.objective === "rescue" ? "ช่วยคิงจากการรุก" : "ขู่สองเป้าหมาย"} · ${daily.trial.maxMoves} ตาของคุณ`;
     this.get("#daily-enter").classList.toggle("completed", progress.done);
     this.get("#daily-title").textContent = daily.title;
     this.get("#daily-story").textContent = daily.trial.story;
@@ -354,8 +354,8 @@ export class TitleScreen {
     });
     this.get("#arena-description").textContent = arenas[profile.arena].description;
     const progress = levelProgress(profile.xp);
-    this.get("#commander-level").textContent = `LEVEL ${progress.level}`;
-    this.get("#commander-rank").textContent = progress.title;
+    this.get("#commander-level").textContent = "TACTICAL CHESS";
+    this.get("#commander-rank").textContent = "พร้อมดวลบนกระดาน";
     this.get("#commander-record").textContent = `${profile.wins} ชนะ · ${profile.matches} ศึก`;
     this.get("#title-xp").textContent = `${progress.current} / ${progress.next} XP`;
     this.get<HTMLProgressElement>("#title-xp-bar").value = progress.current;

@@ -23,6 +23,7 @@ jobs:
       - run: npm run test:offline
       - run: npm run test:title
       - run: npm run test:daily
+      - run: npm run test:tactics
       - run: npm run test:hud
       - run: npm run test:army
       - run: npm run test:audio

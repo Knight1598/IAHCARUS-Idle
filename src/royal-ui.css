@@ -36,6 +36,7 @@
 #title-screen #title-xp-bar::-webkit-progress-value { background: linear-gradient(90deg, #61d9ff, #b88bff); }
 #title-screen #title-xp-bar::-moz-progress-bar { background: linear-gradient(90deg, #61d9ff, #b88bff); }
 #title-screen #daily-enter { display: flex; width: 100%; max-width: 460px; align-items: center; gap: 14px; padding: 17px; margin-bottom: 16px; border: 1px solid #ffb07b90; border-radius: 12px; background: radial-gradient(ellipse at 0 50%, #c6653840, transparent 70%), linear-gradient(115deg, #302341f2, #222746ef); box-shadow: 0 6px 32px #c96d3820; text-align: left; }
+#title-screen .main-game-menu + #daily-enter { margin-top: 18px; box-shadow: none; border-color: #9ca4d54a; background: linear-gradient(115deg, #24263bd9, #19263ddb); }
 #title-screen #daily-enter:hover { border-color: #ffcf95; background-color: #49244b; }
 #title-screen .daily-emblem { display: grid; place-items: center; flex-shrink: 0; width: 49px; height: 49px; border: 1px solid #ffb27a88; border-radius: 50%; color: #ffbf83; background: #8d471f30; font-size: 33px; box-shadow: 0 0 24px #ff924133; }
 #title-screen #daily-enter small { display: block; color: #ffbe92; letter-spacing: 3px; font-size: 8px; }
@@ -117,9 +118,27 @@
 .battle-result { border-radius: 15px; border-color: #ae90fc80; background: radial-gradient(ellipse at 100% 0, #9664e933, transparent 80%), linear-gradient(145deg, #1a304cf8, #18203bf8); box-shadow: 0 10px 50px #0005; }
 .battle-result h2 { color: #d3edff; }
 .battle-result-xp { color: #82f6d5; text-shadow: 0 0 27px #4af4c32b; font-weight: 700; }
+.battle-result .battle-result-xp { font-size: 15px; text-shadow: none; margin-bottom: 14px; }
+#tactical-readout { position: absolute; z-index: 7; top: 106px; right: 16px; width: min(264px, 44%); padding: 11px 13px; border: 1px solid #62e4ed55; border-radius: 10px; background: linear-gradient(110deg, #142d44eb, #1d2548e8); pointer-events: none; }
+#tactical-readout strong { display: block; font-size: 12px; color: #c5f7ff; }
+#tactical-readout span { display: block; margin-top: 5px; color: #a7bad6; font-size: 10px; line-height: 1.6; }
+#tactical-readout[data-tone="capture"] { border-color: #ff8097aa; background: linear-gradient(115deg, #44253cdd, #20283fe8); }
+#tactical-readout[data-tone="danger"] { border-color: #ffbf73aa; }
+#tactical-readout[data-tone="check"] { border-color: #d5a5ff; }
+#stage:has(#arena-drawer:not([hidden])) #tactical-readout { visibility: hidden; }
+#flat-board .square { border: 1px solid #b3def315; background-image: linear-gradient(140deg, #ffffff08, #00000012); }
+#flat-board .square.legal::after { content: ''; position: absolute; width: 15%; height: 15%; border-radius: 50%; background: #42dec3; top: 43%; left: 43%; box-shadow: 0 0 8px #67ead955; pointer-events: none; }
+#flat-board .square.legal.capture::after { width: 76%; height: 76%; top: 12%; left: 12%; background: none; border: 2px solid #fd738d; border-radius: 12%; box-shadow: none; }
+#flat-board .square.last { box-shadow: inset 0 0 0 2px #e5bb6b80; }
+#flat-board .square.selected { box-shadow: inset 0 0 0 3px #75eafa; }
+#flat-board .square.checked { box-shadow: inset 0 0 0 3px #ff647e; }
+#flat-board .square.preview { outline: 2px solid #95efff; outline-offset: -3px; }
 .battle-result-actions .primary { border-color: #93e9ff; color: #0b1530; background: linear-gradient(115deg, #70e0ff, #adcbff); border-radius: 10px; }
 #title-screen button:focus-visible { outline-color: #a6efff; }
 @media (max-width: 760px) {
+  #tactical-readout { right: 10px; top: 117px; max-width: 186px; padding: 9px 10px; }
+  #tactical-readout strong { font-size: 10px; }
+  #tactical-readout span { font-size: 9px; }
   #title-screen .menu-shade { background: linear-gradient(0deg, #101426f8, #0e1a32e8 52%, #101b3955 78%, #10172baa); }
   #title-screen .game-menu-content { margin-inline: 18px; }
   #title-screen .menu-page:not(.title-cover) > h1::after { margin-top: 11px; }
