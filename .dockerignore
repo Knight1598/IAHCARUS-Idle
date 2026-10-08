@@ -3,3 +3,14 @@ dist
 .git
 test-results
 *.log
+data
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.env
+.env.*
+!.env.example
+
+dist-offline
+dist-pages
+_site

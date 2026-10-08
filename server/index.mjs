@@ -5,8 +5,10 @@ import { randomBytes } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { Chess } from "chess.js";
 import { normalizeCosmetics } from "../shared/cosmetics.js";
+import { createAccountAPI } from "./accounts.mjs";
 
 const root = resolve("dist");
+const accounts = createAccountAPI();
 const mime = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript",
@@ -15,6 +17,7 @@ const mime = {
   ".png": "image/png",
 };
 const server = createServer(async (req, res) => {
+  if (await accounts.handle(req, res)) return;
   if (req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end('{"ok":true}');
@@ -44,6 +47,7 @@ const server = createServer(async (req, res) => {
     res.end("Not found. Run npm run build first.");
   }
 });
+server.on("close", () => accounts.close());
 const wss = new WebSocketServer({ server, path: "/ws", maxPayload: 4096 });
 const clockMs = Math.max(
   100,
@@ -82,6 +86,10 @@ function snapshot(room, ws, latest = null) {
       w: room.players.w?.cosmetics || normalizeCosmetics(null, "w"),
       b: room.players.b?.cosmetics || normalizeCosmetics(null, "b"),
     },
+    players: {
+      w: room.players.w?.identity || null,
+      b: room.players.b?.identity || null,
+    },
     revision: room.revision,
   });
 }
@@ -111,7 +119,8 @@ function detach(ws) {
     peers.delete(ws);
   }
 }
-wss.on("connection", (ws) => {
+wss.on("connection", (ws, req) => {
+  const accountIdentity = accounts.identity(req);
   ws.isAlive = true;
   ws.on("pong", () => {
     ws.isAlive = true;
@@ -172,7 +181,8 @@ wss.on("connection", (ws) => {
         const cosmetics = m.type === "resume"
           ? room.players[color].cosmetics
           : normalizeCosmetics(m.cosmetics, color);
-        room.players[color] = { ws, token, cosmetics };
+        const identity = m.type === "resume" ? room.players[color].identity : accountIdentity;
+        room.players[color] = { ws, token, cosmetics, identity };
         peers.set(ws, { code: room.code, color });
         room.touched = Date.now();
         if (room.players.w && room.players.b && !room.started) {

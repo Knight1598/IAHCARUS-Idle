@@ -1,6 +1,6 @@
 # Special Chess 3D
 
-A playable tactical chess board game with a 3D duel lobby, individual piece cosmetics, spectral combat avatars, signature finishers, eight reactive arenas, tactical chapters, rotating daily challenges and Thai UI. All piece geometry, textures, effects and synthesized sounds are generated in code. No external art or model downloads.
+A playable tactical chess board game with six additional board modes, an original geometric UI, player character creation, optional server accounts and a 3D duel lobby, individual piece cosmetics, spectral combat avatars, signature finishers, eight reactive arenas, tactical chapters, rotating daily challenges and Thai UI. All piece geometry, textures, effects and synthesized sounds are generated in code. No external art or model downloads.
 
 ## Browser link (GitHub Pages)
 
@@ -93,7 +93,26 @@ The three tactical chapters teach royal rescue, a two-target fork, and a forced 
 
 Completing each training scenario's indicated move awards **40 XP once**. A completed standard bot match awards **80 / 110 / 150 XP** for an Easy/Medium/Hard victory, **35 XP** for a draw or **20 XP** for a loss, plus **20 XP per mission star** (up to three). Completed online matches use the Medium reward and require at least four plies. Same-device two-player matches do not award match XP. Rewards are claimed once per match; undo or reload does not award them again or remove already-earned XP.
 
-Levels, unlocked skins, match records and reward claims are saved in this browser's local storage. The full and offline editions share a profile when served from the same origin; different browsers/origins have separate profiles. Online rooms exchange each owner’s selected army and preserve it through reconnect. Cosmetic unlock ownership remains browser-local; accounts and cloud profile synchronization are future work.
+Levels, unlocked skins, match records and reward claims are saved in this browser's local storage. The full and offline editions share a profile when served from the same origin; different browsers/origins have separate profiles. Online rooms exchange each owner’s selected army and preserve it through reconnect. Cosmetic progress remains browser-owned. The Node edition now supports durable username/password accounts, a saved player character and explicit cosmetic-profile backup/restore. GitHub Pages and the standalone file provide a local guest profile and do not run an account server. See [account deployment](ACCOUNT_DEPLOYMENT.md).
+
+## Additional board modes and player identity
+
+The mode screen groups battles into **Duel / Arena / Tactics**. Each new mode has its own rules, objective HUD, saved match, undo and replay. Draft, Score, Control, Mirror and Chaos support three bot difficulties or two players on the same device; private online rooms continue to use ordinary chess.
+
+| Mode | Rules |
+| --- | --- |
+| Draft Arena | Choose one king and 2–8 other pieces with at most 24 material points. The opposing roster uses exactly the spent budget. Your chosen roster belongs to your selected color; castling is disabled. |
+| Score Clash | Capture values: pawn 1, knight/bishop 3, rook 5, queen 9. After both players have made 12 moves, the higher capture score wins. Checkmate wins immediately. |
+| Control Arena | Occupy d4/e4/d5/e5. After each complete round, each side occupying at least one central square gets one point. First to 5 wins; reaching 5 together draws. Checkmate wins immediately. |
+| Mirror Duel | A deterministic compact army is mirrored for both sides. Play two rounds from the same starting position, swapping colors. Wins give one point, draws half a point; the final panel totals the original players' scores. |
+| Puzzle Rush | Three minutes of active play, mate-in-one puzzles and three misses. Next Puzzle records the attempt once; undo before advancing rolls it back. Pause, the title screen and a hidden browser tab stop the timer. The best completed-run score is stored locally. |
+| Chaos Arena | A forecasted three-phase cycle changes after every full round: ordinary movement, extra one-square diagonal knight movement, extra one-square orthogonal bishop movement. Additional actions must keep the king safe. Continuous attacks/check still use the piece's ordinary pattern. |
+
+The **challenge code** carries a version, mode, seed, Draft roster and arena. Copy it into a friend's game to reproduce the setup or puzzle sequence. This is a shared configuration, not an online room or authenticated result. Draft and Mirror display the actual starting army in setup.
+
+**Create Your Player** opens a procedural character designer with three silhouettes, four crests, four accent palettes and a display name. These are cosmetics. Every interface uses the same original SVG logo, geometric piece symbols, angular controls and button feedback; there are no icon-font, emoji, external image or font downloads. Reduced-motion preferences suppress button effects.
+
+On the Node-hosted edition, the player window also offers real registration/login, HttpOnly sessions and durable SQLite accounts. Save/load cosmetic progress explicitly from the profile screen. The Pages build creates a local profile without password storage. To activate public accounts, deploy the Node server with a persistent data volume and HTTPS as documented in [ACCOUNT_DEPLOYMENT.md](ACCOUNT_DEPLOYMENT.md).
 
 ## Development
 
@@ -104,7 +123,7 @@ npm run server
 npm run dev
 ```
 
-Vite proxies `/ws` to the server on port 3000. Restart the server after changing server code. Production uses one Node process for both HTTP and WebSocket, so the client uses the same host and selects `wss` automatically under HTTPS.
+Vite proxies `/ws` and `/api` to the server on port 3000. Restart the server after changing server code. Production uses one Node process for both HTTP and WebSocket, so the client uses the same host and selects `wss` automatically under HTTPS.
 
 ```sh
 npm run build
@@ -117,6 +136,8 @@ npm run test:title
 npm run test:daily
 npm run test:tactics
 npm run test:special
+npm run test:modes
+npm run test:player
 npm run test:hud
 npm run test:army
 npm run test:audio
@@ -152,6 +173,6 @@ Deploy one instance on a Node/container host, terminate HTTPS at the host's reve
 
 ## Scope and next steps
 
-This release is an unranked game, not a persistent competitive platform. There are no accounts, matchmaking, ratings, store, payments or spectators. Bots use a small minimax evaluator rather than Stockfish. Combat avatars are stylized procedural silhouettes with animated weapons, rather than imported character models or hand-authored skeletal animation.
+This release is an unranked game, not a persistent competitive platform. Username/password accounts and cosmetic backups are supported on the Node server. There is no matchmaking, ratings, store, payments or spectators. Bots use a small minimax evaluator rather than Stockfish. Combat avatars are stylized procedural silhouettes with animated weapons, rather than imported character models or hand-authored skeletal animation.
 
-Draws use chess.js automatic threefold/fifty-move detection instead of a tournament claim flow. Timeout awards the other player a win; full FIDE impossible-mate adjudication is not implemented. Add persistent rooms/accounts and refine adjudication before ranked play. See `DEVELOPMENT.md` for architecture and follow-up work.
+Draws use chess.js automatic threefold/fifty-move detection instead of a tournament claim flow. Timeout awards the other player a win; full FIDE impossible-mate adjudication is not implemented. Add persistent rooms and refine adjudication before ranked play. Accounts already use SQLite; their cosmetic backups are not an authoritative economy. See `DEVELOPMENT.md` for architecture and follow-up work.

@@ -25,6 +25,8 @@ jobs:
       - run: npm run test:daily
       - run: npm run test:tactics
       - run: npm run test:special
+      - run: npm run test:modes
+      - run: npm run test:player
       - run: npm run test:hud
       - run: npm run test:army
       - run: npm run test:audio

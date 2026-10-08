@@ -112,8 +112,8 @@ const capturePoints: Record<PieceSymbol, number> = { p: 10, n: 30, b: 30, r: 50,
  * physical piece through castling, en passant and promotion, rather than merging
  * all pawns or rooks into one score.
  */
-export function battleMVP(initialFen: string, moves: Move[], owner?: Color): BattleMVP | null {
-  const game = moves.some(m => (m as UltimateMove).ultimate) ? new SpecialChess(initialFen) : new Chess(initialFen);
+export function battleMVP(initialFen: string, moves: Move[], owner?: Color, createGame?: () => Chess): BattleMVP | null {
+  const game = createGame ? createGame() : moves.some(m => (m as UltimateMove).ultimate) ? new SpecialChess(initialFen) : new Chess(initialFen);
   const pieces: BattleMVP[] = game.board().flat().flatMap((piece) => piece
     ? [{ origin: piece.square, color: piece.color, piece: piece.type, score: 0, kills: 0 }]
     : []);

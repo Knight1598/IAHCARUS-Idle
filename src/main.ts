@@ -21,6 +21,12 @@ import type { ArmyCosmetics } from "../shared/cosmetics.js";
 import { matchStory, latestMoment } from "./battle";
 import { matchMaterial, type CinematicScope } from "./gameplay";
 import { SpecialChess, ultimates, type UltimateMove } from "./special";
+import { VariantChess, createVariant, modeDefinitions, rushPuzzle, type VariantId } from "./variants";
+import { newModeSession, readModeSession, mirrorScore, type ModeSession } from "./mode-session";
+import { installPlayer, type PlayerManager } from "./player";
+import { installDesign, geometricPiece } from "./design";
+import "./mode-ui.css";
+import "./design.css";
 import BotWorker from "./bot.ts?worker&inline";
 const OFFLINE = __OFFLINE__;
 const saveKey = OFFLINE ? "special-chess-offline-game" : "special-chess-local";
@@ -49,6 +55,7 @@ interface State {
   started: boolean;
   result: Result;
   connected: { w: boolean; b: boolean };
+  players?: { w: { name: string; username?: string } | null; b: { name: string; username?: string } | null };
   revision: number;
   cosmetics?: { w: ArmyCosmetics; b: ArmyCosmetics };
 }
@@ -102,6 +109,10 @@ let matchReward: { amount: number; message: string } | null = null;
 let humanColor: Color = "w";
 let initialFen = new Chess().fen();
 let specialDuel = false;
+let activeVariant: ModeSession | null = null;
+let player: PlayerManager | undefined;
+let rushStamp = performance.now();
+$("#stage").insertAdjacentHTML("beforeend", `<section id="variant-hud" hidden aria-label="กติกาโหมดปัจจุบัน"><div><small id="variant-title"></small><strong id="variant-progress"></strong></div><p id="variant-forecast"></p><button id="variant-next" hidden>โจทย์ถัดไป</button></section>`);
 let ultimateTarget: Square | null = null;
 let game = new Chess(),
   mode: Mode = OFFLINE ? "bot" : "local",
@@ -229,7 +240,20 @@ function grantReward(id: string, amount: number, win = false, match = false) {
 function checkRewards() {
   let rewardVisible = false;
   const stars = (color: Color) => Object.values(story().missions[color]).filter(Boolean).length;
-  if (activeTrial) {
+  if (activeVariant && game instanceof VariantChess) {
+    const outcome = game.outcome();
+    localResult = outcome ? { winner: outcome.winner, reason: outcome.label } : null;
+    if (outcome && mode === "bot" && (activeVariant.id !== "mirror" || activeVariant.options.round === 2)) {
+      rewardVisible = true;
+      const scores = activeVariant.id === "mirror" ? mirrorScore(activeVariant, outcome.winner, humanColor) : null;
+      const won = scores ? scores[activeVariant.firstColor] > scores[activeVariant.firstColor === "w" ? "b" : "w"] : outcome.winner === humanColor;
+      grantReward(matchId, won ? 80 : 20, won, true);
+    }
+  } else if (activeVariant?.id === "rush") {
+    const last = game.history({ verbose: true }).at(-1);
+    localResult = activeVariant.rushRemaining <= 0 ? { winner: null, reason: "หมดเวลา Puzzle Rush" }
+      : last ? { winner: game.isCheckmate() ? humanColor : humanColor === "w" ? "b" : "w", reason: game.isCheckmate() ? "แก้โจทย์สำเร็จ" : "ยังไม่ใช่รุกฆาตในหนึ่งตา" } : null;
+  } else if (activeTrial) {
     const trial = activeTrialDefinition();
     const outcome = evaluateTrial(trial, game);
     if (outcome !== "active") {
@@ -347,7 +371,7 @@ function updateUI() {
         ? humanColor === "w"
           ? "คุณ"
           : "บอต · " + $<HTMLSelectElement>("#difficulty").selectedOptions[0].textContent
-        : specialDuel && humanColor === "b" ? "ผู้เล่น 2" : "ผู้เล่น 1";
+        : (specialDuel || activeVariant) && humanColor === "b" ? "ผู้เล่น 2" : "ผู้เล่น 1";
   $("#black-label").textContent =
     mode === "online"
       ? (session?.color === "b" ? "คุณ" : "คู่แข่ง") +
@@ -356,7 +380,7 @@ function updateUI() {
         ? humanColor === "b"
           ? "คุณ"
           : "บอต · " + $<HTMLSelectElement>("#difficulty").selectedOptions[0].textContent
-        : specialDuel && humanColor === "b" ? "ผู้เล่น 1" : "ผู้เล่น 2";
+        : (specialDuel || activeVariant) && humanColor === "b" ? "ผู้เล่น 1" : "ผู้เล่น 2";
   $("#connection").textContent =
     mode === "online"
       ? ws?.readyState === 1
@@ -364,7 +388,7 @@ function updateUI() {
         : "○ กำลังเชื่อมต่อ"
       : "OFFLINE READY";
   $("#mode-tag").textContent =
-    specialDuel ? "SPECIAL DUEL · ULTIMATE ARENA" : activeDaily ? "DAILY RIFT" : activeTrial ? "TACTICAL CHAPTER" : mode === "bot"
+    activeVariant ? modeDefinitions.find(definition => definition.id === activeVariant!.id)!.name.toUpperCase() : specialDuel ? "SPECIAL DUEL · ULTIMATE ARENA" : activeDaily ? "DAILY RIFT" : activeTrial ? "TACTICAL CHAPTER" : mode === "bot"
       ? "SOLO CHALLENGE"
       : mode === "online"
         ? "ONLINE DUEL"
@@ -378,6 +402,14 @@ function updateUI() {
     const rival = currentRival();
     $(`#${humanColor === "w" ? "black" : "white"}-label`).textContent = `${rival.name} · ${rival.title}`;
   }
+  if (player?.hasIdentity && mode !== "online") {
+    const owner = mode === "bot" || activeVariant ? humanColor : "w";
+    $(`#${owner === "w" ? "white" : "black"}-label`).textContent = player.displayName;
+  }
+  if (mode === "online" && state?.players) for (const color of ["w", "b"] as const) {
+    const name = state.players[color]?.name;
+    if (name) $(`#${color === "w" ? "white" : "black"}-label`).textContent = `${name}${state.connected[color] ? " · เชื่อมต่อ" : " · หลุด"}`;
+  }
   $("#training-panel").hidden = mode === "online";
   $('[data-hud-open="training"]').hidden = mode === "online";
   $(".pause-caption").textContent = mode === "online"
@@ -387,7 +419,7 @@ function updateUI() {
   $("#undo").hidden = mode === "online";
   $("#resign").hidden = mode !== "online" || !state?.started || !!state.result;
   $("#difficulty").hidden = mode !== "bot" || !!activeTrial;
-  $("#side-control").hidden = mode !== "bot" || !!activeTrial;
+  $("#side-control").hidden = mode !== "bot" || !!activeTrial || activeVariant?.id === "mirror";
   $("#reset").textContent = activeTrial ? "เริ่มบทใหม่" : "เกมใหม่";
   $<HTMLSelectElement>("#human-side").value = humanColor;
   $<HTMLButtonElement>("#undo").disabled =
@@ -398,7 +430,7 @@ function updateUI() {
   for (const color of ["w", "b"] as const) {
     const label = color === "w" ? "white" : "black";
     const enemy = color === "w" ? "b" : "w";
-    $(`#${label}-captured`).textContent = captured[color].map((piece) => symbols[enemy][piece]).join(" ") || "—";
+    $(`#${label}-captured`).innerHTML = captured[color].map((piece) => geometricPiece(piece, enemy)).join("") || "—";
     $(`#${label}-captured`).setAttribute("aria-label", captured[color].map((piece) => names[piece]).join(", ") || "ยังไม่ได้กินหมาก");
     const lead = (color === "w" ? 1 : -1) * balance;
     $(`#${label}-material`).textContent = lead > 0 ? `+${lead}` : "";
@@ -423,6 +455,7 @@ function updateUI() {
   updateBattleUI();
   updateFlatBoard();
   updateSpecialHUD();
+  updateVariantHUD();
   updateTactics();
   updateClocks();
   const replayControl = document.querySelector<HTMLButtonElement>("#replay-capture");
@@ -437,20 +470,20 @@ function updatePresentation() {
   const key = `${matchId}:${game.fen()}:${result?.reason || ""}`;
   if (resultPresentationKey === key) return;
   resultPresentationKey = key;
-  const owner = mode === "online" ? session?.color : mode === "bot" || activeTrial ? humanColor : undefined;
+  const owner = mode === "online" ? session?.color : mode === "bot" || activeTrial || activeVariant?.id === "rush" ? humanColor : undefined;
   const winner = result?.winner ?? (game.isCheckmate() ? game.turn() === "w" ? "b" : "w" : null);
-  const mvp = battleMVP(initialFen, game.history({ verbose: true }), owner);
+  const mvp = battleMVP(initialFen, game.history({ verbose: true }), owner, activeVariant && game instanceof VariantChess ? () => createVariant(activeVariant!.id, activeVariant!.options, initialFen) : undefined);
   const mvpSkin = mvp ? armyAppearances([])[mvp.origin] || profile.skin : profile.skin;
-  const titleText = activeDaily ? winner === humanColor ? "พิชิตศึกประจำวัน" : "ราชันรอการแก้มือ" : trainingWon ? "ฝึกสำเร็จ" : activeTrial ? winner === humanColor ? "ภารกิจสำเร็จ" : "ลองวางแผนใหม่" : winner === null ? "ศึกเสมอ" : owner ? winner === owner ? "ชัยชนะของกองทัพคุณ" : "ราชันรอการกลับมา" : `ชัยชนะฝ่าย${winner === "w" ? "ขาว" : "ดำ"}`;
+  const titleText = activeVariant?.id === "rush" ? activeVariant.rushRemaining <= 0 ? "Puzzle Rush จบแล้ว" : winner === humanColor ? "อ่านเกมได้เฉียบคม" : "ลองโจทย์ถัดไป" : activeDaily ? winner === humanColor ? "พิชิตศึกประจำวัน" : "ราชันรอการแก้มือ" : trainingWon ? "ฝึกสำเร็จ" : activeTrial ? winner === humanColor ? "ภารกิจสำเร็จ" : "ลองวางแผนใหม่" : winner === null ? "ศึกเสมอ" : owner ? winner === owner ? "ชัยชนะของกองทัพคุณ" : "ราชันรอการกลับมา" : `ชัยชนะฝ่าย${winner === "w" ? "ขาว" : "ดำ"}`;
   presentation.showResult({
     title: titleText,
-    subtitle: activeDaily ? `${dailyChallenge(activeDaily).title} · ต่อเนื่อง ${dailyProgress(profile.claimed, activeDaily).streak} วัน` : activeTrial ? activeTrialDefinition().name : result ? resultText(result) : game.isCheckmate() ? "รุกฆาต · ราชันคู่แข่งพ่ายแพ้" : trainingWon ? "ลองท่าอื่นในสนามฝึก หรือเข้าสู่ศึกจริง" : "ทุกตาสร้างเรื่องราวของกองทัพ",
+    subtitle: activeVariant ? variantResultSubtitle(winner) : activeDaily ? `${dailyChallenge(activeDaily).title} · ต่อเนื่อง ${dailyProgress(profile.claimed, activeDaily).streak} วัน` : activeTrial ? activeTrialDefinition().name : result ? resultText(result) : game.isCheckmate() ? "รุกฆาต · ราชันคู่แข่งพ่ายแพ้" : trainingWon ? "ลองท่าอื่นในสนามฝึก หรือเข้าสู่ศึกจริง" : "ทุกตาสร้างเรื่องราวของกองทัพ",
     xp: matchReward?.amount || 0,
     mvp: mvp ? `${avatarNames[mvpSkin][mvp.piece]} · ${mvp.origin.toUpperCase()} · สังหาร ${mvp.kills} ตัว` : undefined,
     unlocks: matchReward?.message.includes("ปลดล็อก") ? [matchReward.message.split("ปลดล็อก ")[1]] : [],
     replay: game.history({ verbose: true }).some((move) => !!move.captured),
-    rematch: specialDuel,
-    continueLabel: activeDaily ? winner === humanColor ? "กลับค่าย · ดูศึกประจำวัน" : "ลองศึกนี้อีกครั้ง" : mode === "online" ? "กลับค่าย" : activeTrial && winner !== humanColor ? "ลองบทนี้อีกครั้ง" : activeTrial ? "บทถัดไป" : trainingWon ? "ฝึกท่าถัดไป" : "ประลองอีกครั้ง",
+    rematch: specialDuel || !!activeVariant && !["rush", "mirror"].includes(activeVariant.id),
+    continueLabel: activeVariant?.id === "mirror" ? activeVariant.options.round === 1 ? "รอบ 2 · สลับสี" : "เริ่มศึกกระจกใหม่" : activeVariant?.id === "rush" ? rushSessionFinished() ? "เริ่ม Puzzle Rush ใหม่" : "โจทย์ถัดไป" : activeDaily ? winner === humanColor ? "กลับค่าย · ดูศึกประจำวัน" : "ลองศึกนี้อีกครั้ง" : mode === "online" ? "กลับค่าย" : activeTrial && winner !== humanColor ? "ลองบทนี้อีกครั้ง" : activeTrial ? "บทถัดไป" : trainingWon ? "ฝึกท่าถัดไป" : "ประลองอีกครั้ง",
   });
   scene?.celebrate(trainingWon ? game.history({ verbose: true }).at(-1)?.color || null : winner, mvp?.square);
   soundEngine()?.playEvent(trainingWon || winner === owner || !owner && winner ? "victory" : winner === null ? "mission" : "defeat");
@@ -480,7 +513,7 @@ function updateBattleUI() {
     $("#mission-stars").textContent = `${used} / ${trial.maxMoves} ตา`;
     $("#mission-list").innerHTML = `<div class="mission ${outcome === "won" ? "complete" : ""}"><span>${outcome === "won" ? "★" : "☆"}</span>${trial.hint}</div>`;
   }
-  $("#objective-peek").hidden = !enabled && !activeTrial;
+  $("#objective-peek").hidden = !!activeVariant || !enabled && !activeTrial;
   $("#objective-label").textContent = activeDaily ? "ศึกประจำวัน" : activeTrial ? activeTrialDefinition().name : "ภารกิจกองทัพ";
   $("#objective-progress").textContent = activeTrial ? $("#mission-stars").textContent : `${count} / 3 เป้าหมาย · แตะดูรายละเอียด`;
   $("#objective-peek").classList.toggle("quest-complete", activeTrial ? evaluateTrial(activeTrialDefinition(), game) === "won" : count === 3);
@@ -497,7 +530,7 @@ function updateFlatBoard() {
   const legal = moves.map(m => m.to);
   const captures = moves.filter(m => m.captured).map(m => m.to);
   const checkedKing = game.isCheck() ? kingSquare(game, game.turn()) : null;
-  const flipped = scene?.flipped ?? (mode === "bot" && humanColor === "b");
+  const flipped = scene?.flipped ?? ((mode === "bot" || !!activeVariant || specialDuel) && humanColor === "b");
   const order = flipped
     ? [1, 2, 3, 4, 5, 6, 7, 8]
     : [8, 7, 6, 5, 4, 3, 2, 1];
@@ -507,7 +540,7 @@ function updateFlatBoard() {
     for (const file of files) {
       const s = (file + rank) as Square,
         p = game.get(s);
-      html += `<button data-square="${s}" class="square ${(file.charCodeAt(0) + rank) % 2 ? "dark" : "light"} ${selected === s ? "selected" : ""} ${legal.includes(s) ? "legal" : ""} ${captures.includes(s) ? "capture" : ""} ${s === lastMove?.from || s === lastMove?.to ? "last" : ""} ${s === checkedKing ? "checked" : ""} ${p?.color === "w" ? "white-piece" : "black-piece"}" aria-label="${s}${p ? " " + (p.color === "w" ? "ขาว" : "ดำ") + " " + names[p.type] : ""}${legal.includes(s) ? captures.includes(s) ? " กินหมากได้" : " เดินได้" : ""}"><span>${p ? symbols[p.color][p.type] : ""}</span><small>${s}</small></button>`;
+      html += `<button data-square="${s}" class="square ${(file.charCodeAt(0) + rank) % 2 ? "dark" : "light"} ${selected === s ? "selected" : ""} ${legal.includes(s) ? "legal" : ""} ${captures.includes(s) ? "capture" : ""} ${activeVariant?.id === "control" && ["d4", "e4", "d5", "e5"].includes(s) ? "control-square" : ""} ${s === lastMove?.from || s === lastMove?.to ? "last" : ""} ${s === checkedKing ? "checked" : ""} ${p?.color === "w" ? "white-piece" : "black-piece"}" aria-label="${s}${p ? " " + (p.color === "w" ? "ขาว" : "ดำ") + " " + names[p.type] : ""}${legal.includes(s) ? captures.includes(s) ? " กินหมากได้" : " เดินได้" : ""}"><span>${p ? geometricPiece(p.type, p.color) : ""}</span><small>${s}</small></button>`;
     }
   $("#flat-board").innerHTML = html;
   if (focused)
@@ -530,6 +563,88 @@ function updateTactics(target: MovePreview | null = null) {
     : game instanceof SpecialChess && game.armed ? "เป้าม่วง = อัลติ · เลือกปลายทางแล้วกดยืนยัน" : "จุดเขียว = เดิน · กรอบชมพู = กินหมาก";
   if (target) document.querySelector(`[data-square="${target.to}"]`)?.classList.add("preview");
 }
+function rushSessionFinished() {
+  return !!activeVariant && (activeVariant.rushRemaining <= 0 || activeVariant.rushFailures + (localResult && localResult.winner !== humanColor ? 1 : 0) >= 3);
+}
+function variantResultSubtitle(winner: Color | null) {
+  if (!activeVariant) return "";
+  if (activeVariant.id === "mirror") {
+    const scores = mirrorScore(activeVariant, winner, humanColor);
+    const first = scores[activeVariant.firstColor], second = scores[activeVariant.firstColor === "w" ? "b" : "w"];
+    return `รอบ ${activeVariant.options.round || 1} / 2 · ผู้เล่น 1 ${first} : ${second} ผู้เล่น 2${activeVariant.options.round === 2 ? first === second ? " · รวมสองรอบเสมอ" : first > second ? " · ผู้เล่น 1 ชนะชุดดวล" : " · ผู้เล่น 2 ชนะชุดดวล" : " · รอบถัดไปสลับสี บนตำแหน่งเดิม"}`;
+  }
+  if (activeVariant.id === "rush") return `แก้สำเร็จ ${activeVariant.rushSolved + (localResult?.winner === humanColor ? 1 : 0)} ข้อ · พลาด ${Math.min(3, activeVariant.rushFailures + (localResult && localResult.winner !== humanColor && activeVariant.rushRemaining > 0 ? 1 : 0))} / 3 · ${Math.ceil(activeVariant.rushRemaining / 1000)} วินาที`;
+  const progress = game instanceof VariantChess ? game.progress() : null;
+  return `${localResult ? resultText(localResult) : ""}${progress && ["control", "score"].includes(activeVariant.id) ? ` · ขาว ${progress.scores.w} : ${progress.scores.b} ดำ` : ""}`;
+}
+function updateVariantHUD() {
+  const panel = $("#variant-hud");
+  panel.hidden = !activeVariant;
+  $("#stage").dataset.variant = activeVariant?.id || "";
+  $("#variant-next").hidden = true;
+  if (!activeVariant) return;
+  const definition = modeDefinitions.find(definition => definition.id === activeVariant!.id)!;
+  $("#variant-title").textContent = definition.name;
+  let progress = "", forecast = "";
+  if (activeVariant.id === "rush") {
+    const seconds = Math.ceil(activeVariant.rushRemaining / 1000);
+    progress = `${activeVariant.rushSolved} สำเร็จ · ${activeVariant.rushFailures} / 3 พลาด · ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+    forecast = `โจทย์ ${activeVariant.rushIndex + 1} · สถิติ ${Number(storage.get("special-chess-rush-best")) || 0} · รุกฆาตในหนึ่งตา`;
+    $("#variant-next").hidden = !localResult;
+    $("#variant-next").textContent = rushSessionFinished() ? "เริ่ม Rush ใหม่" : "โจทย์ถัดไป";
+  } else if (game instanceof VariantChess) {
+    const state = game.progress();
+    progress = activeVariant.id === "score" ? `ขาว ${state.scores.w} : ${state.scores.b} ดำ · ตา ${Math.max(state.turns.w, state.turns.b)} / 12`
+      : activeVariant.id === "control" ? `ขาว ${state.scores.w} : ${state.scores.b} ดำ · เป้าหมาย 5`
+      : activeVariant.id === "mirror" ? `รอบ ${activeVariant.options.round || 1} / 2 · ผู้เล่น 1 ${activeVariant.mirrorWins[activeVariant.firstColor]} : ${activeVariant.mirrorWins[activeVariant.firstColor === "w" ? "b" : "w"]} ผู้เล่น 2`
+      : activeVariant.id === "chaos" ? state.phaseLabel : `ทีมขาว ${game.board().flat().filter(p => p?.color === "w").length} ตัว · ทีมดำ ${game.board().flat().filter(p => p?.color === "b").length} ตัว`;
+    forecast = activeVariant.id === "chaos" ? `รอบถัดไป: ${state.forecastLabel} · เปลี่ยนหลังฝ่ายดำเดิน`
+      : activeVariant.id === "control" ? "จบรอบบน D4 / E4 / D5 / E5 ได้ฝ่ายละ 1 แต้ม"
+      : activeVariant.id === "score" ? "เบี้ย 1 · ม้า/บิชอป 3 · เรือ 5 · ควีน 9 · รุกฆาตชนะทันที"
+      : activeVariant.id === "mirror" ? "ชุดหมากเดียวกัน · รอบสองสลับสี · รุกฆาตชนะรอบ"
+      : "งบเท่ากัน · จัดกองทัพขาวก่อนเริ่ม · ไม่มีการเข้าป้อม";
+  }
+  $("#variant-progress").textContent = progress;
+  $("#variant-forecast").textContent = forecast;
+}
+function startVariantBoard(preserveSession = false) {
+  if (!activeVariant) return;
+  if (!preserveSession) activeVariant = newModeSession(activeVariant.id, activeVariant.options, humanColor);
+  resetPresentation(); stopBot(); scene?.cancel(); clearBattleToast(); scene?.resetPacing();
+  matchId = newMatchId(); matchReward = null; activeTraining = null; activeTrial = null; activeDaily = null; specialDuel = false;
+  localResult = null; lastMove = undefined; clearSelection();
+  if (activeVariant.id === "rush") {
+    const puzzle = rushPuzzle(activeVariant.options.seed, activeVariant.rushIndex);
+    game = new Chess(puzzle.fen); humanColor = puzzle.side; mode = "local";
+  } else {
+    if (activeVariant.id === "draft") activeVariant.options.draftColor = humanColor;
+    game = createVariant(activeVariant.id, activeVariant.options);
+  }
+  initialFen = game.fen(); rushStamp = performance.now();
+  renderGameBoard(); scene?.resetView(humanColor === "b");
+  saveLocal(); updateUI(); scheduleBot();
+}
+function advanceVariant() {
+  if (!activeVariant || !localResult) return;
+  if (activeVariant.id === "mirror" && activeVariant.options.round !== 2) {
+    activeVariant.mirrorWins = mirrorScore(activeVariant, localResult.winner, humanColor);
+    activeVariant.options.round = 2;
+    humanColor = humanColor === "w" ? "b" : "w";
+    startVariantBoard(true);
+  } else if (activeVariant.id === "rush" && !rushSessionFinished()) {
+    if (localResult.winner === humanColor) activeVariant.rushSolved++;
+    else activeVariant.rushFailures++;
+    activeVariant.rushIndex++;
+    startVariantBoard(true);
+  } else if (activeVariant.id === "rush" && rushSessionFinished()) {
+    if (localResult.winner === humanColor) activeVariant.rushSolved++;
+    const bestKey = "special-chess-rush-best";
+    const best = Number(storage.get(bestKey)) || 0;
+    if (activeVariant.rushSolved > best) storage.set(bestKey, String(activeVariant.rushSolved));
+    startVariantBoard();
+  } else startVariantBoard();
+}
+$("#variant-next").onclick = advanceVariant;
 function updateSpecialHUD() {
   const panel = $("#ultimate-hud");
   panel.hidden = !(game instanceof SpecialChess);
@@ -690,6 +805,8 @@ function attackEvent(before: Chess, after: Chess, move: Move, skin?: SkinId) {
   if ((move as UltimateMove).ultimate) {
     event.title = ultimates[move.piece].name;
     event.subtitle = `${ultimates[move.piece].label} · ${event.kind === "mate" ? "รุกฆาต" : event.kind.includes("check") ? "รุกคิง" : "ULTIMATE RELEASE"}`;
+  } else if ((move as Move & { chaos?: boolean }).chaos) {
+    event.title = "WIND BREAK"; event.subtitle = "เปลี่ยนแนวเดิน · พลิกแผนด้วยลมสนาม";
   } else if (event.kind === "capture") {
     const theme = skin || armyAppearances(game.history({ verbose: true }).slice(0, -1))[move.from] || profile.skin;
     event.title = skillNames[theme][move.piece];
@@ -761,7 +878,7 @@ function submitMove(from: Square, to: Square, promotion: PieceSymbol = "q") {
   commitMove(from, to, promotion);
 }
 function commitMove(from: Square, to: Square, promotion: PieceSymbol = "q", ultimate = false) {
-  const before = new Chess(game.fen());
+  const before = game instanceof VariantChess ? game.clone() : new Chess(game.fen());
   let move;
   try {
     move = game.move({ from, to, promotion, ...(ultimate ? { ultimate: true } : {}) });
@@ -812,19 +929,20 @@ function scheduleBot() {
       notice("บอตคิดไม่สำเร็จ ลองปรับระดับหรือเริ่มใหม่");
       updateUI();
     };
-    taskWorker.postMessage({ fen, special: game instanceof SpecialChess ? game.snapshot() : undefined, depth: activeTrial ? 2 : Number($<HTMLSelectElement>("#difficulty").value) });
+    taskWorker.postMessage({ fen, variant: game instanceof VariantChess ? { id: game.id, options: game.options, snapshot: game.snapshot() } : undefined, special: game instanceof SpecialChess ? game.snapshot() : undefined, depth: activeTrial ? 2 : Number($<HTMLSelectElement>("#difficulty").value) });
   }, 80);
 }
 function saveLocal() {
   if (mode !== "online") {
     storage.set(
       saveKey,
-      JSON.stringify({ mode, specialDuel, humanColor, initialFen, history: game.history(), matchId, activeTraining, activeTrial, activeDaily, matchReward }),
+      JSON.stringify({ mode, specialDuel, activeVariant, humanColor, initialFen, history: game.history(), matchId, activeTraining, activeTrial, activeDaily, matchReward }),
     );
     hasSavedLocalGame = true;
   }
 }
 function newLocal() {
+  if (activeVariant) { startVariantBoard(); return; }
   matchId = newMatchId();
   activeTraining = null;
   activeTrial = null; activeDaily = null;
@@ -846,7 +964,7 @@ function newLocal() {
   renderGameBoard();
   $("#event").classList.remove("visible");
   $("#stage").classList.remove("cinematic");
-  scene?.resetView((mode === "bot" || specialDuel && mode === "local") && humanColor === "b");
+  scene?.resetView((mode === "bot" || (specialDuel || !!activeVariant) && mode === "local") && humanColor === "b");
   saveLocal();
   updateUI();
   scheduleBot();
@@ -867,8 +985,8 @@ function disconnect() {
 }
 function setMode(next: Mode) {
   if (OFFLINE && next === "online") return;
-  if (mode === next && !specialDuel) return;
-  specialDuel = false;
+  if (mode === next && !specialDuel && !activeVariant) return;
+  specialDuel = false; activeVariant = null;
   disconnect();
   mode = next;
   matchPaused = !hud.drawer.hidden && next !== "online";
@@ -961,7 +1079,7 @@ function receiveState(next: State) {
   serverStamp = Date.now();
   if (changed) {
     initialFen = new Chess().fen();
-    activeTraining = null;
+    activeTraining = null; activeVariant = null; specialDuel = false;
     activeTrial = null; activeDaily = null;
     resetPresentation();
     matchReward = null;
@@ -1040,7 +1158,7 @@ $("#undo").onclick = () => {
 };
 $("#view").onclick = () => {
   scene?.finish();
-  scene?.resetView();
+  scene?.resetView(scene.flipped);
 };
 $("#flip").onclick = () => {
   scene?.finish();
@@ -1110,7 +1228,7 @@ $("#training-select").onchange = () => {
   scene?.resetPacing();
   if (mode !== "local") setMode("local");
   stopBot();
-  specialDuel = false; game = new Chess(t.fen);
+  specialDuel = false; activeVariant = null; game = new Chess(t.fen);
   initialFen = t.fen;
   activeTraining = key;
   activeTrial = null; activeDaily = null;
@@ -1178,20 +1296,22 @@ try {
     ["local", "bot"].includes(saved.mode) &&
     Array.isArray(saved.history)
   ) {
-    specialDuel = saved.specialDuel === true;
-    game = specialDuel ? new SpecialChess(saved.initialFen || new Chess().fen()) : new Chess(saved.initialFen || new Chess().fen());
+    activeVariant = readModeSession(saved.activeVariant);
+    specialDuel = !activeVariant && saved.specialDuel === true;
+    game = activeVariant && activeVariant.id !== "rush" ? createVariant(activeVariant.id, activeVariant.options, saved.initialFen)
+      : specialDuel ? new SpecialChess(saved.initialFen || new Chess().fen()) : new Chess(saved.initialFen || new Chess().fen());
     initialFen = game.fen();
     for (const m of saved.history) game.move(m);
     mode = saved.mode;
     humanColor = saved.humanColor === "b" ? "b" : "w";
     if (typeof saved.matchId === "string" && saved.matchId.length <= 100) matchId = saved.matchId;
     const scenario = Object.entries(training).find(([, value]) => value.fen === initialFen)?.[0];
-    activeTraining = (scenario as keyof typeof training) || null;
+    activeTraining = !activeVariant ? (scenario as keyof typeof training) || null : null;
     if (activeTraining) {
       $<HTMLSelectElement>("#training-select").value = activeTraining;
       $("#training-hint").textContent = training[activeTraining].hint;
     }
-    if (typeof saved.activeTrial === "string" && Object.hasOwn(trials, saved.activeTrial)) {
+    if (!activeVariant && typeof saved.activeTrial === "string" && Object.hasOwn(trials, saved.activeTrial)) {
       const key = saved.activeTrial as keyof typeof trials;
       const daily = validDailyDay(saved.activeDaily) ? dailyChallenge(saved.activeDaily) : null;
       const trial = daily?.trial || trials[key];
@@ -1201,7 +1321,8 @@ try {
     hasSavedLocalGame = true;
   }
 } catch {
-  specialDuel = false; game = new Chess();
+  specialDuel = false; activeVariant = null; game = new Chess();
+  initialFen = game.fen(); activeTraining = null; activeTrial = null; activeDaily = null;
 }
 const invite = OFFLINE
   ? null
@@ -1291,7 +1412,7 @@ $("#arena-name").textContent = arenas[profile.arena].name;
 scene?.setArena(profile.arena);
 scene?.setSkin(profile.skin);
 renderGameBoard();
-scene?.resetView((mode === "bot" || specialDuel && mode === "local") && humanColor === "b");
+scene?.resetView((mode === "bot" || (specialDuel || !!activeVariant) && mode === "local") && humanColor === "b");
 updateUI();
 const title = new TitleScreen($("#app"), OFFLINE, {
   settings: (host) => hud.attachSettings(host),
@@ -1314,6 +1435,7 @@ const title = new TitleScreen($("#app"), OFFLINE, {
 presentation = new BattlePresentation($("#stage"), {
   continue: () => {
     resetPresentation();
+    if (activeVariant) { advanceVariant(); return; }
     if (mode === "online") { openTitle(); return; }
     if (activeDaily) {
       if (localResult?.winner === humanColor) openTitle();
@@ -1392,9 +1514,9 @@ function replayLastCapture() {
   while (index >= 0 && !history[index].captured) index--;
   if (index < 0) { notice("ยังไม่มีฉากสังหารในศึกนี้"); return; }
   const move = history[index];
-  const after = game instanceof SpecialChess ? new SpecialChess(initialFen) : new Chess(move.before);
-  if (after instanceof SpecialChess) for (const prior of history.slice(0, index)) after.move(prior);
-  const before = new Chess(after.fen());
+  const after = game instanceof VariantChess && activeVariant ? createVariant(activeVariant.id, activeVariant.options, initialFen) : game instanceof SpecialChess ? new SpecialChess(initialFen) : new Chess(move.before);
+  if (after instanceof SpecialChess || after instanceof VariantChess) for (const prior of history.slice(0, index)) after.move(prior);
+  const before = after instanceof VariantChess ? after.clone() : new Chess(after.fen());
   const replayMove = after.move(move);
   presentation?.clear();
   resultPresentationKey = "";
@@ -1410,7 +1532,7 @@ function launchTrial(key: keyof typeof trials, day: string | null = null) {
   const trial = daily?.trial || trials[key];
   resetPresentation(); stopBot(); scene?.cancel(); clearBattleToast();
   matchId = newMatchId(); matchReward = null; activeTraining = null; activeTrial = key; activeDaily = day;
-  specialDuel = false; game = new Chess(trial.fen); initialFen = trial.fen; mode = "bot"; humanColor = trial.side;
+  specialDuel = false; activeVariant = null; game = new Chess(trial.fen); initialFen = trial.fen; mode = "bot"; humanColor = trial.side;
   $<HTMLSelectElement>("#difficulty").value = "2";
   localResult = null; lastMove = undefined; clearSelection();
   renderGameBoard(); scene?.resetView(humanColor === "b");
@@ -1438,7 +1560,9 @@ function launchGame(settings: LaunchSettings) {
   storage.set(difficultyKey, settings.depth);
   scene?.setSkin(profile.skin);
   specialDuel = settings.mode === "special";
-  mode = settings.mode === "special" ? settings.opponent || "bot" : settings.mode === "training" ? "local" : (settings.mode === "campaign" || settings.mode === "daily") ? "bot" : settings.mode;
+  const variantId = modeDefinitions.find(definition => definition.id === settings.mode)?.id;
+  activeVariant = variantId ? newModeSession(variantId, settings.variant || { seed: Date.now() >>> 0 }, humanColor) : null;
+  mode = variantId ? variantId === "rush" ? "local" : settings.opponent || "bot" : settings.mode === "special" ? settings.opponent || "bot" : settings.mode === "training" ? "local" : (settings.mode === "campaign" || settings.mode === "daily") ? "bot" : settings.mode as Mode;
   enterBoard();
   if (settings.mode === "daily") {
     const daily = dailyChallenge(settings.day || utcDay()); launchTrial(daily.base, daily.day); return;
@@ -1477,7 +1601,8 @@ function openTitle() {
   $("#game-shell").hidden = true;
   title.show(profile, {
     view: "menu",
-    mode: mode === "online" && !OFFLINE ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : mode,
+    mode: activeVariant?.id || (mode === "online" && !OFFLINE ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : mode),
+    variant: activeVariant?.options, opponent: mode === "local" ? "local" : "bot",
     side: humanColor,
     depth: $<HTMLSelectElement>("#difficulty").value,
     resume: mode === "online" ? !!session : hasSavedLocalGame,
@@ -1494,4 +1619,21 @@ hud.onPauseChange = (paused) => {
   else { scene?.setPaused(false); scheduleBot(); }
   updateUI();
 };
-title.show(profile, { mode: mode === "online" && !OFFLINE ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot", side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn", trial: activeTrial || "rescue" });
+title.show(profile, { variant: activeVariant?.options, opponent: mode === "local" ? "local" : "bot", mode: activeVariant?.id || (mode === "online" && !OFFLINE ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot"), side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn", trial: activeTrial || "rescue" });
+
+installDesign();
+player = installPlayer({ offline: OFFLINE,
+  onIdentity: () => { if (!menuOpen) updateUI(); },
+  getProgression: () => profile,
+  applyProgression: (raw) => { profile = readProfile(JSON.stringify(raw)); saveProfile(); title.refresh(profile); updateUI(); },
+});
+setInterval(() => {
+  const now = performance.now(), elapsed = Math.max(0, now - rushStamp);
+  rushStamp = now;
+  if (!activeVariant || activeVariant.id !== "rush" || menuOpen || matchPaused || document.hidden || localResult || visualReplay) return;
+  activeVariant.rushRemaining = Math.max(0, activeVariant.rushRemaining - elapsed);
+  if (activeVariant.rushRemaining <= 0) { clearSelection(); updateUI(); }
+  else updateVariantHUD();
+  saveLocal();
+}, 250);
+document.addEventListener("visibilitychange", () => { rushStamp = performance.now(); });

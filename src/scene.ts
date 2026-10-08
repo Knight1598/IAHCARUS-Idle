@@ -14,6 +14,7 @@ import { frameCombat } from "./framing";
 import { CombatVFX } from "./vfx";
 import { previewMove, type MovePreview } from "./tactics";
 import { SpecialChess, ultimates, type UltimateMove } from "./special";
+import { VariantChess, controlSquares } from "./variants";
 const material = (color: number, metalness = 0.3) =>
   new THREE.MeshStandardMaterial({ color, metalness, roughness: 0.3 });
 const mesh = (
@@ -712,6 +713,16 @@ export class ChessScene {
           this.pieces.add(o);
         }
     if (!this.reduced) this.buildGroundAuras(game);
+    if (game instanceof VariantChess && game.id === "control") {
+      const geometry = new THREE.RingGeometry(0.32, 0.43, 4); geometry.rotateX(-Math.PI / 2); geometry.rotateY(Math.PI / 4);
+      const zones = new THREE.InstancedMesh(geometry, new THREE.MeshBasicMaterial({ color: 0x77ebff, transparent: true, opacity: 0.8, side: THREE.DoubleSide }), controlSquares.length);
+      controlSquares.forEach((square, index) => {
+        const point = coords(square); zones.setMatrixAt(index, new THREE.Matrix4().makeTranslation(point.x, 0.042, point.z));
+        const owner = game.get(square)?.color;
+        zones.setColorAt(index, new THREE.Color(owner === "w" ? 0x77ebff : owner === "b" ? 0xb899ff : 0xebcf88));
+      });
+      zones.userData.role = "control-zones"; this.groundAuras.add(zones);
+    }
     if (game instanceof SpecialChess) {
       const ready = game.board().flat().filter(p => p && game.remaining[p.color] > 0 && !game.spent(p.square));
       if (ready.length) {

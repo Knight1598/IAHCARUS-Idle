@@ -1,0 +1,24 @@
+name: iahcarus
+services:
+  game:
+    build: .
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      ACCOUNT_PUBLIC_ORIGIN: ${ACCOUNT_PUBLIC_ORIGIN:?Set the HTTPS game origin in .env}
+      ACCOUNT_DB_PATH: /app/data/accounts.sqlite
+      ACCOUNT_COOKIE_SECURE: "true"
+    ports:
+      - "127.0.0.1:${GAME_HOST_PORT:-3000}:3000"
+    volumes:
+      - accounts:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+volumes:
+  accounts:

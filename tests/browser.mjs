@@ -110,10 +110,9 @@ try {
   assert.match(await page.locator("#status").innerText(), /รุกฆาต/);
   assert.equal(
     await page
-      .locator('#flat-board [data-square="h4"]')
-      .innerText()
-      .then((t) => t.includes("♛")),
-    true,
+      .locator('#flat-board [data-square="h4"] [data-piece="q"][data-color="b"]')
+      .count(),
+    1,
   );
   console.log("castling test");
   // Castling is represented by both pieces, even when animation is skipped.
@@ -128,8 +127,8 @@ try {
     ["e1", "g1"],
   ])
     await move(page, f, t);
-  assert.match(await page.locator('[data-square="f1"]').innerText(), /♖/);
-  assert.match(await page.locator('[data-square="g1"]').innerText(), /♔/);
+  assert.equal(await page.locator('[data-square="f1"] svg[data-piece="r"][data-color="w"]').count(), 1);
+  assert.equal(await page.locator('[data-square="g1"] svg[data-piece="k"][data-color="w"]').count(), 1);
   console.log("promotion/bot tests");
   // Local snapshot can resume a position one move before promotion.
   await page.evaluate(() =>
@@ -147,25 +146,44 @@ try {
   await page.locator("#board-details summary").click();
   await square(page, "b7");
   await square(page, "a8");
-  await page.locator('#promotion [data-piece="n"]').click();
+  await page.locator('#promotion button[data-piece="n"]').click();
   await page.locator("#skip").click();
-  assert.match(await page.locator('[data-square="a8"]').innerText(), /♘/);
+  assert.equal(await page.locator('[data-square="a8"] svg[data-piece="n"][data-color="w"]').count(), 1);
   console.log("special animations");
   await openPanel(page, "training");
   await page.locator("#training-panel summary").click();
   for (const [key, t] of Object.entries(training)) {
     await openPanel(page, "training");
     await page.locator("#training-select").selectOption(key);
+    // Record this move's emitted ribbon before input. Software WebGL may delay
+    // the click response until a completed trial hides it behind the result UI.
+    await page.evaluate(() => {
+      window.__trainingEvents = [];
+      window.__trainingEventObserver = new MutationObserver(() => {
+        const event = document.querySelector("#event");
+        const title = event.querySelector("strong").textContent;
+        if (title && event.classList.contains("visible")) window.__trainingEvents.push(title);
+      });
+      window.__trainingEventObserver.observe(document.querySelector("#event"), {
+        attributes: true, attributeFilter: ["class"], childList: true, subtree: true,
+      });
+    });
     await square(page, t.from);
     await square(page, t.to);
     if (key === "promotion")
-      await page.locator('#promotion [data-piece="q"]').click();
+      await page.locator('#promotion button[data-piece="q"]').click();
     await page.waitForTimeout(key === "knight" ? 950 : 80);
     if (key === "knight") {
       mkdirSync("test-results", { recursive: true });
       await page.screenshot({ path: "test-results/knight-cinematic.png" });
     }
-    assert.notEqual(await page.locator("#event strong").innerText(), "");
+    await page.waitForFunction(() => window.__trainingEvents.length > 0);
+    const emitted = await page.evaluate(() => {
+      window.__trainingEventObserver.disconnect();
+      return window.__trainingEvents;
+    });
+    assert.ok(emitted.some((title) => title.trim()), `${key} must emit a visible event ribbon`);
+    assert.equal(await page.locator("#moves .san").count(), 1, `${key} must complete its legal move`);
     if (key === "bishop")
       await page.waitForFunction(
         () => !document.querySelector("#stage").classList.contains("cinematic"),

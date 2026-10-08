@@ -155,7 +155,7 @@ try {
   assert.equal(await page.locator("#stage").getAttribute("data-battle-phase"), null);
   assert.equal(await page.locator("#stage").evaluate((el) => el.classList.contains("cinematic")), false);
   await page.waitForFunction(() => !document.querySelector("#event").classList.contains("visible"));
-  assert.equal(await page.locator("#white-captured").innerText(), "♟");
+  assert.equal(await page.locator('#white-captured svg[data-piece="p"][data-color="b"]').count(), 1);
   assert.equal(await page.locator("#white-material").innerText(), "+1");
   await page.locator("#undo").click();
   assert.equal(await page.locator("#white-captured").innerText(), "—");
@@ -236,7 +236,7 @@ try {
   });
   assert.deepEqual(phases, ["charge", "dash", "impact", "aftermath", "return"]);
   assert.match(await page.locator("#moves").innerText(), /Nxd5/);
-  assert.match(await page.locator('[data-square="d5"]').innerText(), /♘/);
+  assert.equal(await page.locator('[data-square="d5"] svg[data-piece="n"][data-color="w"]').count(), 1);
   // A normal 3D pick after completion exercises camera and pointer restoration.
   if (await page.locator(".battle-result-close").isVisible()) await page.locator(".battle-result-close").click();
   await closePanel(page);

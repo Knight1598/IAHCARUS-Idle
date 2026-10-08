@@ -6,7 +6,10 @@ export async function enterMenu(page) {
 export async function chooseMode(page, mode) {
   await enterMenu(page);
   await page.locator("#lobby-battle-tab").click();
-  await page.locator(`[data-title-mode="${mode}"]`).click();
+  const card = page.locator(`[data-title-mode="${mode}"]`);
+  const group = await card.getAttribute("data-mode-group");
+  if (group) await page.locator(`[data-mode-category="${group}"]`).click();
+  await card.click();
 }
 export async function launchPrepared(page) {
   while (await page.locator("#title-screen").getAttribute("data-menu-view") !== "arena") await page.locator("#flow-next").click();

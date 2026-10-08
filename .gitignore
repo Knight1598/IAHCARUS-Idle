@@ -9,3 +9,12 @@ dist-offline/
 dist-pages/
 
 _site/
+
+# Local account database and SQLite journal files.
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.env
+.env.*
+!.env.example

@@ -68,10 +68,10 @@ Piece caches include the skin ID. Mixed indexed/non-indexed primitives (the Embe
 
 1. Test on real Android/iOS devices and tune cinematic framing, audio and GPU budgets.
 2. Refine procedural character faces, weapon motion, camera composition and promotion transformations with real-player feedback.
-3. Persistent rooms/results, disconnect grace policy, shared server storage and accounts before ratings.
+3. Persistent rooms/results, disconnect grace policy, shared server room storage before ratings.
 4. Complete FIDE timeout/draw claims and add agreed draws for competitive play.
 5. Better bot engine and difficulty progression.
-6. Expand the cosmetic collection and RPG campaign; keep competitive rules equal.
+6. Expand the cosmetic collection and tactical board modes; keep competitive rules equal.
 
 Rooms currently live in a single server's memory. Hosting/snapshots preserve files, not ongoing room sessions. Public deployment is separate from a GitHub push.
 
@@ -106,3 +106,15 @@ Offline browser tests execute black-side play, undo/save restoration, illegal-mo
 For a local Pages smoke test without rebuilding the committed HTML, run `node scripts/package-pages.mjs` then `npm run test:pages`. The existing `npm run build:pages` remains available as a development command to regenerate the offline edition from source; it is not used by deployment.
 
 One-time Pages source configuration requires repository settings access. This cloud instance denies the `api.github.com` and `knight1598.github.io` network destinations, so API enablement and public URL verification cannot be performed here. Do not claim the site live solely from a Git push or predict a successful deployment; check the workflow's published URL and deployment outcome. Do not request a new token merely because API access is blocked by networking.
+
+## Board modes, geometric interface and accounts
+
+`variants.ts` isolates Draft/Score/Control/Mirror/Chaos rules from ordinary `Chess` and `SpecialChess`. The worker receives the exact Variant snapshot, evaluates the mode objective and returns legal mode actions. Additional Chaos movement changes the action, while check uses the piece's ordinary attacks. Variant SAN uses `C:` for wind moves; replay must construct the same Variant engine and replay previous records. Tactical preview clones that engine without touching the actual counters. Control tiles add one instanced geometry batch, including in reduced-effects mode, because these marks communicate rules rather than cinematic decoration.
+
+`mode-session.ts` holds match-level Mirror and Rush state. Mirror points belong to the original owners, and are recorded only when advancing a round. A draw gives each owner half a point. Rush uses normal legal Chess puzzles; counters advance only with Next Puzzle, so previewing results and undo are reversible. Its active-time clock pauses on menu/drawer/hidden tab/result. The session and SAN history are saved with the match; reload reconstructs rule counters by replaying history. A completed run updates the browser-local best.
+
+`design.ts` and `design.css` provide the shared geometric logo, piece SVGs, procedural icons and delegated pointer/keyboard button feedback. A scoped DOM observer converts retained legacy decorative symbols into the same SVG family; it excludes code, input text and SVG internals. Standard piece/capture renders now use the SVG helpers directly. Theme and character art have no remote fonts or images. Native dialogs and focused controls retain keyboard access; reduced-motion disables button feedback.
+
+`player.ts` adds a local character identity to the title, and enables the account tab only when the full build discovers the same-origin API. It keeps password fields transient and uses HttpOnly cookies, never local-storage credentials. `server/accounts.mjs` uses Node24 SQLite, scrypt password hashes, hashed expiring session tokens, same-origin mutation checks and bounded rate limits. Cosmetic progression is an explicit account backup, not a server-authoritative currency. `ACCOUNT_DB_PATH` must use persistent storage in production; `ACCOUNT_PUBLIC_ORIGIN` must be the actual HTTPS game origin. See ACCOUNT_DEPLOYMENT.md. Static Pages does not provide authentication endpoints.
+
+Validation additions: `npm run test:modes` covers all six actual mode flows, Draft edits/sharing, score/control terminal results and undo, two Mirror rounds, Rush puzzles/clock, and Chaos preview/save/replay. `npm run test:player` checks offline character creation and a real production server signup/login/logout/profile backup in separate browser contexts, including XSS-safe names and HttpOnly cookies. Run GPU browser suites serially.

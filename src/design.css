@@ -1,0 +1,391 @@
+/* IAHCARUS: one original geometric visual language, entirely local. */
+:root {
+  --iah-bg: #060b17;
+  --iah-surface: #101a30;
+  --iah-surface-raised: #182744;
+  --iah-cyan: #82f0ff;
+  --iah-violet: #ae92ff;
+  --iah-ivory: #f5f1e9;
+  --iah-muted: #94a5c0;
+  --iah-line: #6584b54d;
+  --iah-amber: #ffc17a;
+  --iah-rose: #ff7caa;
+  --iah-corner: 9px;
+  --gold: var(--iah-amber);
+  --mint: var(--iah-cyan);
+  --muted: var(--iah-muted);
+  --line: var(--iah-line);
+  font-family: "Trebuchet MS", "Segoe UI", Tahoma, ui-sans-serif, system-ui, sans-serif;
+  background: var(--iah-bg);
+  color: var(--iah-ivory);
+  font-synthesis: none;
+}
+body { background: var(--iah-bg); -webkit-tap-highlight-color: transparent; }
+button, input, select, textarea, summary { font-family: inherit; }
+button, summary, [data-game-button] { touch-action: manipulation; }
+button:not(.square), #board-details > summary {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: 2px;
+  color: #dce8f9;
+  border-color: var(--iah-line);
+  background: linear-gradient(122deg, #1b2c48f2, #101c32f5 72%);
+  box-shadow: inset 0 1px 0 #ffffff07;
+  transition: transform 110ms cubic-bezier(.2,.8,.2,1), border-color 150ms, background 150ms, box-shadow 150ms;
+}
+button:not(.square):not(.text-button)::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  right: -1px;
+  top: -1px;
+  width: 10px;
+  height: 10px;
+  background: linear-gradient(45deg, transparent 45%, #8eaad538 48%, #8eaad538 56%, #060b17 59%);
+  pointer-events: none;
+}
+button:not(.square):enabled:hover, #board-details > summary:hover {
+  border-color: #82d2edba;
+  background: linear-gradient(122deg, #22435f, #202c4c 72%);
+  box-shadow: inset 0 1px 0 #a4f6ff18, 0 3px 16px #51cbef12;
+}
+button:not(.square).iah-pressed, button:not(.square):enabled:active { transform: translateY(1px) scale(.985); }
+button:disabled { cursor: default; box-shadow: none; }
+button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--iah-cyan);
+  outline-offset: 3px;
+}
+button.primary, #title-screen .primary, #title-screen #launch-start, #pause-resume, .battle-result-actions .primary {
+  border: 1px solid #b5f7ff;
+  border-radius: 2px;
+  background: linear-gradient(110deg, #83edff, #add7fd 74%, #c6b9ff);
+  color: #09182b;
+  font-weight: 800;
+  box-shadow: inset 0 1px 0 #fff9, 0 5px 25px #52d2ff1c;
+}
+button.primary:hover, #title-screen .primary:hover, #title-screen #launch-start:hover, #pause-resume:hover {
+  background: linear-gradient(110deg, #b9f7ff, #cae7ff 74%, #e0d5ff);
+  box-shadow: inset 0 1px 0 #ffffffa0, 0 5px 25px #7be2ff30;
+}
+button.primary::before, #title-screen .primary::before { background: linear-gradient(45deg, transparent 46%, #e2fcff 49%, #09182b 58%); }
+button.text-button { background: none; color: var(--iah-cyan); box-shadow: none; }
+input:not([type="checkbox"]):not([type="range"]), select, textarea, #title-screen select {
+  color: #e4eefb;
+  border: 1px solid #6c88ba66;
+  background: #0b172af2;
+  border-radius: 2px;
+  padding: 11px 12px;
+}
+textarea { width: 100%; max-width: 100%; resize: vertical; min-height: 68px; font-size: 12px; line-height: 1.6; }
+input::placeholder, textarea::placeholder { color: #7185a4; }
+input[type="checkbox"], input[type="range"] { accent-color: var(--iah-cyan); }
+progress { accent-color: var(--iah-cyan); }
+dialog {
+  color: var(--iah-ivory);
+  border: 1px solid #8aa6d477;
+  border-radius: 3px;
+  background: radial-gradient(ellipse at 95% 0, #a18aff1b, transparent 65%), linear-gradient(145deg, #182942fb, #0b1428fd);
+  box-shadow: 0 18px 80px #0008;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+}
+dialog::backdrop { background: #020715b8; }
+dialog h2 { color: #e8f3ff; font-weight: 750; letter-spacing: -.5px; }
+dialog > small { color: var(--iah-cyan); font-size: 9px; letter-spacing: 3px; }
+dialog p { color: #a6b8d2; }
+.iah-icon {
+  display: inline-block;
+  width: 1.18em;
+  height: 1.18em;
+  vertical-align: -.2em;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  pointer-events: none;
+  overflow: visible;
+}
+.iah-icon .icon-solid { fill: currentColor; fill-opacity: .18; }
+.iah-icon .icon-faint { opacity: .45; stroke-width: 1.3; }
+.iah-piece { stroke-width: 1.65; color: #ddf5ff; }
+.iah-piece .piece-solid { fill: #ddebf7; stroke: #d8ecff; }
+.iah-piece .piece-inlay { fill: #143650; stroke: #143650; }
+.iah-piece[data-color="b"] { color: #b8a8d9; }
+.iah-piece[data-color="b"] .piece-solid { fill: #1a2943; stroke: #b7b4db; }
+.iah-piece[data-color="b"] .piece-inlay { fill: #c2aaff; stroke: #c2aaff; }
+.iah-logo { width: 200px; height: auto; overflow: visible; flex-shrink: 0; display: block; }
+.iah-logo .logo-frame { fill: #09172888; stroke: #96c6e866; stroke-width: 1; }
+.iah-logo .logo-frame path:nth-child(2) { stroke: #9eb8ed22; }
+.iah-logo .logo-wings { fill: #86ecff; stroke: #baf7ff; stroke-width: .7; }
+.iah-logo .logo-wings path:nth-child(2) { fill: #ad9af0; stroke: #c9b7ff; }
+.iah-logo .logo-core { fill: #ecfaff; stroke: #c7f6ff; stroke-width: 1; }
+.iah-logo .logo-crown { fill: #6879a5; stroke: #d0d9f9; stroke-width: 1; }
+.iah-logo .logo-word { fill: none; stroke: #eef6ff; stroke-width: 2.8; stroke-linecap: square; stroke-linejoin: miter; }
+.iah-logo .logo-rule { stroke: #8bbfed66; stroke-width: 1; }
+.iah-logo--hero { width: min(440px, 97%); margin: 4px 0 12px; }
+#title-screen .title-logo { margin: 15px 0 23px; }
+#title-screen .title-logo::after { content: "SPECIAL CHESS"; display: block; margin: 1px 0 0 4px; color: #a3cddd; font-size: 13px; font-weight: 700; letter-spacing: 7px; }
+.iah-tap {
+  position: absolute;
+  pointer-events: none;
+  z-index: 4;
+  left: var(--tap-x, 50%);
+  top: var(--tap-y, 50%);
+  width: 68px;
+  height: 68px;
+  margin: -34px;
+  border: 1px solid currentColor;
+  background: linear-gradient(135deg, #b8fcff30, #b397ff0a);
+  transform: rotate(45deg) scale(.1);
+  animation: iah-tap 350ms ease-out both;
+}
+@keyframes iah-tap { 0% { opacity: .7; transform: rotate(45deg) scale(.12); } 100% { opacity: 0; transform: rotate(45deg) scale(3.2); } }
+/* Every menu is chrome around the same procedural arena, never a web dashboard. */
+#title-screen#title-screen {
+  background: var(--iah-bg);
+  --electric: var(--iah-cyan);
+  --violet: var(--iah-violet);
+}
+#title-screen .menu-shade { background: linear-gradient(90deg, #060b17fc, #081222f5 27%, #0b172572 57%, transparent 82%), linear-gradient(0deg, #070f20dd, transparent 42%, transparent 77%, #070d1bdd); }
+#title-screen .game-menu-top { border-bottom: 1px solid #8ea8d326; background: linear-gradient(90deg, #090f1eab, transparent); }
+#title-screen .game-wordmark { display: flex; align-items: center; font-size: 0; }
+#title-screen .game-wordmark .iah-logo { width: 178px; }
+#title-screen #flow-back { display: flex; align-items: center; gap: 7px; border-radius: 2px; background: #13203abf; border-color: #7792bd50; }
+#title-screen #flow-back .iah-icon { width: 17px; height: 17px; }
+#title-screen .commander-emblem { display: grid; place-items: center; border-radius: 2px; border-color: #b7a4ee66; background: #203049b3; box-shadow: none; }
+#title-screen .commander-emblem .iah-icon { width: 28px; height: 28px; }
+#title-screen .commander-card strong { color: #ecf3ff; }
+#title-screen .commander-card small { color: #9bd7ed; letter-spacing: 1.2px; }
+#title-screen .menu-page > small { color: #8fdfef; font-size: 9px; letter-spacing: 3px; }
+#title-screen .menu-page h1 { color: var(--iah-ivory); letter-spacing: -.9px; font-weight: 700; text-shadow: none; }
+#title-screen .menu-page h1 em { color: var(--iah-cyan); }
+#title-screen .menu-page:not(.title-cover) > h1::after { height: 2px; width: 95px; border-radius: 0; background: linear-gradient(90deg, var(--iah-cyan) 70%, transparent 70%, transparent 78%, var(--iah-violet) 78%); }
+#title-screen .title-cover { position: relative; padding-bottom: 5vh; }
+#title-screen .title-cover > small:first-child { color: #adbdce; font-size: 8px; letter-spacing: 4px; }
+#title-screen .title-cover h1 { font-size: clamp(32px, 3.8vw, 56px); font-style: normal; font-weight: 800; letter-spacing: 5px; line-height: 1; margin: 1px 0 20px; text-shadow: none; }
+#title-screen .title-cover h1 em { color: var(--iah-cyan); text-shadow: none; }
+#title-screen .title-cover h1 br { display: none; }
+#title-screen .title-cover > p { color: #a4b6cc; font-size: 12px; letter-spacing: .3px; margin-bottom: 26px; }
+#title-screen #title-enter { min-height: 58px; font-size: 16px; border-radius: 2px; width: min(300px, 100%); }
+#title-screen #title-enter .iah-icon { width: 22px; height: 22px; }
+#title-screen .title-cover .start-prompt { font-size: 9px; color: #748baa; margin-top: 15px; }
+#title-screen .main-game-menu { max-width: 470px; gap: 9px; }
+#title-screen .main-game-menu button { border-radius: 2px; border-color: #7493b94d; background: linear-gradient(120deg, #172944e8, #0f1c33ee); min-height: 47px; }
+#title-screen .main-game-menu button > .iah-icon, #title-screen .main-game-menu button > span > .iah-icon { width: 20px; height: 20px; color: #a4bee6; }
+#title-screen #lobby-battle-tab { border-color: #86cced8c; background: linear-gradient(110deg, #1b4964ed, #262946f0); border-radius: 2px; box-shadow: inset 3px 0 0 #9aedff, 0 5px 24px #37bed50a; }
+#title-screen .menu-battle-icon { font-size: 32px; display: flex; align-items: center; }
+#title-screen #lobby-battle-tab strong { color: #e3f9ff; }
+#title-screen #lobby-battle-tab b, #title-screen #daily-enter b { display: flex; }
+#title-screen [data-menu-go="armory"] { border-color: #ad92ea66; background: linear-gradient(120deg, #302c49df, #14233bdd); }
+#title-screen .title-modes button { min-height: 148px; border-radius: 2px; border-color: color-mix(in srgb, var(--mode-color) 35%, #243656); background: radial-gradient(ellipse at 100% 0, color-mix(in srgb, var(--mode-color) 14%, transparent), transparent 77%), linear-gradient(130deg, #152840ed, #0b182cef); padding: 18px 15px; }
+#title-screen .title-modes button::after { border-radius: 0; width: 80px; height: 80px; right: -46px; top: -41px; rotate: 45deg; border-color: color-mix(in srgb, var(--mode-color) 37%, transparent); }
+#title-screen .mode-emblem { font-size: 36px; margin-bottom: 12px; color: var(--mode-color); display: flex; }
+#title-screen .mode-emblem .iah-icon { width: 36px; height: 36px; stroke-width: 1.9; }
+#title-screen .title-modes strong { font-size: 14px; color: #e9f0ff; }
+#title-screen .title-modes small { font-size: 10px; line-height: 1.7; color: #93a9c4; }
+#title-screen .title-modes button.active { box-shadow: inset 3px 0 0 var(--mode-color), inset 0 0 35px color-mix(in srgb, var(--mode-color) 6%, transparent); }
+#title-screen .title-modes button[data-title-mode="draft"] { --mode-color: #96b6ff; }
+#title-screen .title-modes button[data-title-mode="score"] { --mode-color: #ffc994; }
+#title-screen .title-modes button[data-title-mode="control"] { --mode-color: #76ebe5; }
+#title-screen .title-modes button[data-title-mode="mirror"] { --mode-color: #d0c3ff; }
+#title-screen .title-modes button[data-title-mode="rush"] { --mode-color: #b5daff; }
+#title-screen .title-modes button[data-title-mode="chaos"] { --mode-color: #a895ff; }
+#title-screen #mode-categories { display: flex; gap: 7px; margin: 0 0 16px; padding-bottom: 12px; border-bottom: 1px solid #7794bc30; }
+#title-screen #mode-categories button { flex: 1; font-size: 11px; padding: 10px 6px; display: flex; align-items: center; justify-content: center; gap: 6px; border-radius: 2px; background: #10203bcc; min-width: 0; }
+#title-screen #mode-categories button.active, #title-screen #mode-categories button[aria-pressed="true"] { border-color: #8ae6facc; color: #b4f4ff; background: #19405780; }
+#title-screen #mode-categories button b, #title-screen #mode-categories button .category-count { border: 1px solid #7699c647; padding: 1px 4px; font-size: 9px; font-weight: 500; color: #92aecf; }
+#title-screen .rival-options button { border-radius: 2px; background: linear-gradient(115deg, #1b2a42dd, #101c30f2); border-color: #60799d66; }
+#title-screen .rival-options button.active { background: linear-gradient(115deg, #3d333bda, #1d2038ed); border-color: #d3b29a; box-shadow: inset 3px 0 0 var(--iah-amber); }
+#title-screen .rival-options button > span .iah-icon { width: 38px; height: 38px; }
+#title-screen .lobby-mode-note { border-radius: 0; background: #10263ce8; border-left-color: #83d7e7; }
+#title-screen .skin-options button, #title-screen .piece-skin-options button, #title-screen .arena-options button, #title-screen #lobby-armory-tab, #title-screen .armory-sides button, #title-screen .piece-slots button { border-radius: 2px; }
+#title-screen .arena-options button { background: linear-gradient(115deg, color-mix(in srgb, var(--arena-glow) 9%, #13243a), #0d1a2de8); }
+#title-screen .arena-options button::after { border-radius: 0; rotate: 45deg; border-width: 1px; right: -28px; bottom: -28px; }
+#title-screen .arena-options button span .iah-icon { width: 28px; height: 28px; }
+#title-screen .lobby-avatar { border-radius: 2px; border-color: #a1bcdf44; background: linear-gradient(115deg, #1a2e46ed, #151f36e8); }
+#title-screen #preview-piece-glyph .iah-icon, #title-screen #armory-glyph .iah-icon { width: 38px; height: 38px; }
+#title-screen .piece-skin-avatar .iah-icon { width: 32px; height: 32px; }
+#title-screen .piece-slots .iah-icon { width: 29px; height: 29px; }
+#title-screen #preview-attack { border-radius: 2px; border-color: #bca5ef77; background: #312b4dd4; }
+#title-screen .game-menu-bottom { background: linear-gradient(90deg, #0a1527f8, #12182df5); border-top-color: #7394bd38; }
+#title-screen .journey-steps i { border-radius: 2px; background: #13223a; }
+#title-screen .journey-steps .current i { border-color: #9bebff; background: #17415b; box-shadow: none; color: #d7f9ff; }
+#title-screen .journey-steps button { background: transparent; border: none; box-shadow: none; overflow: visible; }
+#title-screen .journey-steps button::before { content: none; }
+#title-screen #daily-enter { border-radius: 2px; border-color: #b9926b77; background: linear-gradient(115deg, #2b2c40df, #19233bdd); box-shadow: none; }
+#title-screen .daily-emblem { border-radius: 2px; width: 43px; height: 43px; border-color: #cfa77866; background: #72503422; font-size: 28px; box-shadow: none; }
+#title-screen #daily-enter strong { color: #f0e8d9; }
+#title-screen #daily-brief { border-radius: 2px; border-color: #baa68a66; background: linear-gradient(140deg, #2a2c45e8, #16233aef); }
+#title-screen .daily-portal { border-radius: 2px; width: 72px; height: 72px; font-size: 48px; border-width: 1px; box-shadow: none; }
+#title-screen .daily-facts span { border-radius: 2px; background: #182843; border-color: #8fa7cc45; }
+#title-screen .menu-facets i { border-radius: 0 !important; animation: none; border-color: #a0c9f015; background: none; }
+#title-screen .menu-facets i:nth-child(2) { rotate: 35deg; border-color: #aa94d322; }
+#title-screen .menu-commander { min-width: 0; }
+#special-brief, #variant-brief { border-radius: 2px; border-color: #ac98d966; background: radial-gradient(ellipse at 100% 0, #8870d91e, transparent 75%), linear-gradient(140deg, #15273dec, #111a31f0); }
+#special-brief .special-heading, #variant-brief .variant-heading { display: flex; gap: 13px; align-items: center; }
+#special-brief .special-heading > span .iah-icon, #variant-brief .variant-heading > span .iah-icon { width: 36px; height: 36px; }
+.ultimate-catalog article, .variant-rule-grid > article, .variant-rule-grid > div { border-radius: 2px; background: #0f1d3294; border-color: #7d9bc22b; }
+.ultimate-catalog article i .iah-icon { width: 31px; height: 31px; }
+.variant-rule-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 15px 0; }
+.variant-rule-grid > article, .variant-rule-grid > div { padding: 12px; border: 1px solid #7b94b936; }
+.variant-rule-grid small { font-size: 8px; color: #91bdd6; letter-spacing: 1px; }
+.variant-rule-grid strong { display: block; margin: 5px 0; color: #e2eafb; font-size: 12px; }
+.variant-rule-grid p { margin: 0; font-size: 10px; color: #9aafc8; line-height: 1.7; }
+.variant-share-field { display: block; padding-top: 13px; margin-top: 16px; border-top: 1px solid #7b94b936; }
+.variant-share-field label, #draft-builder label { color: #a9bfd7; font-size: 11px; }
+.variant-share-field input, .variant-share-field textarea { margin-top: 7px; }
+.variant-share-actions, .variant-code-actions { display: flex; gap: 7px; margin-top: 8px; }
+.variant-share-actions button, .variant-code-actions button { flex: 1; font-size: 11px; }
+#variant-seed { font-variant-numeric: tabular-nums; letter-spacing: 2px; }
+#variant-code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 10px; word-break: break-all; }
+#variant-status { min-height: 17px; color: var(--iah-cyan); font-size: 10px; line-height: 1.7; margin: 7px 0; }
+#draft-builder { margin: 16px 0; padding: 14px; background: #0c182cf2; border: 1px solid #7890c048; border-radius: 2px; }
+#draft-builder h3 { color: #dde7fc; margin: 0 0 12px; font-size: 13px; }
+#draft-budget { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 11px; background: #16304b77; border-left: 2px solid var(--iah-cyan); margin: 10px 0 13px; font-size: 12px; color: #bef2ff; }
+#draft-budget progress { width: 100%; height: 4px; }
+.draft-budget-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.draft-budget-line strong { font-size: 12px; color: #c8d8ed; }
+.draft-budget-line #draft-budget { padding: 5px 8px; margin: 0; font-size: 10px; }
+#draft-budget-bar { display: block; width: 100%; height: 4px; margin: 10px 0 13px; border: 0; background: #30435c; }
+#draft-budget-bar::-webkit-progress-bar { background: #273951; }
+#draft-budget-bar::-webkit-progress-value { background: linear-gradient(90deg, #77e2ee, #a7adf6); }
+#draft-builder > p { font-size: 10px; line-height: 1.75; color: #94acc7; margin: 10px 0; }
+.draft-shop { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.draft-shop > button, .draft-shop > article, .draft-shop > div { min-width: 0; padding: 9px 6px; border: 1px solid #7598bc3d; border-radius: 2px; background: #15233d; text-align: center; }
+.draft-shop .iah-piece { width: 34px; height: 34px; }
+.draft-shop strong { display: block; font-size: 11px; margin: 4px 0; }
+.draft-shop small { font-size: 9px; color: #9bb0ce; display: block; }
+.draft-shop .draft-actions, .draft-shop .draft-stepper { display: flex; justify-content: center; gap: 7px; margin-top: 8px; align-items: center; }
+.draft-shop button[data-draft-add], .draft-shop button[data-draft-remove] { width: 29px; min-height: 29px; padding: 2px; font-size: 16px; }
+.draft-shop > button[data-draft-add] { width: auto; min-height: 106px; padding: 10px 4px; }
+.draft-shop > button[data-draft-add] > span { display: grid; place-items: center; width: 18px; height: 18px; margin: 7px auto 0; color: #baf6ff; }
+.draft-shop > button[data-draft-add] > span .iah-icon { width: 18px; height: 18px; }
+.draft-roster { display: flex; gap: 4px; flex-wrap: wrap; margin: 12px 0; align-items: center; }
+.draft-roster > span, .draft-roster > button { padding: 4px; border: 1px solid #849abd40; background: #132641; display: inline-grid; place-items: center; }
+.draft-roster .iah-piece { width: 24px; height: 24px; }
+.draft-roster > button, .draft-roster > span { min-width: 39px; padding: 5px 7px; position: relative; }
+.draft-roster small { font-size: 8px; display: block; margin-top: 3px; color: #9eb4cf; }
+.draft-roster i { position: absolute; right: -1px; top: -1px; color: #ff9eba; background: #2b203ae8; height: 12px; }
+.draft-roster i .iah-icon { width: 12px; height: 12px; }
+#variant-position-preview { margin: 13px 0 17px; padding: 12px; border: 1px solid #87a5bf38; background: #0a172acc; display: flex; align-items: center; gap: 16px; }
+.variant-board-label { flex: 1; min-width: 0; }
+.variant-board-label strong { display: block; color: #dce8f8; font-size: 12px; }
+.variant-board-label small { display: block; margin-top: 7px; font-size: 10px; color: #94aac7; line-height: 1.8; }
+.variant-mini-board { width: min(208px, 55%); flex-shrink: 0; aspect-ratio: 1; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); border: 3px solid #304963; box-shadow: 0 7px 18px #0002; }
+.variant-mini-cell { aspect-ratio: 1; display: grid; place-items: center; min-width: 0; min-height: 0; }
+.variant-mini-cell.light { background: #809fae; }
+.variant-mini-cell.dark { background: #273f58; }
+.variant-mini-cell .iah-piece { width: 88%; height: 88%; }
+.variant-mini-cell .iah-piece[data-color="w"] .piece-solid { stroke: #33516a; }
+/* Match chrome uses the same facets, line weights and color hierarchy as the title. */
+#game-shell > header { background: #0b1525; border-color: #7a9bc73b; }
+.brand .brand-mark .iah-logo { width: 138px; }
+.brand .brand-mark { font-size: 0; }
+.brand { gap: 9px; }
+.brand > span:last-child { font-size: 12px; letter-spacing: 1.5px; }
+.brand small { font-size: 7px; color: #82a6c5; }
+.tag { border-radius: 2px; color: #a7cadd; background: #15243b; border-color: #7d9abf42; }
+.hud-info .player { border-radius: 2px; border-color: #7299bd55; background: linear-gradient(110deg, #13253beb, #101d32db); }
+.hud-info .player.current { border-color: #92d8ecad; background: #19415783; box-shadow: inset 2px 0 0 #b0f3ff; }
+.hud-info .avatar { display: grid; place-items: center; background: #253553; border-radius: 2px; }
+.hud-info .avatar .iah-piece { width: 29px; height: 29px; }
+.hud-info .player strong { color: #dfecfa; }
+.hud-info .player small { color: #a0b7d0; }
+.hud-info #status { border-radius: 2px; background: #101e32ed; border-color: #6ca6bb66; color: #c4f3ff; }
+#hud-dock { border-radius: 2px; background: linear-gradient(110deg, #14253bed, #141d32f7); border-color: #89a8d570; box-shadow: 0 5px 27px #0004; }
+#hud-dock #pause-game { border-color: #baabdd6b; color: #dfd4fc; background: #292843cf; }
+#hud-dock button.icon .iah-icon, #hud-dock #undo .iah-icon { width: 21px; height: 21px; }
+#hud-dock #pause-game .iah-icon { width: 18px; height: 18px; }
+#arena-drawer { border-radius: 2px; border-color: #8cafd06b; background: radial-gradient(ellipse at 100% 0, #8c70ae22, transparent 80%), linear-gradient(145deg, #14263cfb, #0b152afd); box-shadow: -12px 0 48px #0005; }
+.drawer-head { border-bottom-color: #839fc53b; }
+.drawer-head h2 { color: #d5ecfb; font-size: 20px; }
+.drawer-head button .iah-icon { width: 18px; height: 18px; }
+.pause-menu button { border-radius: 2px; background: #172b4280; border-color: #8da3c733; }
+.pause-menu .iah-icon { margin-right: 7px; color: #aac9f0; }
+.battle-result { border-radius: 2px; border-color: #acb4dc80; background: radial-gradient(ellipse at 100% 0, #aa8cd522, transparent 80%), linear-gradient(145deg, #182f45f9, #111a31fc); box-shadow: 0 15px 65px #0006; }
+.battle-result h2 { color: #eff6ff; font-weight: 750; }
+.battle-result > small { color: #94dcea; }
+.battle-result-xp { color: #afe9ed; text-shadow: none; }
+.battle-result-mvp { border-top-color: #89a6be42; color: #c3d4e6; }
+.battle-result-close .iah-icon { width: 18px; height: 18px; }
+.battle-intro { border-color: #c3d3e856; background: linear-gradient(110deg, transparent, #162c43ed 20%, #202840ed 80%, transparent); }
+.battle-intro h2 { color: #e9f6ff; }
+#stage #event, #stage #battle-toast { border-radius: 0 2px 2px 0; border-color: #91b8d555; background: #111e33f4; }
+#tactical-readout, #ultimate-hud .ultimate-meter, #ultimate-hud #ultimate-arm, #stage .arena-bottom > #objective-peek, #hint, #notice:not(:empty) { border-radius: 2px; }
+#tactical-readout { background: linear-gradient(110deg, #163047f1, #1b2339f3); border-color: #8dd3d066; }
+#ultimate-hud .ultimate-meter { background: #111f33f1; border-color: #a59ddd55; }
+#ultimate-hud #ultimate-arm { background: linear-gradient(110deg, #28283eee, #18273bef); border-color: #a4a4d856; }
+#ultimate-hud #ultimate-arm .iah-icon { width: 29px; height: 29px; }
+#ultimate-hud #ultimate-arm[aria-pressed="true"] { background: linear-gradient(110deg, #493965ec, #1b3c53f0); border-color: #cbb2ff; box-shadow: inset 2px 0 0 #b5f3ff; }
+#ultimate-white .iah-icon, #ultimate-black .iah-icon { width: 10px; height: 10px; }
+#ultimate-guide article { border-radius: 2px; background: #13213bd6; }
+#objective-peek > span:first-child .iah-icon { width: 25px; height: 25px; }
+#objective-peek b .iah-icon { width: 13px; height: 13px; }
+#mission-stars .iah-icon { width: 14px; height: 14px; }
+.mission > span .iah-icon { width: 17px; height: 17px; }
+#white-captured .iah-piece, #black-captured .iah-piece { width: 19px; height: 22px; vertical-align: -.3em; }
+#flat-board { border-radius: 2px; border-color: #1e3550; box-shadow: 0 15px 45px #0009; }
+#flat-board .square { padding: 1px; border-radius: 0; display: grid; place-items: center; overflow: hidden; }
+#flat-board .square > span { width: 100%; height: 100%; display: grid; place-items: center; }
+#flat-board .square .iah-piece { width: 86%; height: 86%; }
+#flat-board .square .iah-piece[data-color="b"] .piece-solid { fill: #18243b; stroke: #b7aacd; }
+#flat-board .square .iah-piece[data-color="w"] .piece-solid { fill: #edf4fa; stroke: #31455b; }
+#flat-board .square .iah-piece[data-color="w"] { color: #263d50; }
+#flat-board .square .iah-piece[data-color="w"] .piece-inlay { fill: #32516b; stroke: #32516b; }
+.promotion-options button .iah-piece { width: 43px; height: 43px; }
+@media (max-width: 760px) {
+  #title-screen .game-wordmark .iah-logo { width: 138px; }
+  #title-screen .iah-logo--hero { width: min(350px, 95%); margin: 2px 0 12px; }
+  #title-screen .title-logo { margin: 12px 0 20px; }
+  #title-screen .title-logo::after { font-size: 11px; letter-spacing: 6px; }
+  #title-screen .title-cover { padding-bottom: 7vh; }
+  #title-screen .title-cover h1 { font-size: clamp(25px, 8vw, 37px); letter-spacing: 3px; margin: 0 0 18px; }
+  #title-screen .title-cover > p { font-size: 11px; margin-bottom: 25px; }
+  #title-screen #title-enter { min-height: 54px; font-size: 15px; }
+  #title-screen .title-modes button { min-height: 132px; padding: 15px 12px; }
+  #title-screen .mode-emblem { margin-bottom: 9px; }
+  #title-screen .mode-emblem .iah-icon { width: 31px; height: 31px; }
+  #title-screen .title-modes strong { font-size: 12px; }
+  #title-screen .title-modes small { font-size: 9px; }
+  #title-screen .game-menu-top { gap: 10px; }
+  #title-screen #mode-categories { gap: 5px; margin-bottom: 10px; }
+  #title-screen #mode-categories button { font-size: 10px; padding: 9px 4px; }
+  #title-screen #mode-categories button .iah-icon { width: 15px; height: 15px; }
+  .variant-rule-grid { gap: 6px; }
+  .variant-rule-grid > article, .variant-rule-grid > div { padding: 9px; }
+  #variant-position-preview { padding: 10px; gap: 11px; }
+  .variant-mini-board { width: 50%; }
+  .hud-info .avatar .iah-piece { width: 24px; height: 24px; }
+  #ultimate-hud #ultimate-arm .iah-icon { width: 23px; height: 23px; }
+}
+@media (max-height: 520px) and (min-width: 761px) {
+  #title-screen .game-wordmark .iah-logo { width: 138px; }
+  #title-screen .iah-logo--hero { width: 275px; margin: 0 0 3px; }
+  #title-screen .title-logo { margin: 3px 0 12px; }
+  #title-screen .title-logo::after { font-size: 8px; letter-spacing: 5px; }
+  #title-screen .title-cover { padding-bottom: 7px; }
+  #title-screen .title-cover > small:first-child { letter-spacing: 2.7px; font-size: 7px; }
+  #title-screen .title-cover h1 { font-size: 28px; letter-spacing: 3px; margin: 0 0 9px; }
+  #title-screen .title-cover > p { font-size: 10px; margin-bottom: 12px; }
+  #title-screen #title-enter { min-height: 44px; padding: 11px 16px; font-size: 13px; }
+  #title-screen .title-cover .start-prompt { margin-top: 10px; font-size: 8px; }
+  #title-screen .title-modes button { min-height: 103px; padding: 12px; }
+  #title-screen .mode-emblem { margin-bottom: 7px; }
+  #title-screen .mode-emblem .iah-icon { width: 25px; height: 25px; }
+  #title-screen .title-modes strong { font-size: 12px; }
+}
+@media (max-width: 360px) {
+  #title-screen .game-menu-top { gap: 8px; padding-inline: 12px; }
+  #title-screen .game-wordmark .iah-logo { width: 96px; }
+  #title-screen #player-entry { max-width: 138px; }
+  #title-screen .title-logo::after { font-size: 10px; letter-spacing: 5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  button, summary, [data-game-button] { transition: none !important; }
+  button:not(.square).iah-pressed, button:not(.square):enabled:active { transform: none; }
+  .iah-tap { display: none; animation: none; }
+  #title-screen .menu-facets i { animation: none; }
+}

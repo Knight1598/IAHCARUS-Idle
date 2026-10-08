@@ -73,6 +73,17 @@ try {
     });
     await page.waitForTimeout(150);
     assert.equal(await page.evaluate(() => fixture.renderer.info.memory.geometries), initial.geometries);
+    const controlZones = await page.evaluate(async () => {
+      const { VariantChess } = await import('/src/variants.ts');
+      for (let i = 0; i < 8; i++) fixture.renderBoard(new VariantChess('control', { seed: 1 }));
+      const zone = fixture.groundAuras.children.find(node => node.userData.role === 'control-zones');
+      const result = { batches: fixture.groundAuras.children.filter(node => node.userData.role === 'control-zones').length, count: zone?.count, instances: zone?.instanceColor?.count };
+      fixture.renderBoard(new fixtureChess());
+      return result;
+    });
+    assert.deepEqual(controlZones, { batches: 1, count: 4, instances: 4 }, 'the objective has four colored tiles in one reusable draw batch');
+    await page.waitForTimeout(150);
+    assert.equal(await page.evaluate(() => fixture.renderer.info.memory.geometries), initial.geometries, 'leaving Control disposes every objective geometry');
     const hoverPoint = await page.evaluate(async () => {
       const { coords } = await import('/src/scene.ts');
       window.tacticalBoard = new fixtureChess('7k/8/8/3r4/8/2N5/8/K7 w - - 0 1');
