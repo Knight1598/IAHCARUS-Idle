@@ -3,6 +3,7 @@ import { skins, levelProgress, isSkinUnlocked, pieceSkin, type Profile, type Ski
 import { initialArmySlots, avatarNames, skillNames, pieceNames } from "./cosmetics";
 import { training } from "./training";
 import { trials, rivals } from "./progression";
+import { arenas, arenaIds, type ArenaId } from "./arenas";
 import "./lobby.css";
 
 export type TitleMode = "bot" | "local" | "training" | "campaign" | "online";
@@ -11,6 +12,7 @@ interface TitleCallbacks {
   start: (settings: LaunchSettings) => void;
   resume: (skin: SkinId) => void;
   selectSkin: (skin: SkinId) => void;
+  selectArena?: (arena: ArenaId) => void;
   selectPiece?: (color: Color, origin: Square, skin: SkinId) => void;
   preview?: (host: HTMLElement | null, color: Color, origin?: Square) => void;
   audition?: (piece: PieceSymbol, skin: SkinId) => void;
@@ -48,6 +50,7 @@ export class TitleScreen {
               <button data-title-mode="local"><strong>♟ ศึกสองกองทัพ</strong><small>ประลองกับเพื่อนบนเครื่องเดียว</small></button>
               <button data-title-mode="training"><strong>✦ ฝึกยุทธวิธี</strong><small>โจทย์ต่อสู้ · ฝึกจังหวะสังหาร</small></button>
               ${offline ? "" : '<button data-title-mode="online"><strong>⌘ ดวลออนไลน์</strong><small>เปิดห้องท้าดวลกับเพื่อน</small></button>'}</div>
+              <div class="arena-picker"><div class="lobby-section-title"><h3>โลกแห่งการประลอง</h3><small>8 สนาม · เอฟเฟกต์เฉพาะสนาม</small></div><div class="arena-options">${arenaIds.map((id) => `<button data-arena-option="${id}" style="--arena-glow:${arenas[id].color}" aria-pressed="false"><span>${arenas[id].icon}</span><strong>${arenas[id].name}</strong></button>`).join("")}</div><p id="arena-description"></p></div>
               <div id="launch-bot"><div class="lobby-section-title"><h3>คู่ปรับของคุณ</h3></div><div class="rival-options">${rivalCards.map((rival) => `<button data-rival-depth="${rival.depth}" data-rival-skin="${rival.skin}"><span>${rival.icon}</span><div><strong>${rival.name}</strong><small>${rival.title}</small><em>${rival.description}</em></div><b>${["ฝึกหัด", "ท้าทาย", "เชี่ยวชาญ"][Number(rival.depth) - 1]}</b></button>`).join("")}</div><div class="launch-options"><label>กองทัพที่คุณบัญชาการ<select id="launch-side"><option value="w">ฝ่ายขาว · เปิดศึกก่อน</option><option value="b">ฝ่ายดำ · ตอบโต้</option></select></label><label>ระดับคู่ปรับ<select id="launch-depth"><option value="1">อิกนิส · ง่าย</option><option value="2">เซเลน · ปานกลาง</option><option value="3">อัสตรา · ยาก</option></select></label></div></div>
               <label id="launch-training" hidden>ภารกิจฝึก<select id="launch-scenario">${Object.entries(training).map(([key, value]) => `<option value="${key}">${value.name}</option>`).join("")}</select></label><label id="launch-campaign" hidden>เลือกบทสงคราม<select id="launch-trial">${Object.entries(trials).map(([key, trial]) => `<option value="${key}">${trial.name}</option>`).join("")}</select></label><p id="title-mode-note" class="lobby-mode-note"></p>
             </section>
@@ -57,6 +60,9 @@ export class TitleScreen {
         </section>
       </div>`;
     host.prepend(this.root);
+    this.root.querySelectorAll<HTMLButtonElement>("[data-arena-option]").forEach((button) => button.onclick = () => {
+      callbacks.selectArena?.(button.dataset.arenaOption as ArenaId);
+    });
     this.root.querySelectorAll<HTMLButtonElement>("[data-title-mode]").forEach((button) => button.onclick = () => this.setMode(button.dataset.titleMode as TitleMode));
     this.root.querySelectorAll<HTMLButtonElement>("[data-skin-option]").forEach((button) => button.onclick = () => {
       const skin = button.dataset.skinOption as SkinId;
@@ -204,6 +210,11 @@ export class TitleScreen {
   refresh(profile: Profile) {
     this.profile = profile;
     this.skin = profile.skin;
+    this.root.querySelectorAll<HTMLButtonElement>("[data-arena-option]").forEach((button) => {
+      const active = button.dataset.arenaOption === profile.arena;
+      button.classList.toggle("active", active); button.setAttribute("aria-pressed", String(active));
+    });
+    this.get("#arena-description").textContent = arenas[profile.arena].description;
     const progress = levelProgress(profile.xp);
     this.get("#commander-level").textContent = `LEVEL ${progress.level}`;
     this.get("#commander-rank").textContent = progress.title;

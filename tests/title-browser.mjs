@@ -28,6 +28,11 @@ try {
   assert.equal(await page.locator('[data-title-mode="online"]').count(), 0);
   assert.equal(await page.locator('[data-skin-option="astral"]').isDisabled(), true);
   assert.equal(await page.locator('[data-skin-option="royal"]').isDisabled(), true);
+  assert.equal(await page.locator('[data-arena-option]').count(), 8);
+  await page.locator('[data-arena-option="astral"]').click();
+  assert.equal(await page.locator('[data-arena-option="astral"]').getAttribute("aria-pressed"), "true");
+  assert.equal(await page.locator("#stage").getAttribute("data-arena"), "astral");
+  assert.match(await page.locator("#arena-description").textContent(), /มิติ/);
   await page.locator('[data-skin-option="ember"]').click();
   assert.equal(await page.locator(".skin-preview").getAttribute("data-skin"), "ember");
   await page.waitForTimeout(300);
@@ -47,6 +52,7 @@ try {
   assert.equal(await page.locator("#difficulty").isVisible(), false);
   await page.reload();
   await page.locator("#title-screen").waitFor();
+  assert.equal(await page.locator('[data-arena-option="astral"]').getAttribute("aria-pressed"), "true");
   assert.equal(await page.locator("#launch-resume").isVisible(), true);
   await enterGame(page);
   assert.equal(await page.locator("#moves .san").count(), 0);
@@ -58,6 +64,9 @@ try {
   await page.waitForSelector("#stage canvas");
   assert.equal(await page.locator("#stage").getAttribute("data-skin"), "ember");
   await openPanel(page, "settings");
+  await page.locator("#arena-select").selectOption("grove");
+  assert.equal(await page.locator("#stage").getAttribute("data-arena"), "grove");
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("special-chess-profile")).arena), "grove");
   await page.locator("#reduced").check();
   await closePanel(page);
   await page.locator("#board-details summary").click();

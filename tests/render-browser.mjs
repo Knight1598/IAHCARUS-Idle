@@ -12,7 +12,7 @@ const vite = await createServer({
       server.middlewares.use((req, res, next) => {
         if (req.url !== "/render-test") return next();
         res.setHeader("Content-Type", "text/html");
-        res.end('<html><body style="margin:0"><div id="stage" style="width:900px;height:700px;position:relative"></div></body></html>');
+        res.end('<html><head><link rel="icon" href="data:,"></head><body style="margin:0"><div id="stage" style="width:900px;height:700px;position:relative"></div></body></html>');
       });
     },
   }],
@@ -28,6 +28,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 1000, height: 760 }, deviceScaleFactor: 2 });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
   await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/render-test`);
   await page.evaluate(async () => {
     const [{ ChessScene }, { Chess }] = await Promise.all([
@@ -64,7 +65,8 @@ try {
   assert.deepEqual(after.picks, []);
   console.log("Renderer workload:", JSON.stringify({ initial, orbitDrawCalls: after.calls }));
   if (!process.env.RENDER_BASELINE) {
-    assert.ok(after.calls <= 102, `Orbit still draws ${after.calls} batches`);
+    // Original optimized board: 102. All fields add exactly four shared batches.
+    assert.ok(after.calls <= 106, `Orbit still draws ${after.calls} batches`);
     assert.ok(initial.geometries <= 80, `Board uses ${initial.geometries} geometries`);
     await page.evaluate(() => {
       for (let i = 0; i < 5; i++) fixture.renderBoard(new fixtureChess());
@@ -268,6 +270,96 @@ try {
     });
     assert.equal(new Set(executions).size, 1, `Finisher geometry leaks: ${executions}`);
     console.log("PASS: all six staged executions, living defender at contact, once-only impact/death, skin continuity, replayed FX cleanup and single-context lobby; geometries", executions);
+    const fields = await page.evaluate(async () => {
+      const { arenaIds } = await import("/src/arenas.ts");
+      const THREE = await import("/node_modules/three/build/three.module.js");
+      fixture.setPaused(true); fixture.renderBoard(new fixtureChess()); fixture.resetView();
+      const memories = [], families = [], themes = [];
+      for (let cycle = 0; cycle < 3; cycle++) {
+        for (const id of arenaIds) {
+          const camera = fixture.camera.position.toArray(); fixture.setArena(id);
+          if (JSON.stringify(camera) !== JSON.stringify(fixture.camera.position.toArray())) throw Error("Field selection moved camera");
+          if (fixture.environment.root.children.length !== 4) throw Error("Unbatched arena ornaments");
+          fixture.environment.update(10, false, false); fixture.environment.react(new THREE.Vector3(1, 0, 2));
+          fixture.environment.update(10.2, false, false);
+          const field = fixture.environment.root.children.find((o) => o.name.startsWith("arena-field"));
+          if (field.material.uniforms.uStrength.value < 0.8) throw Error("Missing field reaction");
+          if (cycle === 0) {
+            families.push(field.material.uniforms.uFamily.value);
+            themes.push(fixture.board.children[0].material.color.getHex());
+          }
+          fixture.renderer.render(fixture.scene, fixture.camera);
+          if (fixture.renderer.info.render.calls > 106) throw Error("Field exceeds orbit budget");
+        }
+        memories.push(fixture.renderer.info.memory.geometries);
+      }
+      fixture.environment.update(12, true, false);
+      const particles = fixture.environment.root.children.find((o) => o.isPoints);
+      if (particles.geometry.drawRange.count !== 32) throw Error("Low quality does not bound field particles");
+      fixture.reduced = true; fixture.renderBoard(new fixtureChess()); fixture.frame(performance.now());
+      fixture.environment.update(13, true, true);
+      const field = fixture.environment.root.children.find((o) => o.name.startsWith("arena-field"));
+      if (particles.visible || field.material.uniforms.uTime.value || field.material.uniforms.uStrength.value) throw Error("Reduced effects left animated field");
+      fixture.reduced = false; fixture.setArena("citadel"); fixture.setQuality("auto");
+      return { memories, families, themes };
+    });
+    assert.equal(new Set(fields.memories).size, 1, `Arena geometry leaks: ${fields.memories}`);
+    assert.equal(new Set(fields.families).size, 8);
+    assert.equal(new Set(fields.themes).size, 8);
+    for (const id of ["citadel", "ember", "frost", "astral", "storm", "grove", "reactor", "eclipse"]) {
+      await page.evaluate((id) => {
+        fixture.setArena(id); fixture.renderBoard(new fixtureChess()); fixture.resetView(); fixture.setPaused(false);
+        fixture.frame(performance.now()); fixture.setPaused(true);
+      }, id);
+      await page.locator("#stage").screenshot({ path: `test-results/arena-${id}.png` });
+    }
+    const poses = [];
+    for (const aspect of [1.28, 0.48]) {
+      await page.evaluate((aspect) => {
+        document.querySelector("#stage").style.width = aspect < 1 ? "390px" : "900px";
+        document.querySelector("#stage").style.height = aspect < 1 ? "810px" : "700px";
+      }, aspect);
+      await page.waitForTimeout(100);
+      for (const key of ["pawn", "knight", "bishop", "rook", "queen", "king"]) {
+        const pose = await page.evaluate(async (key) => {
+          const { training } = await import("/src/training.ts");
+          const { analyzeMove } = await import("/shared/events.js");
+          const THREE = await import("/node_modules/three/build/three.module.js");
+          const sample = training[key], before = new fixtureChess(sample.fen), after = new fixtureChess(sample.fen);
+          const move = after.move({ from: sample.from, to: sample.to });
+          fixture.cinematic = true; fixture.cinematicScope = "all"; fixture.resetPacing(); fixture.setArena("astral");
+          fixture.setAppearances({ [move.from]: "ember", [move.to]: "frost" }, { [move.to]: "ember" });
+          fixture.play(before, after, move, analyzeMove(before, after, move));
+          const a = fixture.animation;
+          if (!a.dramatic || !a.defenderAvatar || !a.defenderAura || !a.avatarAura) throw Error("Missing combat pair or auras");
+          const saved = a.camera.toArray();
+          for (const t of [0.15, 0.3, 0.42, 0.54, 0.59, 0.69]) {
+            const now = performance.now(); fixture.setPaused(false); a.duration = 100000; a.start = now - t * a.duration;
+            fixture.frame(now); fixture.setPaused(true); fixture.camera.updateMatrixWorld();
+            for (const actor of [a.avatar, a.defenderAvatar, a.avatarAura, a.defenderAura]) {
+              const box = new THREE.Box3().setFromObject(actor);
+              for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+                const p = new THREE.Vector3(x, y, z).project(fixture.camera);
+                if (Math.abs(p.x) > 0.82 || Math.abs(p.y) > 0.82) throw Error(`Clipped ${key} at ${t}: ${p.toArray()}`);
+              }
+            }
+          }
+          const now = performance.now(); fixture.setPaused(false); a.start = now - 0.54 * a.duration; fixture.frame(now); fixture.setPaused(true);
+          const signature = a.avatar.userData.arms.map((arm) => arm.rotation.toArray().slice(0, 3));
+          window.combatSavedCamera = saved;
+          return JSON.stringify(signature);
+        }, key);
+        poses.push(pose);
+        await page.locator("#stage").screenshot({ path: `test-results/combat-${key}-${aspect < 1 ? "portrait" : "wide"}.png` });
+        await page.evaluate(() => {
+          fixture.finish();
+          if (JSON.stringify(fixture.camera.position.toArray()) !== JSON.stringify(combatSavedCamera)) throw Error("Combat did not restore camera");
+          if (fixture.fx.children.length) throw Error("Combat pair left summons");
+        });
+      }
+    }
+    assert.equal(new Set(poses.slice(0, 6)).size, 6, "Classes share their arm poses");
+    console.log("PASS: eight distinct fields, stable geometry after 24 switches, field reactions/Low/reduced controls, and six full combat pairs framed on wide/portrait screens");
     const audio = await page.evaluate(async () => {
       const { SpaceAudio } = await import("/src/sound.ts");
       const results = [], samples = [];

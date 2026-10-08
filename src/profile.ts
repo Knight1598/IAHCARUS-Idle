@@ -1,4 +1,5 @@
 import type { Color, Square } from "chess.js";
+import { isArena, type ArenaId } from "./arenas.ts";
 
 export const skins = {
   classic: { name: "Royal Origin", label: "ราชันต้นกำเนิด", level: 1, rarity: "มาตรฐาน", tier: 1, effect: "origin", description: "เกราะราชสำนักและคมพลังงาน เน้นจังหวะโจมตีที่ชัดเจน", white: [0xe4edf4, 0x39d9e8], black: [0x222937, 0xae70ff], glow: "#39d9e8" },
@@ -14,6 +15,7 @@ export interface Profile {
   matches: number;
   wins: number;
   skin: SkinId;
+  arena: ArenaId;
   /** Each physical piece keeps the square where it began the match as its slot. */
   loadouts: Record<Color, Partial<Record<Square, SkinId>>>;
   claimed: string[];
@@ -51,7 +53,7 @@ export function readProfile(value: string | null): Profile {
   try { raw = JSON.parse(value || "null"); } catch {}
   const integer = (n: unknown) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0 ? Math.min(n, 10000000) : 0;
   const profile: Profile = {
-    version: 1, xp: integer(raw?.xp), matches: integer(raw?.matches), wins: integer(raw?.wins), skin: "classic", loadouts: { w: {}, b: {} },
+    version: 1, xp: integer(raw?.xp), matches: integer(raw?.matches), wins: integer(raw?.wins), skin: "classic", arena: isArena(raw?.arena) ? raw.arena : "citadel", loadouts: { w: {}, b: {} },
     claimed: Array.isArray(raw?.claimed) ? [...new Set<string>(raw.claimed.filter((id: unknown) => typeof id === "string" && id.length <= 100))] : [],
   };
   if (raw?.skin && Object.hasOwn(skins, raw.skin) && isSkinUnlocked(profile, raw.skin)) profile.skin = raw.skin;

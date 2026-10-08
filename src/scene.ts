@@ -7,7 +7,10 @@ import { Chess, type Square, type PieceSymbol, type Move } from "chess.js";
 import { kingSquare, type MoveEvent } from "../shared/events.js";
 import { skins, type SkinId } from "./profile";
 import { combatStyles, moveFrame, captureFrame } from "./combat";
-import { createAvatar, animateAvatar } from "./avatar";
+import { createAvatar, animateAvatar, animateDefender, createAvatarAura, animateAvatarAura } from "./avatar";
+import { ArenaEnvironment } from "./arena";
+import { arenas, type ArenaId } from "./arenas";
+import { frameCombat } from "./framing";
 const material = (color: number, metalness = 0.3) =>
   new THREE.MeshStandardMaterial({ color, metalness, roughness: 0.3 });
 const mesh = (
@@ -233,6 +236,9 @@ interface Animation {
   skin: SkinId;
   stop: THREE.Vector3;
   avatar?: THREE.Group;
+  avatarAura?: THREE.Group;
+  defenderAvatar?: THREE.Group;
+  defenderAura?: THREE.Group;
   guard?: THREE.Mesh;
   victimOrigin?: THREE.Vector3;
   victimRotation?: THREE.Euler;
@@ -260,6 +266,11 @@ export class ChessScene {
   readonly board = new THREE.Group();
   readonly groundAuras = new THREE.Group();
   readonly groundScars = new THREE.Group();
+  readonly environment = new ArenaEnvironment();
+  private arenaSun?: THREE.DirectionalLight;
+  private arenaSky?: THREE.HemisphereLight;
+  private arenaRim?: THREE.PointLight;
+  private arenaFloor?: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
   animation: Animation | null = null;
   reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
   cinematic = true;
@@ -288,6 +299,22 @@ export class ChessScene {
   setSkin(skin: SkinId) {
     this.skin = skin;
     this.stage.dataset.skin = skin;
+  }
+  setArena(id: ArenaId) {
+    if (this.environment.id !== id) this.environment.setArena(id);
+    const theme = arenas[id];
+    this.stage.dataset.arena = id;
+    this.scene.background = new THREE.Color(theme.background);
+    if (this.scene.fog instanceof THREE.Fog) this.scene.fog.color.setHex(theme.background);
+    for (const tile of this.board.children) {
+      if (tile instanceof THREE.InstancedMesh) (tile.material as THREE.MeshStandardMaterial).color.setHex(tile.userData.parity ? theme.dark : theme.light);
+    }
+    this.arenaFloor?.material.color.setHex(theme.floor);
+    this.arenaSky?.color.setHex(theme.sky);
+    this.arenaRim?.color.setHex(theme.glow);
+    this.arenaSun?.color.setHex(theme.sky);
+    this.environment.setMotion(this.quality === "low", this.reduced);
+    this.renderer.shadowMap.needsUpdate = true; this.dirty = true;
   }
   celebrate(winner: "w" | "b" | null, mvpSquare?: Square) {
     if (this.animation) return;
@@ -408,7 +435,8 @@ export class ChessScene {
     this.controls.addEventListener("change", () => {
       this.dirty = true;
     });
-    this.scene.add(new THREE.HemisphereLight(0xc8e8ff, 0x162034, 2));
+    this.arenaSky = new THREE.HemisphereLight(0xc8e8ff, 0x162034, 2);
+    this.scene.add(this.arenaSky);
     const sun = new THREE.DirectionalLight(0xfff2de, 3.4);
     sun.position.set(3, 9, 4);
     sun.castShadow = true;
@@ -421,10 +449,12 @@ export class ChessScene {
       bottom: -6,
     });
     this.scene.add(sun);
+    this.arenaSun = sun;
     const rim = new THREE.PointLight(0x6b65ff, 18, 15);
     rim.position.set(-5, 3, -4);
     this.scene.add(rim);
-    this.scene.add(this.board, this.pieces, this.markers, this.fx, this.groundAuras, this.groundScars);
+    this.arenaRim = rim;
+    this.scene.add(this.board, this.pieces, this.markers, this.fx, this.groundAuras, this.groundScars, this.environment.root);
     const tileGeometry = new THREE.BoxGeometry(0.98, 0.16, 0.98);
     for (const parity of [0, 1]) {
       const tiles = new THREE.InstancedMesh(tileGeometry, material(parity ? 0x1a2b40 : 0x58738b), 32);
@@ -438,6 +468,7 @@ export class ChessScene {
           squares.push(square);
         }
       tiles.userData.squares = squares;
+      tiles.userData.parity = parity;
       tiles.receiveShadow = true;
       this.board.add(tiles);
     }
@@ -456,6 +487,8 @@ export class ChessScene {
       -0.43,
     );
     floor.rotation.x = -Math.PI / 2;
+    this.arenaFloor = floor as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+    this.setArena("citadel");
     for (let i = 0; i < 8; i++) {
       this.label(String.fromCharCode(97 + i), i - 3.5, 4.08);
       this.label(String(i + 1), -4.1, 3.5 - i);
@@ -548,6 +581,7 @@ export class ChessScene {
     this.slowFrames = 0;
     this.dirty = true;
     this.stage.dataset.graphics = quality;
+    this.environment.setMotion(quality === "low", this.reduced);
   }
   private label(text: string, x: number, z: number) {
     const c = document.createElement("canvas");
@@ -572,10 +606,10 @@ export class ChessScene {
     );
     o.rotation.x = -Math.PI / 2;
   }
-  renderBoard(game: Chess) {
+  renderBoard(game: Chess, preserveField = false) {
     this.dirty = true;
     this.renderer.shadowMap.needsUpdate = true;
-    this.cancel();
+    this.cancel(preserveField);
     clear(this.pieces);
     clear(this.markers);
     clear(this.groundAuras);
@@ -612,13 +646,15 @@ export class ChessScene {
         const skin = this.appearances[piece.square] || this.skin;
         const tier = skins[skin].tier;
         const sides = combatStyles[piece.type].sides;
-        const rings = [[0.39, skin === "frost" ? 6 : sides, 0], [0.31, 24, 0], [0.46, 24, 1]];
-        if (tier >= 3) rings.push([0.44, skin === "royal" ? 8 : 32, 0]);
+        const rings = [[0.39, skin === "frost" ? 6 : sides, 0, 0.018], [0.31, 24, 0, 0.022],
+          [0.46, 24, 1, 0.018], [0.34, sides * 2, 0, 0.072], [0.37, sides * 2, 2, 0.23]];
+        if (tier >= 3) rings.push([0.44, skin === "royal" ? 8 : 32, 0, 0.045]);
         const auraColor = new THREE.Color(battleColor(piece.color, undefined, skin));
-        for (const [radius, segments, glow] of rings) {
-          const geometry = new THREE.RingGeometry(glow ? 0 : radius - 0.014, radius, segments, glow ? 4 : 1);
-          geometry.rotateX(-Math.PI / 2);
-          geometry.translate(p.x, 0.018, p.z);
+        for (const [radius, segments, glow, height] of rings) {
+          const geometry = glow === 2 ? new THREE.CylinderGeometry(radius * 0.85, radius, 0.42, segments, 1, true)
+            : new THREE.RingGeometry(glow ? 0 : radius - 0.014, radius, segments, glow ? 4 : 1);
+          if (glow !== 2) geometry.rotateX(-Math.PI / 2);
+          geometry.translate(p.x, height, p.z);
           const count = geometry.getAttribute("position").count;
           const centers = new Float32Array(count * 3), flags = new Float32Array(count), colors = new Float32Array(count * 3), tiers = new Float32Array(count);
           for (let i = 0; i < count; i++) {
@@ -638,17 +674,17 @@ export class ChessScene {
       const material = new THREE.ShaderMaterial({
         uniforms: { uTime: { value: performance.now() / 1000 }, uColor: { value: new THREE.Color(0xffffff) } },
         vertexShader: `attribute vec3 aCenter; attribute float aGlow; attribute vec3 aColor; attribute float aTier; uniform float uTime;
-          varying vec2 vLocal; varying float vPhase; varying float vGlow; varying vec3 vColor; varying float vTier;
+          varying vec2 vLocal; varying float vPhase; varying float vGlow; varying vec3 vColor; varying float vTier; varying float vHeight;
           void main() { vec3 p = position; vec2 local = p.xz - aCenter.xz;
             float angle = uTime * (aTier > 2.5 ? -0.17 : 0.13) + aCenter.y * 0.2;
             float c = cos(angle), s = sin(angle);
             p.xz = aCenter.xz + mat2(c,-s,s,c) * local;
-            vLocal = local; vPhase = aCenter.y; vGlow = aGlow; vColor = aColor; vTier = aTier;
+            vLocal = local; vPhase = aCenter.y; vGlow = aGlow; vColor = aColor; vTier = aTier; vHeight = p.y;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(p,1.0); }`,
         fragmentShader: `uniform vec3 uColor; uniform float uTime;
-          varying vec2 vLocal; varying float vPhase; varying float vGlow; varying vec3 vColor; varying float vTier;
+          varying vec2 vLocal; varying float vPhase; varying float vGlow; varying vec3 vColor; varying float vTier; varying float vHeight;
           void main() { float pulse = 0.65 + 0.2 * sin(uTime * 1.7 + vPhase);
-            float alpha = vGlow > 0.5 ? pow(max(0.0,1.0-length(vLocal)/0.46),2.0) * 0.65 : 0.5;
+            float alpha = vGlow > 1.5 ? max(0.0,1.0-vHeight/0.45)*0.12 : vGlow > 0.5 ? pow(max(0.0,1.0-length(vLocal)/0.46),2.0) * 0.75 : 0.58;
             gl_FragColor = vec4(uColor * vColor, alpha * pulse * (0.85 + vTier * 0.05));
             #include <tonemapping_fragment>
             #include <colorspace_fragment>
@@ -720,7 +756,7 @@ export class ChessScene {
     this.controls.target.set(0, 0, 0);
     this.controls.update();
   }
-  cancel() {
+  cancel(preserveField = false) {
     this.clearCelebration();
     this.dirty = true;
     if (this.animation) {
@@ -733,7 +769,12 @@ export class ChessScene {
       }
     }
     this.camera.lookAt(this.controls.target);
+    if (this.scene.fog instanceof THREE.Fog) {
+      const distance = this.camera.position.distanceTo(this.controls.target);
+      this.scene.fog.near = distance + 6; this.scene.fog.far = distance + 18;
+    }
     this.animation = null;
+    if (!preserveField) this.environment.resetReaction();
     this.overlay.clear();
     delete this.stage.dataset.movePhase;
     delete this.stage.dataset.attackStyle;
@@ -750,7 +791,7 @@ export class ChessScene {
     if (!this.animation) return;
     const game = this.animation.after;
     if (this.afterAppearances) { this.appearances = this.afterAppearances; this.afterAppearances = undefined; }
-    this.renderBoard(game);
+    this.renderBoard(game, true);
     this.onFinish();
   }
   play(before: Chess, after: Chess, move: Move, event: MoveEvent) {
@@ -830,11 +871,19 @@ export class ChessScene {
       trail.frustumCulled = false;
       this.fx.add(trail); this.animation.trail = trail;
       this.animation.cracks = this.groundCracks(this.animation);
+      this.animation.avatar = createAvatar(move.piece, move.color, skin);
+      this.animation.avatarAura = createAvatarAura(move.piece, move.color, skin);
+      this.fx.add(this.animation.avatar, this.animation.avatarAura);
       if (victim) {
-        this.animation.avatar = createAvatar(move.piece, move.color, skin);
-        this.fx.add(this.animation.avatar);
-        const guard = mesh(new THREE.SphereGeometry(0.48, 12, 8), this.glow(battleColor(move.color === "w" ? "b" : "w", undefined, victim.userData.skin || this.skin), 0.18), this.fx);
-        guard.name = "defender-guard"; guard.position.copy(victim.position); guard.position.y = 0.48;
+        const defenderType = victim.userData.piece as PieceSymbol;
+        const defenderColor = victim.userData.color as "w" | "b";
+        const defenderSkin = victim.userData.skin as SkinId;
+        this.animation.defenderAvatar = createAvatar(defenderType, defenderColor, defenderSkin);
+        this.animation.defenderAvatar.name = `defender-${defenderType}-${defenderSkin}`;
+        this.animation.defenderAura = createAvatarAura(defenderType, defenderColor, defenderSkin);
+        this.fx.add(this.animation.defenderAvatar, this.animation.defenderAura);
+        const guard = mesh(new THREE.SphereGeometry(0.85, 12, 8), this.glow(battleColor(move.color === "w" ? "b" : "w", undefined, victim.userData.skin || this.skin), 0.18), this.fx);
+        guard.name = "defender-guard"; guard.position.copy(victim.position); guard.position.y = 1.15;
         guard.scale.z = 0.55;
         this.animation.guard = guard;
         // The attacker/cached board meshes retain shared materials; only the
@@ -926,20 +975,20 @@ export class ChessScene {
     const add = (geometry: THREE.BufferGeometry, x = 0, y = 0, z = 0) => mesh(geometry, this.glow(color, 0.85), group, x, y, z);
     const direction = a.to.clone().sub(a.stop).normalize();
     if (a.move.piece === "p") {
-      const spear = add(new THREE.CylinderGeometry(0.045, 0.065, 1.65, 6), 0, 0.58);
+      const spear = add(new THREE.CylinderGeometry(0.045, 0.065, 2.2, 6), 0, 1.35);
       spear.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
-      const point = add(new THREE.ConeGeometry(0.13, 0.4, 4), direction.x * 0.66, 0.58, direction.z * 0.66);
+      const point = add(new THREE.ConeGeometry(0.13, 0.4, 4), direction.x * 0.96, 1.35, direction.z * 0.96);
       point.quaternion.copy(spear.quaternion);
     }
     if (a.move.piece === "n") {
       for (let i = 0; i < (skins[a.skin].tier >= 3 ? 3 : 2); i++) {
-        const slash = add(new THREE.TorusGeometry(0.75 + i * 0.09, 0.025, 4, 24, Math.PI * 1.25), 0, 0.52 + i * 0.08);
+        const slash = add(new THREE.TorusGeometry(1.05 + i * 0.12, 0.035, 4, 32, Math.PI * 1.25), 0, 1.35 + i * 0.15);
         slash.rotation.set(0.4, i * 0.6, -0.8 + i * 1.4);
       }
     }
     if (a.move.piece === "b" || a.move.piece === "r") {
-      const origin = a.stop.clone().sub(p).add(new THREE.Vector3(0, a.move.piece === "b" ? 1.6 : 0.72, 0));
-      const destination = new THREE.Vector3(0, 0.5, 0);
+      const origin = a.stop.clone().sub(p).addScaledVector(direction, -0.6).add(new THREE.Vector3(0, a.move.piece === "b" ? 1.9 : 1.5, 0));
+      const destination = new THREE.Vector3(direction.x * 0.4, 1.35, direction.z * 0.4);
       const d = destination.clone().sub(origin);
       const beam = add(new THREE.CylinderGeometry(a.move.piece === "b" ? 0.12 : 0.2, 0.06, d.length(), 8));
       beam.position.copy(origin).add(destination).multiplyScalar(0.5);
@@ -952,14 +1001,14 @@ export class ChessScene {
     if (a.move.piece === "q") {
       for (let i = 0; i < 6; i++) {
         const angle = i * Math.PI / 3;
-        const blade = add(new THREE.ConeGeometry(0.08, 0.9, 4), Math.cos(angle) * 0.8, 1.4, Math.sin(angle) * 0.8);
+        const blade = add(new THREE.ConeGeometry(0.1, 1.3, 4), Math.cos(angle) * 1.1, 2.2, Math.sin(angle) * 1.1);
         blade.rotation.z = Math.PI; blade.userData.cageBlade = angle;
       }
     }
     if (a.move.piece === "k") {
-      const sword = add(new THREE.BoxGeometry(0.17, 1.9, 0.07), 0, 1.4);
+      const sword = add(new THREE.BoxGeometry(0.22, 2.8, 0.07), 0, 1.7);
       sword.rotation.z = -0.6; sword.userData.regalBlade = true;
-      add(new THREE.BoxGeometry(0.62, 0.08, 0.1), 0.23, 1.8);
+      add(new THREE.BoxGeometry(0.8, 0.1, 0.1), 0.23, 2.15);
     }
     if (a.skin === "ember") {
       for (let i = 0; i < 3; i++) {
@@ -988,18 +1037,31 @@ export class ChessScene {
     if (a.avatar) {
       a.avatar.position.lerpVectors(a.from, a.stop, frame.approach);
       a.avatar.position.addScaledVector(direction, frame.strike * 0.15);
+      // Summons stand behind their pieces, leaving a readable gap between bodies.
+      a.avatar.position.addScaledVector(direction, -0.6);
       a.avatar.position.y = a.move.piece === "n" ? Math.sin(frame.approach * Math.PI) * 1.2
         : a.move.piece === "q" || a.move.piece === "b" ? 0.15 : 0;
       a.avatar.rotation.y = Math.atan2(-direction.x, -direction.z);
       const fade = Math.min(1, t / 0.12) * Math.max(0, 1 - (t - 0.7) / 0.18);
-      const scale = 0.75 + skinTier * 0.075;
+      const scale = 1.12 + skinTier * 0.045;
       a.avatar.scale.setScalar(scale);
       animateAvatar(a.avatar, a.move.piece, frame.charge, frame.strike, fade, t * a.duration / 1000);
+      if (a.avatarAura) animateAvatarAura(a.avatarAura, a.avatar, frame.charge, fade, t * a.duration / 1000);
+    }
+    if (a.defenderAvatar && a.victimOrigin) {
+      const defender = a.defenderAvatar;
+      const fade = Math.min(1, t / 0.1) * (1 - frame.defeat);
+      defender.position.copy(a.victimOrigin).addScaledVector(direction, 0.45 + frame.defeat * 0.35);
+      defender.rotation.y = Math.atan2(direction.x, direction.z);
+      defender.scale.setScalar(1.06 - frame.defeat * 0.25);
+      const hit = a.impacted ? Math.min(1, (t - 0.56) / 0.12) : 0;
+      animateDefender(defender, defender.userData.piece, hit, fade, t * a.duration / 1000);
+      if (a.defenderAura) animateAvatarAura(a.defenderAura, defender, 0.25, fade, t * a.duration / 1000);
     }
     if (a.guard) {
       a.guard.visible = t >= 0.2 && t < 0.66;
       a.guard.scale.setScalar(0.8 + frame.strike * 0.28);
-      (a.guard.material as THREE.MeshBasicMaterial).opacity = t < 0.56 ? 0.16 + Math.sin(t * 35) * 0.05 : Math.max(0, (0.66 - t) * 2.5);
+      (a.guard.material as THREE.MeshBasicMaterial).opacity = t < 0.56 ? 0.065 + Math.sin(t * 35) * 0.015 : Math.max(0, (0.66 - t) * 0.7);
     }
     if (a.victim && a.victimOrigin && a.victimRotation) {
       const heavy = a.victim.userData.piece === "r" || a.victim.userData.piece === "k";
@@ -1030,8 +1092,8 @@ export class ChessScene {
         if (part instanceof THREE.Mesh) (part.material as THREE.MeshBasicMaterial).opacity = fade * 0.85;
         if (part.userData.cageBlade !== undefined) {
           const angle = part.userData.cageBlade;
-          const radius = 0.8 - frame.strike * 0.55;
-          part.position.set(Math.cos(angle) * radius, 1.4 - frame.strike * 0.8, Math.sin(angle) * radius);
+          const radius = 1.1 - frame.strike * 0.65;
+          part.position.set(Math.cos(angle) * radius, 2.2 - frame.strike * 0.9, Math.sin(angle) * radius);
           part.rotation.z = Math.PI + frame.strike * 0.35;
         }
         if (part.userData.regalBlade) part.rotation.z = -0.6 - frame.strike * 1.4;
@@ -1040,6 +1102,16 @@ export class ChessScene {
         if (part.userData.family === "ember") part.scale.y = 0.8 + Math.sin(t * 70) * 0.3;
       });
     }
+  }
+  private animateMoveAvatar(a: Animation, t: number, travel: number, charge: number) {
+    if (!a.avatar) return;
+    const direction = a.to.clone().sub(a.from).normalize();
+    const fade = Math.min(1, t / 0.12) * Math.max(0, 1 - (t - 0.68) / 0.2);
+    a.avatar.position.copy(a.object.position).addScaledVector(direction, -0.35);
+    a.avatar.rotation.y = Math.atan2(-direction.x, -direction.z);
+    a.avatar.scale.setScalar(a.dramatic ? 1.16 : 1.0);
+    animateAvatar(a.avatar, a.move.piece, charge, travel, fade, t * a.duration / 1000);
+    if (a.avatarAura) animateAvatarAura(a.avatarAura, a.avatar, charge, fade, t * a.duration / 1000);
   }
   private death(a: Animation) {
     this.onDeath(a.move, a.event);
@@ -1075,6 +1147,7 @@ export class ChessScene {
       if (a.victim) { a.died = true; this.death(a); }
       return;
     }
+    this.environment.react(a.to);
     if (a.event.story === "recapture") {
       for (const angle of [-0.65, 0.65]) {
         const slash = mesh(new THREE.TorusGeometry(0.7, 0.035, 4, 24, Math.PI),
@@ -1300,70 +1373,42 @@ export class ChessScene {
       opacity: 0.4, depthWrite: false, blending: THREE.AdditiveBlending })));
   }
   private directCamera(a: Animation, t: number) {
-    const f = cinematicFrame(t);
-    const direction = this.flipped ? -1 : 1;
-    const actor = a.from.clone().add(new THREE.Vector3(0, a.move.captured ? 1.15 : 0.65, 0));
-    const target = a.to.clone().add(new THREE.Vector3(0, a.move.captured ? 0.95 : 0.55, 0));
-    const attackDirection = a.to.clone().sub(a.from).normalize();
-    const side = new THREE.Vector3(-attackDirection.z, 0, attackDirection.x);
-    const portrait = actor
-      .clone()
-      .add(side.clone().multiplyScalar(2.3))
-      .add(new THREE.Vector3(0, 1.35, direction * 2.6));
-    const clash = target
-      .clone()
-      .add(side.clone().multiplyScalar(3))
-      .add(new THREE.Vector3(0, 2, direction * 2.8));
-    let position: THREE.Vector3, focus: THREE.Vector3;
-    if (t < 0.3) {
-      const ease = Math.min(1, t / 0.08);
-      position = a.camera.clone().lerp(portrait, ease);
-      focus = a.target.clone().lerp(actor, ease);
-    } else if (t < 0.52) {
-      position = portrait.clone().lerp(clash, f.travel);
-      focus = actor.clone().lerp(target, f.travel);
-    } else if (t < 0.6) {
-      position = clash;
-      focus = target;
-    } else {
-      focus = target.clone();
-      if (
-        [
-          "check",
-          "mate",
-          "double-check",
-          "discovered-check",
-          "rescue",
-          "block",
-        ].includes(a.event.kind)
-      ) {
-        const king = kingSquare(
-          a.after,
-          ["rescue", "block"].includes(a.event.kind)
-            ? a.move.color
-            : a.after.turn(),
-        );
-        if (king)
-          focus.lerp(
-            coords(king).add(new THREE.Vector3(0, 0.65, 0)),
-            f.release * 0.7,
-          );
-      }
-      const wide = focus
-        .clone()
-        .add(new THREE.Vector3(side.x * 3.6, 3.5, direction * 5));
-      position = clash.clone().lerp(wide, f.release);
-      position.lerp(a.camera, f.returning);
-      focus.lerp(a.target, f.returning);
+    const smooth = (value: number) => { const x = Math.max(0, Math.min(1, value)); return x * x * (3 - 2 * x); };
+    const attack = a.to.clone().sub(a.from).normalize();
+    const side = new THREE.Vector3(-attack.z, 0, attack.x).multiplyScalar(this.flipped ? -1 : 1);
+    const view = side.addScaledVector(attack, 0.22).add(new THREE.Vector3(0, 0.62, 0));
+    const actors = [a.avatar, a.defenderAvatar].filter((actor): actor is THREE.Group => !!actor);
+    const bounds = actors.map((actor) => {
+      const height = actor === a.avatar && a.move.piece === "k" ? 3.9 : 3.5;
+      // Stable envelopes avoid zoom jitter as articulated limbs swing.
+      const box = new THREE.Box3().setFromCenterAndSize(actor.position.clone().add(new THREE.Vector3(0, height / 2, 0)), new THREE.Vector3(2.4, height, 2.4));
+      box.union(new THREE.Box3().setFromObject(actor));
+      const aura = actor === a.avatar ? a.avatarAura : a.defenderAura;
+      if (aura) box.union(new THREE.Box3().setFromObject(aura));
+      return box.expandByScalar(0.05);
+    });
+    if (!a.move.captured) bounds.push(new THREE.Box3().setFromCenterAndSize(a.to.clone().add(new THREE.Vector3(0, 0.6, 0)), new THREE.Vector3(1.2, 1.2, 1.2)));
+    if (!a.move.captured && ["check", "mate", "double-check", "discovered-check"].includes(a.event.kind)) {
+      const king = kingSquare(a.after, a.after.turn());
+      if (king) bounds.push(new THREE.Box3().setFromCenterAndSize(coords(king).add(new THREE.Vector3(0, 0.7, 0)), new THREE.Vector3(1.3, 1.4, 1.3)));
     }
-    if (t >= 0.6 && t < 0.72) {
-      const shake = (1 - (t - 0.6) / 0.12) * 0.11;
+    const shot = frameCombat(bounds, view, this.camera.fov, this.camera.aspect);
+    const entering = smooth(t / 0.1), returning = smooth((t - 0.82) / 0.18);
+    const position = a.camera.clone().lerp(shot.position, entering).lerp(a.camera, returning);
+    const focus = a.target.clone().lerp(shot.focus, entering).lerp(a.target, returning);
+    const contact = a.move.captured ? 0.56 : 0.52;
+    if (t >= contact && t < contact + 0.08) {
+      const shake = (1 - (t - contact) / 0.08) * 0.045;
       position.x += Math.sin(t * 200) * shake;
-      position.y += Math.cos(t * 150) * shake * 0.55;
+      position.y += Math.cos(t * 150) * shake * 0.5;
     }
     this.camera.position.copy(position);
     this.controls.target.copy(focus);
     this.camera.lookAt(focus);
+    if (this.scene.fog instanceof THREE.Fog) {
+      const distance = position.distanceTo(focus);
+      this.scene.fog.near = distance + 6; this.scene.fog.far = distance + 18;
+    }
     for (const o of this.fx.children) {
       if (o.userData.blast) {
         const p = Math.max(0, (t - 0.52) / 0.48);
@@ -1385,6 +1430,7 @@ export class ChessScene {
     const elapsed = now - this.previous;
     const dt = Math.max(0, Math.min(elapsed / 1000, 0.05));
     this.previous = now;
+    this.environment.update(now / 1000, this.quality === "low", this.reduced);
     this.animateCelebration(now);
     if (this.controls.enabled) this.controls.update();
     const a = this.animation;
@@ -1421,7 +1467,12 @@ export class ChessScene {
         a.launched = true; this.onDash(a.move, a.event);
       }
       if (a.dramatic) {
-        this.overlay.draw(t, a.move.piece, a.move.color, a.event.title);
+        const overlayProgress = !capture ? t : t < 0.18 ? t / 0.18 * 0.3
+          : t < 0.56 ? 0.3 + (t - 0.18) / 0.38 * 0.22
+          : t < 0.64 ? 0.52 + (t - 0.56) / 0.08 * 0.08
+          : t < 0.82 ? 0.6 + (t - 0.64) / 0.18 * 0.24
+          : 0.84 + (t - 0.82) / 0.18 * 0.16;
+        this.overlay.draw(overlayProgress, a.move.piece, a.move.color, a.event.title);
       }
       if (
         !a.weapons &&
@@ -1453,7 +1504,7 @@ export class ChessScene {
       if (capture) {
         this.animateExecution(a, t);
         if (!a.died && capture.death) { a.died = true; this.death(a); }
-      }
+      } else if (!this.reduced) this.animateMoveAvatar(a, t, travel, a.dramatic ? choreography.charge : short.charge);
       for (const o of this.fx.children)
         if (o.userData.shock) {
           o.scale.setScalar(1 + Math.max(0, t - contact) * 7);
@@ -1513,7 +1564,7 @@ export class ChessScene {
       for (const child of scar.children) (child as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>).material.opacity = fade * (child instanceof THREE.Line ? 0.65 : 0.9);
     }
     // A low-rate idle pulse shares the same two aura batches. Orbit still follows display frames.
-    if ((this.groundAuras.children.length || this.groundScars.children.length) && now - this.lastAuraDraw >= (this.quality === "low" ? 125 : 50)) this.dirty = true;
+    if (((!this.reduced && this.environment.root.children.length) || this.groundAuras.children.length || this.groundScars.children.length) && now - this.lastAuraDraw >= (this.quality === "low" ? 125 : 50)) this.dirty = true;
     // Keep camera interaction and short moves responsive; bound heavy mobile cuts.
     const targetFps = this.animation?.dramatic && (this.showcaseHost || this.stage).clientWidth < 700 ? 30 : 60;
     // Orbit/short moves follow every display frame; a second 60 Hz gate causes skips.
