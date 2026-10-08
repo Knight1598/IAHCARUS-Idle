@@ -1,0 +1,149 @@
+import { Chess, SQUARES, type Color, type Move, type PieceSymbol, type Square } from "chess.js";
+
+export const ultimates: Record<PieceSymbol, { name: string; label: string; description: string; color: number }> = {
+  n: { name: "PHANTOM CHARGE", label: "พุ่งเงาราชินี", description: "เดินหรือกินแบบควีน · เส้นทางต้องโล่ง", color: 0xa78bfa },
+  b: { name: "CROSS BREAK", label: "ฉีกแนวรุก", description: "เดินหรือกินแนวตรงได้ 1–2 ช่อง", color: 0x68e8ff },
+  r: { name: "SIEGE SHIFT", label: "หักมุมทะลวง", description: "เดินหรือกินแนวทแยงได้ 1–2 ช่อง", color: 0xffaf68 },
+  q: { name: "ROYAL LEAP", label: "กระโดดราชินี", description: "เดินหรือกินแบบม้า · กระโดดข้ามหมากได้", color: 0xff81d0 },
+  p: { name: "LAST STAND", label: "แทงสวน", description: "กินหมากตรงหน้า 1 ช่อง · เลื่อนขั้นได้", color: 0x77efb7 },
+  k: { name: "EMERGENCY DASH", label: "ราชันหลบฉุกเฉิน", description: "เดินแนวตรง 2 ช่อง · ทางโล่งและปลอดภัยทุกช่อง", color: 0xffdb77 },
+};
+export type UltimateMove = Move & { ultimate?: boolean };
+export type Action = { from: string; to: string; promotion?: string; ultimate?: boolean };
+type Resources = { remaining: Record<Color, number>; used: string[]; origins: Record<string, string> };
+type Entry = { move: UltimateMove; resources: Resources };
+const opposite = (color: Color): Color => color === "w" ? "b" : "w";
+const xy = (square: Square) => [square.charCodeAt(0) - 97, Number(square[1]) - 1];
+const squareAt = (x: number, y: number) => x >= 0 && x < 8 && y >= 0 && y < 8 ? `${"abcdefgh"[x]}${y + 1}` as Square : null;
+
+/** Separate rules engine: Chess remains unchanged for standard/offline/online matches.
+ * Ultimates change one move, not the piece's permanent attack pattern. Check is
+ * determined by ordinary attacks; mate also considers legal ultimate escapes.
+ */
+export class SpecialChess extends Chess {
+  armed: Square | null = null;
+  private resources: Resources;
+  private entries: Entry[] = [];
+  private start: string;
+  constructor(fen?: string, resources?: Resources) {
+    super(fen);
+    this.start = this.fen();
+    this.resources = resources ? structuredClone(resources) : {
+      remaining: { w: 3, b: 3 }, used: [],
+      origins: Object.fromEntries(this.board().flat().filter(p => p !== null).map(p => [p.square, `${p.color}:${p.square}`])),
+    };
+  }
+  get remaining() { return { ...this.resources.remaining }; }
+  snapshot() { return structuredClone(this.resources); }
+  clone() { return new SpecialChess(this.fen(), this.resources); }
+  available(square: Square) {
+    const p = this.get(square), id = this.resources.origins[square];
+    return !!p && p.color === this.turn() && this.resources.remaining[p.color] > 0 && !!id && !this.resources.used.includes(id);
+  }
+  spent(square: Square) { return this.resources.used.includes(this.resources.origins[square]); }
+  ultimateMoves(from?: Square): UltimateMove[] {
+    const moves: UltimateMove[] = [];
+    for (const source of from ? [from] : SQUARES) {
+      if (!this.available(source)) continue;
+      const piece = this.get(source)!;
+      const [x, y] = xy(source);
+      const vectors = piece.type === "n" ? [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]
+        : piece.type === "b" || piece.type === "k" ? [[1,0],[-1,0],[0,1],[0,-1]]
+        : piece.type === "r" ? [[1,1],[1,-1],[-1,1],[-1,-1]]
+        : piece.type === "q" ? [[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]]
+        : [[0, piece.color === "w" ? 1 : -1]];
+      for (const [dx, dy] of vectors) {
+        const limit = piece.type === "n" ? 7 : ["b", "r", "k"].includes(piece.type) ? 2 : 1;
+        for (let step = 1; step <= limit; step++) {
+          const to = squareAt(x + dx * step, y + dy * step);
+          if (!to) break;
+          const victim = this.get(to);
+          if (victim?.color === piece.color || victim?.type === "k") break;
+          if (piece.type === "k") {
+            if (victim) break;
+            const transit = new Chess(this.fen()); transit.remove(source);
+            if (transit.isAttacked(to, opposite(piece.color))) break;
+            if (step !== 2) continue;
+          }
+          if (piece.type !== "p" || victim) {
+            const promotions: (PieceSymbol | undefined)[] = piece.type === "p" && ["1", "8"].includes(to[1]) ? ["q", "r", "b", "n"] : [undefined];
+            for (const promotion of promotions) {
+              const probe = new Chess(this.fen());
+              probe.remove(source); probe.remove(to); probe.put({ color: piece.color, type: promotion || piece.type }, to);
+              const king = probe.board().flat().find(p => p?.color === piece.color && p.type === "k")!;
+              if (probe.isAttacked(king.square, opposite(piece.color))) continue;
+              const parts = probe.fen().split(" "), beforeParts = this.fen().split(" ");
+              parts[1] = opposite(piece.color); parts[3] = "-";
+              parts[4] = piece.type === "p" || victim ? "0" : String(Number(beforeParts[4]) + 1);
+              parts[5] = String(Number(beforeParts[5]) + (piece.color === "b" ? 1 : 0));
+              // put/remove already remove rights when a king/rook leaves home or a home rook is captured.
+              const after = parts.join(" ");
+              const check = new Chess(after).isCheck();
+              moves.push({ from: source, to, piece: piece.type, color: piece.color, captured: victim?.type, promotion,
+                ultimate: true, flags: `u${victim ? "c" : ""}${promotion ? "p" : ""}`,
+                san: `U:${piece.type.toUpperCase()}${source}${victim ? "x" : "-"}${to}${promotion ? "=" + promotion.toUpperCase() : ""}${check ? "+" : ""}`,
+                lan: source + to + (promotion || ""), before: this.fen(), after,
+                isCapture: () => !!victim, isPromotion: () => !!promotion, isEnPassant: () => false,
+                isKingsideCastle: () => false, isQueensideCastle: () => false, isBigPawn: () => false,
+              });
+            }
+          }
+          if (victim) break;
+        }
+      }
+    }
+    return moves;
+  }
+  override moves: Chess["moves"] = ((options: { square?: Square; piece?: PieceSymbol; verbose?: boolean } = {}) => {
+    const moves = this.armed && options.square === this.armed ? this.ultimateMoves(this.armed) : new Chess(this.fen()).moves({ ...options, verbose: true });
+    const filtered = options.piece ? moves.filter(m => m.piece === options.piece) : moves;
+    return options.verbose ? filtered : filtered.map(m => m.san);
+  }) as Chess["moves"];
+  legalActions() { return [...new Chess(this.fen()).moves({ verbose: true }), ...this.ultimateMoves()]; }
+  override move(input: Parameters<Chess["move"]>[0] | Action, options?: Parameters<Chess["move"]>[1]): UltimateMove {
+    let move: UltimateMove;
+    if (typeof input === "string" && input.startsWith("U:")) {
+      const found = this.ultimateMoves().find(m => m.san.replace(/[+#]$/, "") === input.replace(/[+#]$/, ""));
+      if (!found) throw new Error("Invalid ultimate"); move = found;
+    } else if (input && typeof input === "object" && ((input as Action).ultimate || this.armed === input.from)) {
+      const found = this.ultimateMoves(input.from as Square).find(m => m.to === input.to && m.promotion === (input.promotion && ["1", "8"].includes(input.to[1]) && this.get(input.from as Square)?.type === "p" ? input.promotion : undefined));
+      if (!found) throw new Error("Invalid ultimate"); move = found;
+    } else move = new Chess(this.fen()).move(input, options);
+    const resources = this.snapshot();
+    const origin = this.resources.origins[move.from];
+    if (move.ultimate) { this.resources.remaining[move.color]--; this.resources.used.push(origin); }
+    const captured = move.flags.includes("e") ? `${move.to[0]}${move.from[1]}` : move.to;
+    delete this.resources.origins[captured]; delete this.resources.origins[move.from]; this.resources.origins[move.to] = origin;
+    if (move.flags.includes("k") || move.flags.includes("q")) {
+      const rank = move.from[1], from = `${move.flags.includes("k") ? "h" : "a"}${rank}`, to = `${move.flags.includes("k") ? "f" : "d"}${rank}`;
+      this.resources.origins[to] = this.resources.origins[from]; delete this.resources.origins[from];
+    }
+    super.load(move.after); this.armed = null;
+    // Standard chess might report mate where this variant still has an ultimate escape.
+    move.san = move.san.replace(/[+#]$/, "") + (this.isCheck() ? this.isCheckmate() ? "#" : "+" : "");
+    this.entries.push({ move, resources });
+    return move;
+  }
+  override undo() {
+    const entry = this.entries.pop(); if (!entry) return null;
+    super.load(entry.move.before); this.resources = entry.resources; this.armed = null; return entry.move;
+  }
+  override history: Chess["history"] = ((options?: { verbose?: boolean }) => options?.verbose ? this.entries.map(e => e.move) : this.entries.map(e => e.move.san)) as Chess["history"];
+  override isCheckmate() { return new Chess(this.fen()).isCheckmate() && this.ultimateMoves().length === 0; }
+  override isStalemate() { return new Chess(this.fen()).isStalemate() && this.ultimateMoves().length === 0; }
+  override isThreefoldRepetition() {
+    const key = (fen: string, r: Resources) => `${fen.split(" ").slice(0,4).join(" ")}|${r.remaining.w},${r.remaining.b}|${Object.keys(r.origins).sort().filter(s => r.remaining[r.origins[s][0] as Color] > 0 && !r.used.includes(r.origins[s])).join(",")}`;
+    const current = key(this.fen(), this.resources);
+    return this.entries.filter(e => key(e.move.before, e.resources) === current).length >= 2;
+  }
+  override isInsufficientMaterial() {
+    // Minor-piece ultimates can break ordinary insufficient-material assumptions.
+    const minor = this.board().flat().filter(p => p && p.type !== "k");
+    return minor.length === 0 || super.isInsufficientMaterial() && minor.every(p => !p || this.resources.remaining[p.color] === 0 || this.spent(p.square));
+  }
+  override isDraw() { return this.isStalemate() || this.isInsufficientMaterial() || this.isThreefoldRepetition() || this.isDrawByFiftyMoves(); }
+  override isGameOver() { return this.isCheckmate() || this.isDraw(); }
+  override pgn() {
+    return `[Variant "Special Duel"]\n[SetUp "1"]\n[FEN "${this.start}"]\n\n${this.entries.map((e, i) => `${e.move.color === "w" ? `${e.move.before.split(" ")[5]}. ` : i === 0 ? `${e.move.before.split(" ")[5]}... ` : ""}${e.move.san}`).join(" ")} *`;
+  }
+}

@@ -5,11 +5,13 @@ import { training } from "./training";
 import { trials, rivals } from "./progression";
 import { arenas, arenaIds, type ArenaId } from "./arenas";
 import { dailyChallenge, dailyProgress, utcDay } from "./daily";
+import { ultimates } from "./special";
 import "./lobby.css";
+import "./special.css";
 import "./royal-ui.css";
 
-export type TitleMode = "bot" | "local" | "training" | "campaign" | "online" | "daily";
-export interface LaunchSettings { mode: TitleMode; side: "w" | "b"; depth: string; skin: SkinId; training: string; trial?: string; day?: string }
+export type TitleMode = "bot" | "local" | "training" | "campaign" | "online" | "daily" | "special";
+export interface LaunchSettings { mode: TitleMode; side: "w" | "b"; depth: string; skin: SkinId; training: string; trial?: string; day?: string; opponent?: "bot" | "local" }
 interface TitleCallbacks {
   start: (settings: LaunchSettings) => void;
   resume: (skin: SkinId) => void;
@@ -55,6 +57,7 @@ export class TitleScreen {
         <section class="lobby-command"><nav class="lobby-tabs" aria-label="เมนูค่าย"><button id="lobby-battle-tab" class="active" aria-pressed="true">⚔ เข้าสู่ศึก</button><button id="lobby-armory-tab" aria-pressed="false">✦ คลังแสง</button></nav>
           <div class="lobby-scroll">
             <section id="lobby-battle"><div class="lobby-section-title"><small>CHOOSE YOUR BATTLE</small><h2>เลือกสนามประลอง</h2></div><div class="title-modes">
+              <button data-title-mode="special"><strong>⚡ Special Duel</strong><small>อัลติ 6 ชนิด · พลิกทางเดิน · ดวลด้วยไหวพริบ</small></button>
               <button data-title-mode="bot"><strong>⚔ ศึกแม่ทัพ</strong><small>ดวลกับบอต 3 ระดับ · วางแผนแล้วปะทะ</small></button>
               <button data-title-mode="campaign"><strong>✧ โจทย์ยุทธวิธี</strong><small>ช่วยคิง · ขู่สองตัว · รุกฆาต</small></button>
               <button data-title-mode="local"><strong>♟ ศึกสองกองทัพ</strong><small>ประลองกับเพื่อนบนเครื่องเดียว</small></button>
@@ -131,10 +134,12 @@ export class TitleScreen {
       training: this.get<HTMLSelectElement>("#launch-scenario").value,
       trial: this.get<HTMLSelectElement>("#launch-trial").value,
       day: this.selected === "daily" ? this.dailyDay : undefined,
+      opponent: this.get<HTMLSelectElement>("#special-opponent").value as "bot" | "local",
     });
     this.get<HTMLButtonElement>("#launch-resume").onclick = () => callbacks.resume(this.skin);
     this.get<HTMLButtonElement>("#title-enter").onclick = () => this.go("menu");
     this.get<HTMLButtonElement>("#daily-enter").onclick = () => this.chooseMode("daily");
+    this.get<HTMLSelectElement>("#special-opponent").onchange = () => this.setMode(this.selected);
     this.get<HTMLButtonElement>("#flow-back").onclick = () => this.back();
     this.get<HTMLButtonElement>("#flow-next").onclick = () => {
       if (this.view === "mode") this.chooseMode(this.selected);
@@ -190,6 +195,9 @@ export class TitleScreen {
     dailyMode.dataset.titleMode = "daily";
     dailyMode.innerHTML = '<strong>◈ ศึกประจำวัน</strong><small>โจทย์หมากรุกหมุนเวียน · ท้าฝีมือวันละกระดาน</small>';
     modes.prepend(dailyMode);
+    const specialBrief = document.createElement("section"); specialBrief.id = "special-brief"; specialBrief.hidden = true;
+    specialBrief.innerHTML = `<div class="special-heading"><span>⚡</span><div><small>BREAK THE PATTERN</small><h2>หนึ่งสกิล พลิกทั้งกระดาน</h2></div></div><label>คู่แข่ง<select id="special-opponent"><option value="bot">บอต · ใช้อัลติได้เหมือนคุณ</option><option value="local">สองคนบนเครื่องเดียว</option></select></label><p>ฝ่ายละ 3 อัลติ · ตัวละ 1 ครั้ง · ใช้แทนการเดินหนึ่งตา</p><div class="ultimate-catalog">${Object.entries(ultimates).map(([piece, skill]) => `<article style="--ultimate-color:#${skill.color.toString(16)}"><i>${glyphs[piece as PieceSymbol]}</i><div><small>${skill.name}</small><strong>${skill.label}</strong><p>${skill.description}</p></div></article>`).join("")}</div><small>สกิลเปลี่ยนการเดินเพียงตาที่ใช้ หลังเดินกลับมาขู่ตามรูปหมากเดิม · คิงต้องปลอดภัย · รุกฆาตต้องไม่มีทางหนีด้วยอัลติด้วย</small>`;
+    this.get("#setup-slot").prepend(specialBrief);
     const dailyCard = document.createElement("button");
     dailyCard.id = "daily-enter";
     dailyCard.innerHTML = '<span class="daily-emblem" aria-hidden="true">◈</span><span><small>DAILY TACTICS</small><strong id="daily-name"></strong><span id="daily-reward"></span></span><b aria-hidden="true">→</b>';
@@ -197,7 +205,7 @@ export class TitleScreen {
     const brief = document.createElement("div"); brief.id = "daily-brief"; brief.hidden = true;
     brief.innerHTML = '<div class="daily-portal" aria-hidden="true">♛</div><h2 id="daily-title"></h2><p id="daily-story"></p><div class="daily-facts"><span id="daily-budget"></span><span id="daily-streak"></span><span id="daily-prize"></span></div><small>โจทย์เปลี่ยนทุกวัน 07:00 น. เวลาไทย (00:00 UTC)<br>เล่นซ้ำได้ · รางวัลรับครั้งเดียวต่อวัน</small>';
     this.get("#setup-slot").prepend(brief);
-    const accents = ["◈", "⚔", "✧", "♟", "✦", "⌘"];
+    const accents = ["◈", "ϟ", "⚔", "✧", "♟", "✦", "⌘"];
     modes.querySelectorAll<HTMLButtonElement>("button").forEach((button, index) => {
       const mark = document.createElement("span"); mark.className = "mode-emblem"; mark.textContent = accents[index]; mark.setAttribute("aria-hidden", "true"); button.prepend(mark);
       const label = button.querySelector("strong")!;
@@ -249,7 +257,7 @@ export class TitleScreen {
   }
   private updateBrief() {
     if (!this.profile) return;
-    const modeNames = { bot: "ศึกแม่ทัพ", local: "ศึกสองกองทัพ", training: "สนามฝึก", campaign: "โจทย์ยุทธวิธี", online: "ดวลออนไลน์", daily: "ศึกประจำวัน" };
+    const modeNames = { bot: "ศึกแม่ทัพ", local: "ศึกสองกองทัพ", training: "สนามฝึก", campaign: "โจทย์ยุทธวิธี", online: "ดวลออนไลน์", daily: "ศึกประจำวัน", special: "Special Duel" };
     this.get("#setup-heading").textContent = modeNames[this.selected];
     const opponent = this.selected === "daily" ? dailyChallenge(this.dailyDay).title : this.selected === "bot" ? rivals[Number(this.get<HTMLSelectElement>("#launch-depth").value) as 1 | 2 | 3].name : modeNames[this.selected];
     this.get("#battle-brief").textContent = `${opponent} · ${skins[this.skin].name} · ${arenas[this.profile.arena].name}`;
@@ -277,7 +285,8 @@ export class TitleScreen {
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
     });
-    this.get("#launch-bot").hidden = mode !== "bot";
+    this.get("#launch-bot").hidden = mode !== "bot" && !(mode === "special" && this.get<HTMLSelectElement>("#special-opponent").value === "bot");
+    this.get("#special-brief").hidden = mode !== "special";
     this.get("#launch-training").hidden = mode !== "training";
     this.get("#launch-campaign").hidden = mode !== "campaign";
     this.get("#daily-brief").hidden = mode !== "daily";
@@ -285,6 +294,7 @@ export class TitleScreen {
     const trial = trials[this.get<HTMLSelectElement>("#launch-trial").value as keyof typeof trials];
     const scenario = training[this.get<HTMLSelectElement>("#launch-scenario").value as keyof typeof training];
     this.get("#title-mode-note").textContent = mode === "bot" ? "หมากรุกเต็มกระดาน · คู่แข่งสามระดับ · ท่าปะทะเฉพาะหมาก" : mode === "campaign" ? `${trial?.story || "เรื่องราวสั้นและเป้าหมายเฉพาะ"} · รางวัลเมื่อผ่านครั้งแรก` : mode === "training" ? `${scenario?.hint || "ฝึกยุทธวิธี"} · ผ่านครั้งแรก รับ 40 XP` : mode === "online" ? "ห้องท้าดวลส่วนตัว · ฝ่ายละ 5 นาที · รับ XP เมื่อศึกจบ" : "เลือกกองทัพทั้งสองฝั่ง แล้วผลัดกันบัญชาการบนเครื่องเดียว";
+    if (mode === "special") this.get("#title-mode-note").textContent = "เลือกหมาก → กดอัลติ → ดูเป้าการเดิน → ยืนยัน · กดยกเลิกได้ก่อนใช้จริง";
     if (mode === "daily") this.get("#title-mode-note").textContent = dailyChallenge(this.dailyDay).trial.hint;
   }
   private refreshDaily() {

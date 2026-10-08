@@ -13,6 +13,7 @@ import { arenas, type ArenaId } from "./arenas";
 import { frameCombat } from "./framing";
 import { CombatVFX } from "./vfx";
 import { previewMove, type MovePreview } from "./tactics";
+import { SpecialChess, ultimates, type UltimateMove } from "./special";
 const material = (color: number, metalness = 0.3) =>
   new THREE.MeshStandardMaterial({ color, metalness, roughness: 0.3 });
 const mesh = (
@@ -691,6 +692,7 @@ export class ChessScene {
     clear(this.pieces);
     clear(this.markers);
     this.selectionGame = null; this.selectionSquare = null; this.previewTarget(null);
+    clear(this.aim);
     clear(this.groundAuras);
     if (game.fen() === new Chess().fen() || this.reduced) clear(this.groundScars);
     for (const row of game.board())
@@ -710,6 +712,14 @@ export class ChessScene {
           this.pieces.add(o);
         }
     if (!this.reduced) this.buildGroundAuras(game);
+    if (game instanceof SpecialChess) {
+      const ready = game.board().flat().filter(p => p && game.remaining[p.color] > 0 && !game.spent(p.square));
+      if (ready.length) {
+        const badges = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.055), new THREE.MeshBasicMaterial({ color: 0xd7b5ff }), ready.length);
+        ready.forEach((p, i) => { const at = coords(p!.square); badges.setMatrixAt(i, new THREE.Matrix4().makeTranslation(at.x + 0.34, 0.1, at.z + 0.34)); });
+        badges.userData.role = "ultimate-ready"; this.groundAuras.add(badges);
+      }
+    }
     if (game.isCheck()) {
       const k = kingSquare(game, game.turn());
       if (k) this.ring(k, 0xff557a, 0.38);
@@ -835,9 +845,9 @@ export class ChessScene {
     this.onPreview(target); this.dirty = true;
     if (!target) return;
     this.stage.dataset.previewTarget = target.to;
-    const color = target.captured ? 0xff8097 : target.controlled ? 0xffc16f : 0x6beafa;
+    const color = target.ultimate ? ultimates[target.piece].color : target.captured ? 0xff8097 : target.controlled ? 0xffc16f : 0x6beafa;
     const from = coords(target.from).setY(0.04), to = coords(target.to).setY(0.04);
-    const points = target.piece === "n"
+    const points = target.piece === "n" && !target.ultimate
       ? [from, new THREE.Vector3(from.x, 0.04, to.z), to]
       : [from, to];
     const route = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), new THREE.LineDashedMaterial({ color, dashSize: 0.12, gapSize: 0.07, transparent: true, opacity: 0.85 }));
@@ -849,9 +859,18 @@ export class ChessScene {
     this.brackets([target.to], color, this.aim);
     if (target.capturedSquare && target.capturedSquare !== target.to) this.brackets([target.capturedSquare], 0xff8097, this.aim);
   }
+  showUltimateThreats(squares: Square[]) {
+    clear(this.aim); this.dirty = true;
+    if (!squares.length) return;
+    const geometry = new THREE.RingGeometry(0.31, 0.36, 6); geometry.rotateX(-Math.PI / 2);
+    const marks = new THREE.InstancedMesh(geometry, new THREE.MeshBasicMaterial({ color: 0xffae73, transparent: true, opacity: 0.9, side: THREE.DoubleSide }), squares.length);
+    squares.forEach((square, i) => { const p = coords(square); marks.setMatrixAt(i, new THREE.Matrix4().makeTranslation(p.x, 0.035, p.z)); });
+    marks.userData.role = "ultimate-threats"; this.aim.add(marks);
+  }
   select(game: Chess, s: Square | null, last?: { from: Square; to: Square }) {
     this.dirty = true;
     this.selectionGame = null; this.selectionSquare = null; this.previewTarget(null);
+    clear(this.aim);
     clear(this.markers);
     if (last) {
       this.ring(last.from, 0xd1a35b, 0.4);
@@ -862,7 +881,13 @@ export class ChessScene {
     if (!s) return;
     this.selectionGame = game; this.selectionSquare = s;
     this.ring(s, 0xffffff, 0.44);
-    this.brackets([s], 0x8af2ff);
+    const ultimate = game instanceof SpecialChess && game.armed === s;
+    const selectionColor = ultimate ? ultimates[game.get(s)!.type].color : 0x8af2ff;
+    this.brackets([s], selectionColor);
+    if (ultimate) {
+      this.ring(s, selectionColor, 0.58);
+      this.ring(s, selectionColor, 0.66);
+    }
     if (!this.reduced) {
       const piece = game.get(s)!;
       const halo = mesh(new THREE.RingGeometry(0.46, 0.49, combatStyles[piece.type].sides),
@@ -874,9 +899,9 @@ export class ChessScene {
     for (const capture of [false, true]) {
       const destinations = [...new Set(moves.filter(m => !!m.captured === capture).map(m => m.to))];
       if (!destinations.length) continue;
-      const geometry = capture ? new THREE.RingGeometry(0.35, 0.39, 6) : new THREE.CircleGeometry(0.065, 12);
+      const geometry = capture || ultimate ? new THREE.RingGeometry(capture ? 0.35 : 0.15, capture ? 0.39 : 0.19, 6) : new THREE.CircleGeometry(0.065, 12);
       geometry.rotateX(-Math.PI / 2);
-      const targets = new THREE.InstancedMesh(geometry, new THREE.MeshBasicMaterial({ color: capture ? 0xff8097 : 0x70efdc, transparent: true, opacity: 0.9, side: THREE.DoubleSide }), destinations.length);
+      const targets = new THREE.InstancedMesh(geometry, new THREE.MeshBasicMaterial({ color: ultimate ? selectionColor : capture ? 0xff8097 : 0x70efdc, transparent: true, opacity: 0.9, side: THREE.DoubleSide }), destinations.length);
       destinations.forEach((square, index) => { const p = coords(square); targets.setMatrixAt(index, new THREE.Matrix4().makeTranslation(p.x, 0.025, p.z)); });
       targets.userData.role = capture ? "capture-targets" : "move-targets";
       targets.userData.squares = destinations; this.markers.add(targets);
@@ -929,6 +954,7 @@ export class ChessScene {
     delete this.stage.dataset.attackStyle;
     delete this.stage.dataset.executionPhase;
     delete this.stage.dataset.defenderStatus;
+    delete this.stage.dataset.ultimate;
     this.renderer.toneMappingExposure = 1;
     this.onCancel();
     this.controls.enabled = !this.paused || !!this.showcaseHost;
@@ -967,11 +993,13 @@ export class ChessScene {
     const direction = to.clone().sub(from).normalize();
     const stopDistance = Math.min(from.distanceTo(to) * 0.68, move.piece === "r" || move.piece === "b" ? 1.05 : 0.77);
     const stop = to.clone().addScaledVector(direction, -stopDistance);
-    const urgent = ["mate", "promotion", "rescue"].includes(event.kind) ||
+    const ultimate = !!(move as UltimateMove).ultimate;
+    if (ultimate) this.stage.dataset.ultimate = move.piece;
+    const urgent = ultimate || ["mate", "promotion", "rescue"].includes(event.kind) ||
       ["queen-fallen", "comeback"].includes(event.story || "");
     const dramatic =
       this.cinematic && !this.reduced &&
-      useDramaticCamera(move, event, this.cinematicScope) &&
+      (ultimate || useDramaticCamera(move, event, this.cinematicScope)) &&
       (this.cinematicScope === "all" || urgent || ply - this.lastDramaticPly >= 4);
     if (dramatic) this.lastDramaticPly = ply;
     this.animation = {
@@ -1008,11 +1036,17 @@ export class ChessScene {
     this.controls.enabled = false;
     if (!this.reduced) {
       this.stage.dataset.attackStyle = move.piece;
-      const visual = new CombatVFX({ piece: move.piece, color: battleColor(move.color, event.story, skin),
+      const visual = new CombatVFX({ piece: move.piece, color: ultimate ? ultimates[move.piece].color : battleColor(move.color, event.story, skin),
         skin, quality: this.quality, captured: !!victim });
       this.animation.vfx = visual;
       this.animation.aura = visual.chargeGroup;
       this.animation.lock = visual.lockGroup;
+      if (ultimate) {
+        const seal = mesh(new THREE.RingGeometry(0.62, 0.7, combatStyles[move.piece].sides), this.glow(ultimates[move.piece].color, 0.85), visual.chargeGroup);
+        seal.rotation.x = -Math.PI / 2; seal.position.y = 0.025;
+        const crown = mesh(new THREE.TorusGeometry(0.48, 0.025, 4, 24), this.glow(ultimates[move.piece].color, 0.7), visual.chargeGroup);
+        crown.rotation.x = Math.PI / 2; crown.position.y = 1.4;
+      }
       this.fx.add(visual.group);
       this.animation.cracks = this.groundCracks(this.animation);
       this.animation.avatar = createAvatar(move.piece, move.color, skin);
@@ -1425,7 +1459,8 @@ export class ChessScene {
     }
     if (this.animation || this.sparks.length) this.dirty = true;
     for (const rune of this.groundAuras.children) {
-      (rune as THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>).material.uniforms.uTime.value = now / 1000;
+      const material = (rune as THREE.Mesh).material;
+      if (material instanceof THREE.ShaderMaterial) material.uniforms.uTime.value = now / 1000;
     }
     for (const scar of [...this.groundScars.children]) {
       if (scar.userData.active) continue;

@@ -74,7 +74,7 @@ export function appearanceMap(initialFen: string, moves: Move[], profile: Profil
     }
   }
   for (const historical of moves) {
-    const move = game.move({ from: historical.from, to: historical.to, promotion: historical.promotion });
+    const move = historical;
     const skin = appearances[move.from];
     const capturedSquare = move.flags.includes("e") ? `${move.to[0]}${move.from[1]}` : move.to;
     delete appearances[capturedSquare];

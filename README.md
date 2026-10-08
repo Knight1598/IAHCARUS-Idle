@@ -62,6 +62,23 @@ The server serves the built game on port **3000**. Open that port's address in y
 - **สนามฝึกท่าสเปเชียล** provides eleven scenarios to try every attack, royal rescue, blocking check, double check, a knight fork and promotion immediately.
 - Local games and settings resume from browser storage. Online sessions reconnect from the same browser using a private reconnect token. A shared invite link never includes that token.
 
+## Special Duel — ultimate board combat
+
+Choose **Special Duel** in the mode screen, then select a bot (three levels) or two players on the same device. Each side has **3 shared ultimate charges**; each physical piece can use an ultimate **once per match**, including after promotion. An ultimate replaces one ordinary move and does not grant a second move or a permanent change to the piece's attack pattern.
+
+| Piece | Ultimate movement for one turn |
+| --- | --- |
+| Knight | Queen lines, with no jumping over blockers |
+| Bishop | Orthogonal movement/capture up to two squares |
+| Rook | Diagonal movement/capture up to two squares |
+| Queen | A knight jump |
+| Pawn | Capture one square directly ahead, including promotion |
+| King | Move two orthogonal squares through empty, unattacked squares; no capture |
+
+Select a piece → press its ultimate → preview the colored targets → select a destination → **confirm**. Cancel before confirmation to keep the charge. Both sides see reserve diamonds; small board diamonds identify pieces that retain their ultimate. The skill guide can inspect an opponent's currently legal ultimate destinations without submitting a move. Those destinations may change after your move; they are potential skill moves, not continuous check attacks.
+
+Own-king safety remains mandatory. Check uses the piece's normal attack pattern after the move, while checkmate and stalemate also consider available ultimate escapes. The bot searches both ordinary moves and ultimates using the same reserve rules. Undo, save/reload, per-piece skins, capture replay and the result MVP preserve special moves and their physical identities. Results offer a color-swapped rematch. Variant exports use a `Variant "Special Duel"` header and `U:` notation; they are not standard chess PGNs. Private online rooms continue to use standard chess.
+
 ## Tactical board and cosmetic collection
 
 Board tiles have procedural brushed plates, corner etchings and shared luminous edge rails. All sixteen coordinate labels use one texture atlas and drawing batch. Quiet moves use small green dots; captures use pink hexagonal reticles and tile corner brackets. These destinations are instanced in separate move/capture batches, including a single marker for promotion destinations. Hover a legal target in 3D, or hover/focus a 2D square, to preview the route, actual capture (including en passant), castling, promotion, check/mate and enemy control of the destination. The preview reads a disposable chess position and never commits a move. Mouse drag, leaving the board, pause and completed moves clear the preview. The 2D board also marks last moves and the checked king.
@@ -99,6 +116,7 @@ npm run build:offline
 npm run test:title
 npm run test:daily
 npm run test:tactics
+npm run test:special
 npm run test:hud
 npm run test:army
 npm run test:audio

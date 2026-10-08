@@ -20,6 +20,7 @@ import { BattlePresentation } from "./presentation";
 import type { ArmyCosmetics } from "../shared/cosmetics.js";
 import { matchStory, latestMoment } from "./battle";
 import { matchMaterial, type CinematicScope } from "./gameplay";
+import { SpecialChess, ultimates, type UltimateMove } from "./special";
 import BotWorker from "./bot.ts?worker&inline";
 const OFFLINE = __OFFLINE__;
 const saveKey = OFFLINE ? "special-chess-offline-game" : "special-chess-local";
@@ -72,8 +73,16 @@ $("#app").innerHTML =
     .map(([key, t]) => `<option value="${key}">${t.name}</option>`)
     .join(
       "",
-    )}</select><p id="training-hint" class="muted"></p></details><section class="history"><div class="section-title"><h2>บันทึกการประลอง</h2><button id="export" class="text-button">PGN ↓</button></div><div id="moves"></div></section><footer>โมเดล แสง และพลังทั้งหมดสร้างจากโค้ด<br>ไม่มีการเปลี่ยนความสามารถของหมาก</footer></aside></div></div><dialog id="promotion"><small>ASCENSION</small><h2>เลือกหมากเพื่อเลื่อนขั้น</h2><div class="promotion-options">${(["q", "r", "b", "n"] as const).map((p) => `<button data-piece="${p}"><span>${symbols.w[p]}</span>${names[p]}</button>`).join("")}</div><button id="cancel-promotion" class="text-button">ยกเลิก</button></dialog><dialog id="help-dialog"><small>HOW TO PLAY</small><h2>ทุกตาคือการตัดสินใจ</h2><p>เลือกหมากของฝ่ายที่ถึงตา แล้วเลือกช่องเรืองแสงเพื่อเดิน สีชมพูคือช่องกินหมาก</p><p>ลากเพื่อหมุนกระดาน เลื่อนเพื่อซูม หรือใช้กระดาน 2D ด้วยคีย์บอร์ด</p><p>กติกาหมากรุกมาตรฐาน: คิงจะไม่ถูกกิน เกมจบเมื่อรุกฆาต ท่าสเปเชียลเป็นภาพประกอบการเดิน และข้ามได้เสมอ</p><p>ออนไลน์: สร้างห้องแล้วส่งลิงก์ให้เพื่อน ฝ่ายละ 5 นาที เวลาเดินตามเซิร์ฟเวอร์ รวมเวลาคัตซีน หากรีเฟรชจะกลับเข้าห้องจากเบราว์เซอร์เดิม</p><p>เล่นกับบอต: เลือกเล่นขาวหรือดำได้ เปลี่ยนฝ่ายจะเริ่มเกมใหม่ ย้อนตาจะกลับไปก่อนตาของคุณ ปรับระดับได้ก่อนตาถัดไป</p><button id="close-help" class="primary">เข้าใจแล้ว</button></dialog>`;
+    )}</select><p id="training-hint" class="muted"></p></details><section class="history"><div class="section-title"><h2>บันทึกการประลอง</h2><button id="export" class="text-button">PGN ↓</button></div><div id="moves"></div></section><footer>โมเดล แสง และพลังทั้งหมดสร้างจากโค้ด<br>เลือก Special Duel เพื่อใช้อัลติเปลี่ยนทางเดิน</footer></aside></div></div><dialog id="promotion"><small>ASCENSION</small><h2>เลือกหมากเพื่อเลื่อนขั้น</h2><div class="promotion-options">${(["q", "r", "b", "n"] as const).map((p) => `<button data-piece="${p}"><span>${symbols.w[p]}</span>${names[p]}</button>`).join("")}</div><button id="cancel-promotion" class="text-button">ยกเลิก</button></dialog><dialog id="help-dialog"><small>HOW TO PLAY</small><h2>ทุกตาคือการตัดสินใจ</h2><p>เลือกหมากของฝ่ายที่ถึงตา แล้วเลือกช่องเรืองแสงเพื่อเดิน สีชมพูคือช่องกินหมาก</p><p>ลากเพื่อหมุนกระดาน เลื่อนเพื่อซูม หรือใช้กระดาน 2D ด้วยคีย์บอร์ด</p><p>โหมดปกติใช้กติกาหมากรุกมาตรฐาน ส่วน Special Duel มีอัลติเปลี่ยนทางเดินฝ่ายละ 3 ครั้ง คิงไม่ถูกกิน และรุกฆาตต้องไม่มีทางหนีรวมอัลติ คัตซีนข้ามได้เสมอ</p><p>ออนไลน์: สร้างห้องแล้วส่งลิงก์ให้เพื่อน ฝ่ายละ 5 นาที เวลาเดินตามเซิร์ฟเวอร์ รวมเวลาคัตซีน หากรีเฟรชจะกลับเข้าห้องจากเบราว์เซอร์เดิม</p><p>เล่นกับบอต: เลือกเล่นขาวหรือดำได้ เปลี่ยนฝ่ายจะเริ่มเกมใหม่ ย้อนตาจะกลับไปก่อนตาของคุณ ปรับระดับได้ก่อนตาถัดไป</p><button id="close-help" class="primary">เข้าใจแล้ว</button></dialog>`;
 const hud = new ArenaHUD();
+$("#stage").insertAdjacentHTML("beforeend", `<section id="ultimate-hud" aria-label="อัลติ Special Duel" hidden>
+  <div class="ultimate-meter"><small>ULTIMATE RESERVE</small><div><span>ขาว <b id="ultimate-white"></b></span><span>ดำ <b id="ultimate-black"></b></span></div></div>
+  <button id="ultimate-arm" disabled aria-pressed="false"><i aria-hidden="true">ϟ</i><span><strong>เลือกหมากเพื่อใช้อัลติ</strong><small>ฝ่ายละ 3 ครั้ง · ตัวละ 1 ครั้ง</small></span></button>
+  <button id="ultimate-confirm" class="primary" hidden>ยืนยันอัลติ</button>
+  <button id="ultimate-help" class="text-button">ดูสกิล / แนวโจมตีศัตรู</button></section>
+  <dialog id="ultimate-guide"><small>SPECIAL DUEL / READ THE BATTLE</small><h2>อ่านสกิล ก่อนตัดสินใจ</h2><p>ใช้แทนการเดินหนึ่งตา · ตัวละ 1 ครั้ง · ฝ่ายละ 3 ครั้ง<br>หลังเดินขู่ตามรูปหมากเดิม · คิงต้องปลอดภัย</p>
+  <div class="ultimate-catalog">${Object.entries(ultimates).map(([piece, skill]) => `<article style="--ultimate-color:#${skill.color.toString(16)}"><i>${symbols.w[piece as PieceSymbol]}</i><div><small>${skill.name}</small><strong>${skill.label}</strong><p>${skill.description}</p></div></article>`).join("")}</div>
+  <label>สำรวจอัลติฝ่ายตรงข้าม<select id="ultimate-enemy"><option value="">เลือกหมากเพื่อดูแนวเดินที่เป็นไปได้</option></select></label><p id="ultimate-enemy-note">ยังไม่ใช่การรุกจริง · คู่แข่งต้องใช้สิทธิ์อัลติเพื่อเดินตามแนวนี้</p><button id="ultimate-guide-close" class="primary">กลับกระดาน</button></dialog>`);
 let menuOpen = true;
 let matchPaused = false;
 let eventTimer: ReturnType<typeof setTimeout> | undefined;
@@ -92,6 +101,8 @@ let auditionTimer: ReturnType<typeof setTimeout> | undefined;
 let matchReward: { amount: number; message: string } | null = null;
 let humanColor: Color = "w";
 let initialFen = new Chess().fen();
+let specialDuel = false;
+let ultimateTarget: Square | null = null;
 let game = new Chess(),
   mode: Mode = OFFLINE ? "bot" : "local",
   selected: Square | null = null,
@@ -114,7 +125,7 @@ let worker: Worker | undefined;
 let botTimer: ReturnType<typeof setTimeout> | undefined;
 let botJobFen: string | undefined;
 let botReply:
-  | { fen: string; move: { from: Square; to: Square; promotion?: PieceSymbol } }
+  | { fen: string; move: { from: Square; to: Square; promotion?: PieceSymbol; ultimate?: boolean } }
   | undefined;
 let noticeTimer: ReturnType<typeof setTimeout>;
 let battleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -188,7 +199,7 @@ function armyAppearances(history = game.history({ verbose: true }), fen = initia
   const map = appearanceMap(fen, history, appearanceProfile, owner);
   if (mode === "bot") {
     const position = new Chess(fen);
-    for (const move of history) position.move({ from: move.from, to: move.to, promotion: move.promotion });
+    if (history.length) position.load(history.at(-1)!.after);
     const rival = currentRival();
     for (const piece of position.board().flat()) if (piece && piece.color !== humanColor) map[piece.square] = rival.skin;
   }
@@ -264,6 +275,8 @@ function stopBot() {
 function clearSelection() {
   selected = null;
   pending = null;
+  ultimateTarget = null;
+  if (game instanceof SpecialChess) game.armed = null;
   $("#promotion").hasAttribute("open") &&
     $<HTMLDialogElement>("#promotion").close();
   scene?.select(game, null, lastMove);
@@ -334,7 +347,7 @@ function updateUI() {
         ? humanColor === "w"
           ? "คุณ"
           : "บอต · " + $<HTMLSelectElement>("#difficulty").selectedOptions[0].textContent
-        : "ผู้เล่น 1";
+        : specialDuel && humanColor === "b" ? "ผู้เล่น 2" : "ผู้เล่น 1";
   $("#black-label").textContent =
     mode === "online"
       ? (session?.color === "b" ? "คุณ" : "คู่แข่ง") +
@@ -343,7 +356,7 @@ function updateUI() {
         ? humanColor === "b"
           ? "คุณ"
           : "บอต · " + $<HTMLSelectElement>("#difficulty").selectedOptions[0].textContent
-        : "ผู้เล่น 2";
+        : specialDuel && humanColor === "b" ? "ผู้เล่น 1" : "ผู้เล่น 2";
   $("#connection").textContent =
     mode === "online"
       ? ws?.readyState === 1
@@ -351,7 +364,7 @@ function updateUI() {
         : "○ กำลังเชื่อมต่อ"
       : "OFFLINE READY";
   $("#mode-tag").textContent =
-    activeDaily ? "DAILY RIFT" : activeTrial ? "TACTICAL CHAPTER" : mode === "bot"
+    specialDuel ? "SPECIAL DUEL · ULTIMATE ARENA" : activeDaily ? "DAILY RIFT" : activeTrial ? "TACTICAL CHAPTER" : mode === "bot"
       ? "SOLO CHALLENGE"
       : mode === "online"
         ? "ONLINE DUEL"
@@ -409,6 +422,7 @@ function updateUI() {
   $("#moves").scrollTop = $("#moves").scrollHeight;
   updateBattleUI();
   updateFlatBoard();
+  updateSpecialHUD();
   updateTactics();
   updateClocks();
   const replayControl = document.querySelector<HTMLButtonElement>("#replay-capture");
@@ -435,6 +449,7 @@ function updatePresentation() {
     mvp: mvp ? `${avatarNames[mvpSkin][mvp.piece]} · ${mvp.origin.toUpperCase()} · สังหาร ${mvp.kills} ตัว` : undefined,
     unlocks: matchReward?.message.includes("ปลดล็อก") ? [matchReward.message.split("ปลดล็อก ")[1]] : [],
     replay: game.history({ verbose: true }).some((move) => !!move.captured),
+    rematch: specialDuel,
     continueLabel: activeDaily ? winner === humanColor ? "กลับค่าย · ดูศึกประจำวัน" : "ลองศึกนี้อีกครั้ง" : mode === "online" ? "กลับค่าย" : activeTrial && winner !== humanColor ? "ลองบทนี้อีกครั้ง" : activeTrial ? "บทถัดไป" : trainingWon ? "ฝึกท่าถัดไป" : "ประลองอีกครั้ง",
   });
   scene?.celebrate(trainingWon ? game.history({ verbose: true }).at(-1)?.color || null : winner, mvp?.square);
@@ -508,12 +523,78 @@ function updateTactics(target: MovePreview | null = null) {
   if (!piece || !selected) return;
   const options = new Set(game.moves({ square: selected, verbose: true }).map(m => m.to)).size;
   panel.querySelector("strong")!.textContent = `${symbols[piece.color][piece.type]} ${names[piece.type]} ${selected.toUpperCase()} · ${options} ทางเดิน`;
+  panel.classList.toggle("ultimate-preview", game instanceof SpecialChess && !!game.armed);
   panel.dataset.tone = target?.mate || target?.check ? "check" : target?.controlled ? "danger" : target?.captured ? "capture" : "move";
   panel.querySelector("span")!.textContent = target
-    ? `${target.castle ? "เข้าป้อม" : target.captured ? "กิน" + names[target.captured] : target.piece === "n" ? "กระโดด" : "เดิน"} → ${target.to.toUpperCase()}${target.promotion ? " · ตัวอย่างเลื่อนขั้นเป็น" + names[target.promotion] : ""}${target.mate ? " · รุกฆาต" : target.check ? " · รุกคิง" : ""}${target.controlled && !target.mate ? " · อยู่ในแนวคุมคู่แข่ง" : ""}`
-    : "จุดเขียว = เดิน · กรอบชมพู = กินหมาก";
+    ? `${target.castle ? "เข้าป้อม" : target.captured ? "กิน" + names[target.captured] : target.ultimate ? "อัลติ" : target.piece === "n" ? "กระโดด" : "เดิน"} → ${target.to.toUpperCase()}${target.promotion ? " · ตัวอย่างเลื่อนขั้นเป็น" + names[target.promotion] : ""}${target.mate ? " · รุกฆาต" : target.check ? " · รุกคิง" : ""}${target.controlled && !target.mate ? " · อยู่ในแนวคุมคู่แข่ง" : ""}`
+    : game instanceof SpecialChess && game.armed ? "เป้าม่วง = อัลติ · เลือกปลายทางแล้วกดยืนยัน" : "จุดเขียว = เดิน · กรอบชมพู = กินหมาก";
   if (target) document.querySelector(`[data-square="${target.to}"]`)?.classList.add("preview");
 }
+function updateSpecialHUD() {
+  const panel = $("#ultimate-hud");
+  panel.hidden = !(game instanceof SpecialChess);
+  $("#stage").classList.toggle("special-duel", game instanceof SpecialChess);
+  $("#flat-board").classList.toggle("ultimate-armed", game instanceof SpecialChess && !!game.armed);
+  if (!(game instanceof SpecialChess)) return;
+  const reserves = game.remaining;
+  for (const [color, selector] of [["w", "#ultimate-white"], ["b", "#ultimate-black"]] as const) {
+    $(selector).innerHTML = Array.from({ length: 3 }, (_, i) => `<i class="${i < reserves[color] ? "charged" : "spent"}">◆</i>`).join("");
+    $(selector).setAttribute("aria-label", `เหลือ ${reserves[color]} จาก 3 ครั้ง`);
+  }
+  const arm = $<HTMLButtonElement>("#ultimate-arm"), piece = selected && game.get(selected);
+  const ready = !!selected && game.available(selected);
+  arm.disabled = !canPlay() || !ready || !!selected && game.ultimateMoves(selected).length === 0;
+  arm.setAttribute("aria-pressed", String(!!game.armed));
+  arm.classList.toggle("armed", !!game.armed);
+  if (piece) {
+    arm.style.setProperty("--ultimate-color", `#${ultimates[piece.type].color.toString(16)}`);
+    arm.querySelector("strong")!.textContent = game.armed ? "ยกเลิกอัลติ" : ultimates[piece.type].label;
+    arm.querySelector("small")!.textContent = !ready ? reserves[piece.color] === 0 ? "พลังฝ่ายนี้หมดแล้ว" : "หมากตัวนี้ใช้อัลติแล้ว" : arm.disabled ? "ยังไม่มีช่องอัลติที่เดินได้" : ultimates[piece.type].description;
+  } else {
+    arm.querySelector("strong")!.textContent = "เลือกหมากเพื่อใช้อัลติ";
+    arm.querySelector("small")!.textContent = "ฝ่ายละ 3 ครั้ง · ตัวละ 1 ครั้ง";
+  }
+  const confirm = $<HTMLButtonElement>("#ultimate-confirm");
+  confirm.hidden = !ultimateTarget || !game.armed;
+  confirm.disabled = !canPlay();
+  confirm.textContent = `ยืนยันอัลติ → ${ultimateTarget?.toUpperCase() || ""}`;
+}
+$("#ultimate-arm").onclick = () => {
+  if (!(game instanceof SpecialChess) || !selected || !canPlay()) return;
+  game.armed = game.armed ? null : selected; ultimateTarget = null;
+  scene?.select(game, selected, lastMove); updateUI();
+  if (game.armed) soundEngine()?.play(game.get(selected)!.type, "charge", 0.3, false, 0);
+};
+$("#ultimate-confirm").onclick = () => {
+  if (!(game instanceof SpecialChess) || !selected || !ultimateTarget || !canPlay()) return;
+  const options = game.ultimateMoves(selected).filter(m => m.to === ultimateTarget);
+  if (options.some(m => m.promotion)) { pending = { from: selected, to: ultimateTarget }; $<HTMLDialogElement>("#promotion").showModal(); }
+  else commitMove(selected, ultimateTarget, "q", true);
+};
+function enemyUltimateBoard() {
+  if (!(game instanceof SpecialChess)) return null;
+  const parts = game.fen().split(" "); parts[1] = game.turn() === "w" ? "b" : "w"; parts[3] = "-";
+  return new SpecialChess(parts.join(" "), game.snapshot());
+}
+$("#ultimate-help").onclick = () => {
+  if (!(game instanceof SpecialChess) || isBusy()) return;
+  const enemy = enemyUltimateBoard()!;
+  const select = $<HTMLSelectElement>("#ultimate-enemy");
+  select.innerHTML = '<option value="">เลือกหมากเพื่อดูแนวเดินที่เป็นไปได้</option>' + enemy.board().flat().filter(p => p && p.color === enemy.turn()).map(p => `<option value="${p!.square}" ${!enemy.available(p!.square) ? "disabled" : ""}>${symbols[p!.color][p!.type]} ${names[p!.type]} ${p!.square.toUpperCase()}${!enemy.available(p!.square) ? " · อัลติใช้ไม่ได้แล้ว" : ""}</option>`).join("");
+  clearSelection(); updateUI();
+  matchPaused = true; stopBot(); scene?.setPaused(true);
+  $<HTMLDialogElement>("#ultimate-guide").showModal();
+};
+$("#ultimate-enemy").onchange = () => {
+  const enemy = enemyUltimateBoard(), square = $<HTMLSelectElement>("#ultimate-enemy").value as Square;
+  const moves = square && enemy ? enemy.ultimateMoves(square) : [];
+  scene?.showUltimateThreats([...new Set(moves.map(m => m.to))]);
+  $("#ultimate-enemy-note").textContent = square && enemy ? `${ultimates[enemy.get(square)!.type].label} · ${[...new Set(moves.map(m => m.to))].join(" · ").toUpperCase() || "ยังไม่มีทางเดินที่ปลอดภัย"} — แนวที่เดินได้จากตำแหน่งปัจจุบัน; หลังคุณเดินอาจเปลี่ยนไป` : "ยังไม่ใช่การรุกจริง · คู่แข่งต้องใช้สิทธิ์อัลติเพื่อเดินตามแนวนี้";
+};
+$("#ultimate-guide-close").onclick = () => $<HTMLDialogElement>("#ultimate-guide").close();
+$("#ultimate-guide").addEventListener("close", () => {
+  scene?.showUltimateThreats([]); matchPaused = false; scene?.setPaused(false); updateUI(); scheduleBot();
+});
 function previewSquare(square: Square | null) {
   if (!canPlay() || !selected) return;
   if (scene) scene.previewTarget(square);
@@ -544,6 +625,10 @@ function pick(square: Square) {
       .moves({ square: selected, verbose: true })
       .filter((m) => m.to === square);
     if (available.length) {
+      if (game instanceof SpecialChess && game.armed) {
+        ultimateTarget = square;
+        updateSpecialHUD(); previewSquare(square); return;
+      }
       if (available.some((m) => m.promotion)) {
         pending = { from: selected, to: square };
         $<HTMLDialogElement>("#promotion").showModal();
@@ -554,6 +639,8 @@ function pick(square: Square) {
   if (selected === square) {
     clearSelection();
   } else if (game.get(square)?.color === game.turn()) {
+    if (game instanceof SpecialChess) game.armed = null;
+    ultimateTarget = null;
     selected = square;
     scene?.select(game, square, lastMove);
     soundEngine()?.play(game.get(square)!.type, "lock", 0.08, false, (square.charCodeAt(0) - 100.5) / 5);
@@ -600,7 +687,10 @@ function deathSound(move: Move, _event: MoveEvent) {
 }
 function attackEvent(before: Chess, after: Chess, move: Move, skin?: SkinId) {
   const event = analyzeMove(before, after, move);
-  if (event.kind === "capture") {
+  if ((move as UltimateMove).ultimate) {
+    event.title = ultimates[move.piece].name;
+    event.subtitle = `${ultimates[move.piece].label} · ${event.kind === "mate" ? "รุกฆาต" : event.kind.includes("check") ? "รุกคิง" : "ULTIMATE RELEASE"}`;
+  } else if (event.kind === "capture") {
     const theme = skin || armyAppearances(game.history({ verbose: true }).slice(0, -1))[move.from] || profile.skin;
     event.title = skillNames[theme][move.piece];
     event.subtitle = `${avatarNames[theme][move.piece]} · ${skins[theme].rarity}`;
@@ -670,11 +760,11 @@ function submitMove(from: Square, to: Square, promotion: PieceSymbol = "q") {
   }
   commitMove(from, to, promotion);
 }
-function commitMove(from: Square, to: Square, promotion: PieceSymbol = "q") {
+function commitMove(from: Square, to: Square, promotion: PieceSymbol = "q", ultimate = false) {
   const before = new Chess(game.fen());
   let move;
   try {
-    move = game.move({ from, to, promotion });
+    move = game.move({ from, to, promotion, ...(ultimate ? { ultimate: true } : {}) });
   } catch {
     notice("เดินผิดกติกา");
     return;
@@ -687,7 +777,7 @@ function applyBotReply() {
   const reply = botReply;
   botReply = undefined;
   if (mode === "bot" && game.turn() !== humanColor && game.fen() === reply.fen)
-    commitMove(reply.move.from, reply.move.to, reply.move.promotion);
+    commitMove(reply.move.from, reply.move.to, reply.move.promotion, reply.move.ultimate);
 }
 function scheduleBot() {
   if (menuOpen || matchPaused || mode !== "bot" || game.turn() === humanColor || game.isGameOver() || localResult) {
@@ -722,14 +812,14 @@ function scheduleBot() {
       notice("บอตคิดไม่สำเร็จ ลองปรับระดับหรือเริ่มใหม่");
       updateUI();
     };
-    taskWorker.postMessage({ fen, depth: activeTrial ? 2 : Number($<HTMLSelectElement>("#difficulty").value) });
+    taskWorker.postMessage({ fen, special: game instanceof SpecialChess ? game.snapshot() : undefined, depth: activeTrial ? 2 : Number($<HTMLSelectElement>("#difficulty").value) });
   }, 80);
 }
 function saveLocal() {
   if (mode !== "online") {
     storage.set(
       saveKey,
-      JSON.stringify({ mode, humanColor, initialFen, history: game.history(), matchId, activeTraining, activeTrial, activeDaily, matchReward }),
+      JSON.stringify({ mode, specialDuel, humanColor, initialFen, history: game.history(), matchId, activeTraining, activeTrial, activeDaily, matchReward }),
     );
     hasSavedLocalGame = true;
   }
@@ -749,14 +839,14 @@ function newLocal() {
   $("#training-hint").textContent = "";
   stopBot();
   scene?.cancel();
-  game = new Chess();
+  game = specialDuel ? new SpecialChess() : new Chess();
   localResult = null;
   lastMove = undefined;
   clearSelection();
   renderGameBoard();
   $("#event").classList.remove("visible");
   $("#stage").classList.remove("cinematic");
-  scene?.resetView(mode === "bot" && humanColor === "b");
+  scene?.resetView((mode === "bot" || specialDuel && mode === "local") && humanColor === "b");
   saveLocal();
   updateUI();
   scheduleBot();
@@ -777,7 +867,8 @@ function disconnect() {
 }
 function setMode(next: Mode) {
   if (OFFLINE && next === "online") return;
-  if (mode === next) return;
+  if (mode === next && !specialDuel) return;
+  specialDuel = false;
   disconnect();
   mode = next;
   matchPaused = !hud.drawer.hidden && next !== "online";
@@ -955,6 +1046,7 @@ $("#flip").onclick = () => {
   scene?.finish();
   scene?.resetView(!scene.flipped);
   updateFlatBoard();
+  updateSpecialHUD();
 };
 $("#skip").onclick = () => scene?.finish();
 $("#promotion")
@@ -1018,7 +1110,7 @@ $("#training-select").onchange = () => {
   scene?.resetPacing();
   if (mode !== "local") setMode("local");
   stopBot();
-  game = new Chess(t.fen);
+  specialDuel = false; game = new Chess(t.fen);
   initialFen = t.fen;
   activeTraining = key;
   activeTrial = null; activeDaily = null;
@@ -1086,7 +1178,8 @@ try {
     ["local", "bot"].includes(saved.mode) &&
     Array.isArray(saved.history)
   ) {
-    game = new Chess(saved.initialFen || new Chess().fen());
+    specialDuel = saved.specialDuel === true;
+    game = specialDuel ? new SpecialChess(saved.initialFen || new Chess().fen()) : new Chess(saved.initialFen || new Chess().fen());
     initialFen = game.fen();
     for (const m of saved.history) game.move(m);
     mode = saved.mode;
@@ -1108,7 +1201,7 @@ try {
     hasSavedLocalGame = true;
   }
 } catch {
-  game = new Chess();
+  specialDuel = false; game = new Chess();
 }
 const invite = OFFLINE
   ? null
@@ -1198,7 +1291,7 @@ $("#arena-name").textContent = arenas[profile.arena].name;
 scene?.setArena(profile.arena);
 scene?.setSkin(profile.skin);
 renderGameBoard();
-scene?.resetView(mode === "bot" && humanColor === "b");
+scene?.resetView((mode === "bot" || specialDuel && mode === "local") && humanColor === "b");
 updateUI();
 const title = new TitleScreen($("#app"), OFFLINE, {
   settings: (host) => hud.attachSettings(host),
@@ -1239,6 +1332,11 @@ presentation = new BattlePresentation($("#stage"), {
   },
   home: openTitle,
   replay: replayLastCapture,
+  rematch: () => {
+    humanColor = humanColor === "w" ? "b" : "w";
+    $<HTMLSelectElement>("#human-side").value = humanColor;
+    newLocal();
+  },
 });
 const replayButton = document.createElement("button");
 replayButton.id = "replay-capture";
@@ -1294,8 +1392,10 @@ function replayLastCapture() {
   while (index >= 0 && !history[index].captured) index--;
   if (index < 0) { notice("ยังไม่มีฉากสังหารในศึกนี้"); return; }
   const move = history[index];
-  const before = new Chess(move.before), after = new Chess(move.before);
-  const replayMove = after.move({ from: move.from, to: move.to, promotion: move.promotion });
+  const after = game instanceof SpecialChess ? new SpecialChess(initialFen) : new Chess(move.before);
+  if (after instanceof SpecialChess) for (const prior of history.slice(0, index)) after.move(prior);
+  const before = new Chess(after.fen());
+  const replayMove = after.move(move);
   presentation?.clear();
   resultPresentationKey = "";
   visualReplay = true;
@@ -1310,7 +1410,7 @@ function launchTrial(key: keyof typeof trials, day: string | null = null) {
   const trial = daily?.trial || trials[key];
   resetPresentation(); stopBot(); scene?.cancel(); clearBattleToast();
   matchId = newMatchId(); matchReward = null; activeTraining = null; activeTrial = key; activeDaily = day;
-  game = new Chess(trial.fen); initialFen = trial.fen; mode = "bot"; humanColor = trial.side;
+  specialDuel = false; game = new Chess(trial.fen); initialFen = trial.fen; mode = "bot"; humanColor = trial.side;
   $<HTMLSelectElement>("#difficulty").value = "2";
   localResult = null; lastMove = undefined; clearSelection();
   renderGameBoard(); scene?.resetView(humanColor === "b");
@@ -1337,7 +1437,8 @@ function launchGame(settings: LaunchSettings) {
   $<HTMLSelectElement>("#difficulty").value = settings.depth;
   storage.set(difficultyKey, settings.depth);
   scene?.setSkin(profile.skin);
-  mode = settings.mode === "training" ? "local" : (settings.mode === "campaign" || settings.mode === "daily") ? "bot" : settings.mode;
+  specialDuel = settings.mode === "special";
+  mode = settings.mode === "special" ? settings.opponent || "bot" : settings.mode === "training" ? "local" : (settings.mode === "campaign" || settings.mode === "daily") ? "bot" : settings.mode;
   enterBoard();
   if (settings.mode === "daily") {
     const daily = dailyChallenge(settings.day || utcDay()); launchTrial(daily.base, daily.day); return;
@@ -1376,7 +1477,7 @@ function openTitle() {
   $("#game-shell").hidden = true;
   title.show(profile, {
     view: "menu",
-    mode: mode === "online" && !OFFLINE ? "online" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : mode,
+    mode: mode === "online" && !OFFLINE ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : mode,
     side: humanColor,
     depth: $<HTMLSelectElement>("#difficulty").value,
     resume: mode === "online" ? !!session : hasSavedLocalGame,
@@ -1393,4 +1494,4 @@ hud.onPauseChange = (paused) => {
   else { scene?.setPaused(false); scheduleBot(); }
   updateUI();
 };
-title.show(profile, { mode: mode === "online" && !OFFLINE ? "online" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot", side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn", trial: activeTrial || "rescue" });
+title.show(profile, { mode: mode === "online" && !OFFLINE ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot", side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn", trial: activeTrial || "rescue" });

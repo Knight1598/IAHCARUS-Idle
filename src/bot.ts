@@ -1,9 +1,11 @@
 import { Chess } from "chess.js";
+import { SpecialChess } from "./special.ts";
 const value = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 };
 function evaluate(g: Chess) {
   if (g.isCheckmate()) return g.turn() === "w" ? -100000 : 100000;
   if (g.isDraw()) return 0;
   let score = 0;
+  if (g instanceof SpecialChess) score += (g.remaining.w - g.remaining.b) * 18;
   for (const row of g.board())
     for (const p of row)
       if (p) {
@@ -23,8 +25,7 @@ function search(g: Chess, depth: number, alpha: number, beta: number, deadline: 
   if (depth === 0 || g.isGameOver()) return evaluate(g);
   const maximize = g.turn() === "w";
   let best = maximize ? -Infinity : Infinity;
-  const moves = g
-    .moves({ verbose: true })
+  const moves = (g instanceof SpecialChess ? g.legalActions() : g.moves({ verbose: true }))
     .sort((a, b) => value[b.captured || "k"] - value[a.captured || "k"]);
   for (const m of moves) {
     g.move(m);
@@ -41,13 +42,13 @@ function search(g: Chess, depth: number, alpha: number, beta: number, deadline: 
   }
   return best;
 }
-self.onmessage = (e: MessageEvent<{ fen: string; depth: number }>) => {
-  const g = new Chess(e.data.fen);
+self.onmessage = (e: MessageEvent<{ fen: string; depth: number; special?: ReturnType<SpecialChess["snapshot"]> }>) => {
+  const g = e.data.special ? new SpecialChess(e.data.fen, e.data.special) : new Chess(e.data.fen);
   if (g.isGameOver()) { self.postMessage(undefined); return; }
   const max = g.turn() === "w";
   const depth = Math.max(1, Math.min(3, Math.floor(e.data.depth) || 1));
   const deadline = performance.now() + [0, 150, 700, 1800][depth];
-  const moves = g.moves({ verbose: true }).sort(() => Math.random() - 0.5);
+  const moves = (g instanceof SpecialChess ? g.legalActions() : g.moves({ verbose: true })).sort(() => Math.random() - 0.5);
   let chosen = moves[0];
   // Keep the last completed depth if a phone cannot finish the deeper search.
   for (let level = 1; level <= depth; level++) {
@@ -56,7 +57,7 @@ self.onmessage = (e: MessageEvent<{ fen: string; depth: number }>) => {
     try {
       const ordered = [...moves].sort((a, b) =>
         Number(b.san === chosen.san) - Number(a.san === chosen.san) ||
-        value[b.captured || "k"] - value[a.captured || "k"]);
+        value[b.captured || "k"] - value[a.captured || "k"] || Number(!!(a as { ultimate?: boolean }).ultimate) - Number(!!(b as { ultimate?: boolean }).ultimate));
       for (const m of ordered) {
         g.move(m);
         let score: number;
@@ -75,5 +76,5 @@ self.onmessage = (e: MessageEvent<{ fen: string; depth: number }>) => {
       break;
     }
   }
-  self.postMessage({ from: chosen.from, to: chosen.to, promotion: chosen.promotion || "q" });
+  self.postMessage({ from: chosen.from, to: chosen.to, promotion: chosen.promotion || "q", ultimate: !!(chosen as { ultimate?: boolean }).ultimate });
 };

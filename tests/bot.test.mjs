@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Chess} from 'chess.js';
+import { SpecialChess } from '../src/special.ts';
 let reply;
 globalThis.self = {postMessage:move=>{reply=move;}};
 await import('../src/bot.ts');
@@ -22,3 +23,11 @@ test('bot does not suggest a move after a terminal draw',()=>{
   reply=null;self.onmessage({data:{fen:'7k/8/8/8/8/8/8/7K w - - 0 1',depth:3}});
   assert.equal(reply,undefined);
 });
+for (const depth of [1, 2, 3]) {
+  test(`special bot depth ${depth} uses a shared-reserve ultimate to capture a queen`, () => {
+    const g = new SpecialChess('7k/8/8/2q5/8/2N5/7P/K7 w - - 0 1');
+    reply = null; self.onmessage({ data: { fen: g.fen(), depth, special: g.snapshot() } });
+    assert.ok(reply); assert.equal(reply.ultimate, true);
+    const move = g.move(reply); assert.equal(move.captured, 'q'); assert.equal(g.remaining.w, 2);
+  });
+}

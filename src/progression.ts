@@ -1,5 +1,6 @@
 import { Chess, type Color, type Move, type PieceSymbol, type Square } from "chess.js";
 import { analyzeMove, kingSquare } from "../shared/events.js";
+import { SpecialChess, type UltimateMove } from "./special.ts";
 
 export const rivals = {
   1: { name: "อิกนิส", title: "อัศวินเพลิง", skin: "ember", description: "ฝึกอ่านจังหวะและเปิดศึก" },
@@ -112,7 +113,7 @@ const capturePoints: Record<PieceSymbol, number> = { p: 10, n: 30, b: 30, r: 50,
  * all pawns or rooks into one score.
  */
 export function battleMVP(initialFen: string, moves: Move[], owner?: Color): BattleMVP | null {
-  const game = new Chess(initialFen);
+  const game = moves.some(m => (m as UltimateMove).ultimate) ? new SpecialChess(initialFen) : new Chess(initialFen);
   const pieces: BattleMVP[] = game.board().flat().flatMap((piece) => piece
     ? [{ origin: piece.square, color: piece.color, piece: piece.type, score: 0, kills: 0 }]
     : []);
@@ -121,7 +122,7 @@ export function battleMVP(initialFen: string, moves: Move[], owner?: Color): Bat
   for (const recorded of moves) {
     const attacker = occupants.get(recorded.from);
     const before = new Chess(game.fen());
-    const move = game.move({ from: recorded.from, to: recorded.to, promotion: recorded.promotion });
+    const move = game.move(recorded);
     if (!attacker) continue;
     const event = analyzeMove(before, game, move);
     occupants.delete(move.from);

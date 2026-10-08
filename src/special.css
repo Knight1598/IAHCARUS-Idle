@@ -1,0 +1,61 @@
+/* Special Duel: compact board controls, procedural skill identities. */
+#title-screen .title-modes button[data-title-mode="special"] { --mode-color: #c59aff; background: radial-gradient(ellipse at 90% 0, #b378ff38, transparent 80%), linear-gradient(145deg, #342552ee, #141c36f0); }
+#title-screen .title-modes button[data-title-mode="special"] .mode-emblem { color: #dabfff; }
+#special-brief { padding: 18px; border: 1px solid #bd90ff60; border-radius: 14px; background: linear-gradient(135deg, #382454a0, #152b4260); margin-bottom: 16px; }
+.special-heading { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.special-heading > span { display: grid; place-items: center; height: 48px; width: 48px; font-size: 27px; border: 1px solid #ba9af9; border-radius: 12px; background: #9560df22; }
+.special-heading small, #ultimate-guide > small { color: #cfacff; letter-spacing: 2px; font-size: 9px; }
+.special-heading h2 { margin: 5px 0 0; font-size: 19px; color: #f0e5ff; }
+#special-brief > p, #special-brief > small { font-size: 11px; color: #b7bdd5; line-height: 1.7; }
+.ultimate-catalog { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 16px 0; }
+.ultimate-catalog article { display: flex; gap: 9px; padding: 12px 10px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--ultimate-color) 25%, transparent); background: linear-gradient(125deg, color-mix(in srgb, var(--ultimate-color) 8%, #131d30), #131d3080); }
+.ultimate-catalog i { font-style: normal; font-size: 30px; color: var(--ultimate-color); line-height: 1.3; }
+.ultimate-catalog small { display: block; font-size: 7px; letter-spacing: .7px; color: var(--ultimate-color); }
+.ultimate-catalog strong { display: block; color: #eceeff; font-size: 12px; margin: 4px 0; }
+.ultimate-catalog p { margin: 0; font-size: 10px; color: #aebbd2; line-height: 1.6; }
+#ultimate-hud { position: absolute; z-index: 8; top: 106px; left: 16px; width: min(225px, 44%); padding: 11px; border: 1px solid #b58cff55; border-radius: 13px; background: linear-gradient(135deg, #271c40ed, #122940e8); box-shadow: 0 5px 24px #0003; }
+.ultimate-meter > small { font-size: 8px; letter-spacing: 1.6px; color: #bc9beb; }
+.ultimate-meter > div { display: flex; justify-content: space-between; gap: 10px; margin: 6px 0 10px; font-size: 10px; color: #b6c6dc; }
+.ultimate-meter b { display: inline-flex; gap: 3px; margin-left: 4px; }
+.ultimate-meter i { font-style: normal; font-size: 11px; }
+.ultimate-meter .charged { color: #d3afff; text-shadow: 0 0 9px #bf8aff66; }
+.ultimate-meter .spent { color: #49516b; }
+#ultimate-arm { --ultimate-color: #c59aff; width: 100%; display: flex; align-items: center; gap: 9px; padding: 9px; text-align: left; border: 1px solid color-mix(in srgb, var(--ultimate-color) 55%, transparent); border-radius: 9px; background: color-mix(in srgb, var(--ultimate-color) 10%, #151c31); }
+#ultimate-arm > i { font-size: 26px; font-style: normal; color: var(--ultimate-color); }
+#ultimate-arm strong { display: block; font-size: 11px; color: #e6d7ff; }
+#ultimate-arm small { display: block; font-size: 9px; line-height: 1.5; color: #b7b8d0; margin-top: 3px; }
+#ultimate-arm.armed { border-color: var(--ultimate-color); box-shadow: 0 0 18px color-mix(in srgb, var(--ultimate-color) 18%, transparent); }
+#ultimate-confirm { width: 100%; margin-top: 8px; padding: 10px 7px; background: linear-gradient(110deg, #ae86ff, #72e9ff); color: #142038; border-radius: 8px; font-size: 11px; }
+#ultimate-help { display: block; padding: 8px 0 0; width: 100%; font-size: 9px; color: #b4adcf; }
+#stage:has(#arena-drawer:not([hidden])) #ultimate-hud, #stage.cinematic #ultimate-hud { visibility: hidden; }
+#tactical-readout.ultimate-preview { border-color: #bb92ff; background: linear-gradient(115deg, #37224aee, #1a2644e8); }
+#flat-board.ultimate-armed .square.legal::after { background: transparent; width: 45%; height: 45%; top: 27%; left: 27%; border: 2px solid #c79cff; border-radius: 20%; box-shadow: 0 0 9px #bf8aff44; }
+#flat-board.ultimate-armed .square.legal.capture::after { width: 76%; height: 76%; top: 12%; left: 12%; }
+#ultimate-guide { max-width: 480px; width: calc(100% - 24px); max-height: 82dvh; overflow: auto; border: 1px solid #ac84ef88; border-radius: 18px; background: linear-gradient(140deg, #241a39f7, #132a40f7); padding: 22px; }
+#ultimate-guide::backdrop { background: #08112066; backdrop-filter: none; }
+#ultimate-guide h2 { font-size: 21px; }
+#ultimate-guide p { font-size: 11px; line-height: 1.7; }
+#ultimate-guide label { display: block; font-size: 11px; color: #c7b6e8; }
+#ultimate-guide select { display: block; width: 100%; margin-top: 8px; }
+#ultimate-guide-close { width: 100%; }
+@media (min-width: 1000px) { #ultimate-guide { margin-right: 20px; margin-left: auto; } }
+@media (max-width: 600px) {
+  #ultimate-hud { top: 117px; left: 10px; padding: 8px; width: 43%; }
+  .ultimate-meter > small { font-size: 6px; letter-spacing: 1px; }
+  .ultimate-meter > div { font-size: 9px; gap: 4px; margin-bottom: 7px; }
+  .ultimate-meter b { gap: 1px; margin-left: 2px; }
+  .ultimate-meter i { font-size: 9px; }
+  #ultimate-arm { gap: 6px; padding: 7px 5px; }
+  #ultimate-arm > i { font-size: 19px; }
+  #ultimate-arm strong { font-size: 10px; }
+  #ultimate-arm small { font-size: 8px; }
+  #ultimate-help { font-size: 8px; }
+  #special-brief { padding: 12px; }
+  .ultimate-catalog article { gap: 6px; padding: 9px 7px; }
+  .ultimate-catalog i { font-size: 24px; }
+  .ultimate-catalog strong { font-size: 11px; }
+  .ultimate-catalog small { font-size: 6px; }
+  .ultimate-catalog p { font-size: 9px; }
+  #ultimate-guide { padding: 15px; }
+}
+@media (max-height: 550px) and (min-width: 601px) { #ultimate-hud { top: 90px; width: 190px; padding: 8px; } #ultimate-arm small { font-size: 8px; } }

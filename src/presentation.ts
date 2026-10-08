@@ -8,11 +8,12 @@ export interface ResultPresentation {
   unlocks?: string[];
   replay?: boolean;
   continueLabel?: string;
+  rematch?: boolean;
 }
 export class BattlePresentation {
   readonly root: HTMLElement;
   private timer: ReturnType<typeof setTimeout> | undefined;
-  constructor(host: HTMLElement, private callbacks: { continue: () => void; home: () => void; replay?: () => void }) {
+  constructor(host: HTMLElement, private callbacks: { continue: () => void; home: () => void; replay?: () => void; rematch?: () => void }) {
     this.root = document.createElement("section");
     this.root.className = "battle-presentation";
     this.root.setAttribute("aria-label", "เปิดศึกและผลการแข่งขัน");
@@ -50,6 +51,11 @@ export class BattlePresentation {
     const replay = box.querySelector<HTMLButtonElement>('[data-result="replay"]')!;
     replay.hidden = !this.callbacks.replay || result.replay === false;
     replay.onclick = () => { this.clear(); this.callbacks.replay?.(); };
+    if (result.rematch && this.callbacks.rematch) {
+      const rematch = document.createElement("button"); rematch.dataset.result = "rematch"; rematch.textContent = "รีแมตช์ · สลับสี";
+      rematch.onclick = () => { this.clear(); this.callbacks.rematch?.(); };
+      box.querySelector(".battle-result-actions")!.append(rematch);
+    }
     this.root.append(box);
   }
   clear() {

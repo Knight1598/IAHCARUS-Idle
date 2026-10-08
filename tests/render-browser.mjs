@@ -98,6 +98,28 @@ try {
     await page.waitForTimeout(150);
     assert.equal(await page.evaluate(() => fixture.renderer.info.memory.geometries), initial.geometries, 'target previews must release transient geometry');
     console.log('PASS: procedural board plates, batched coordinates/reticles, real 3D hover capture preview without moving, leave cleanup and repeated selection memory');
+    await page.evaluate(async () => {
+      const { SpecialChess } = await import('/src/special.ts');
+      const { analyzeMove } = await import('/shared/events.js');
+      const board = new SpecialChess('7k/8/8/2r5/8/2N5/7P/K7 w - - 0 1');
+      fixture.renderBoard(board); board.armed = 'c3'; fixture.select(board, 'c3'); fixture.previewTarget('c5');
+      const route = fixture.aim.children.find(o => o.userData.role === 'move-preview');
+      if (route.geometry.attributes.position.count !== 2) throw Error('Knight ultimate must preview a straight queen line');
+      if (!fixture.groundAuras.children.some(o => o.userData.role === 'ultimate-ready')) throw Error('Ready pieces need visible badges');
+      fixture.showUltimateThreats(['d4', 'e3']); fixture.renderBoard(board);
+      if (fixture.aim.children.length) throw Error('Threat geometry survived board rebuild');
+      const before = new fixtureChess(board.fen());
+      const move = board.move({ from: 'c3', to: 'c5', ultimate: true });
+      fixture.play(before, board, move, analyzeMove(before, board, move));
+      if (!fixture.animation.dramatic || document.querySelector('#stage').dataset.ultimate !== 'n') throw Error('Ultimate did not trigger its cinematic');
+      if (fixture.animation.vfx.chargeGroup.children.length < 2) throw Error('Ultimate charge crown/seal missing');
+      fixture.finish();
+      if (fixture.fx.children.length || document.querySelector('#stage').dataset.ultimate) throw Error('Ultimate resources survived its animation');
+      fixture.renderBoard(new fixtureChess());
+    });
+    await page.waitForTimeout(150);
+    assert.equal(await page.evaluate(() => fixture.renderer.info.memory.geometries), initial.geometries, 'ultimate badges, charge crown and threat inspection must release GPU geometry');
+    console.log('PASS: ultimate queen-line preview, ready badges, cinematic charge crown, threat rebuild and GPU cleanup');
     await page.evaluate(() => {
       window.savedCamera = fixture.camera.position.toArray();
       fixture.setQuality("low");
