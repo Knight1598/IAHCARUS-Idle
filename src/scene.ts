@@ -291,7 +291,17 @@ export class ChessScene {
     this.afterAppearances = afterAppearances ? { ...afterAppearances } : undefined;
   }
   private paused = false;
+  private pausedAt?: number;
   setPaused(paused: boolean) {
+    if (paused !== this.paused && !this.showcaseHost) {
+      if (paused) this.pausedAt = performance.now();
+      else if (this.pausedAt !== undefined) {
+        const elapsed = performance.now() - this.pausedAt;
+        if (this.animation) this.animation.start += elapsed;
+        if (this.celebration) this.celebration.start += elapsed;
+        this.pausedAt = undefined;
+      }
+    }
     this.paused = paused;
     this.controls.enabled = (!paused || !!this.showcaseHost) && !this.animation;
     this.dirty = true;

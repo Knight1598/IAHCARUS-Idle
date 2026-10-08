@@ -73,6 +73,7 @@ $("#app").innerHTML =
     )}</select><p id="training-hint" class="muted"></p></details><section class="history"><div class="section-title"><h2>บันทึกการประลอง</h2><button id="export" class="text-button">PGN ↓</button></div><div id="moves"></div></section><footer>โมเดล แสง และพลังทั้งหมดสร้างจากโค้ด<br>ไม่มีการเปลี่ยนความสามารถของหมาก</footer></aside></div></div><dialog id="promotion"><small>ASCENSION</small><h2>เลือกหมากเพื่อเลื่อนขั้น</h2><div class="promotion-options">${(["q", "r", "b", "n"] as const).map((p) => `<button data-piece="${p}"><span>${symbols.w[p]}</span>${names[p]}</button>`).join("")}</div><button id="cancel-promotion" class="text-button">ยกเลิก</button></dialog><dialog id="help-dialog"><small>HOW TO PLAY</small><h2>ทุกตาคือการตัดสินใจ</h2><p>เลือกหมากของฝ่ายที่ถึงตา แล้วเลือกช่องเรืองแสงเพื่อเดิน สีชมพูคือช่องกินหมาก</p><p>ลากเพื่อหมุนกระดาน เลื่อนเพื่อซูม หรือใช้กระดาน 2D ด้วยคีย์บอร์ด</p><p>กติกาหมากรุกมาตรฐาน: คิงจะไม่ถูกกิน เกมจบเมื่อรุกฆาต ท่าสเปเชียลเป็นภาพประกอบการเดิน และข้ามได้เสมอ</p><p>ออนไลน์: สร้างห้องแล้วส่งลิงก์ให้เพื่อน ฝ่ายละ 5 นาที เวลาเดินตามเซิร์ฟเวอร์ รวมเวลาคัตซีน หากรีเฟรชจะกลับเข้าห้องจากเบราว์เซอร์เดิม</p><p>เล่นกับบอต: เลือกเล่นขาวหรือดำได้ เปลี่ยนฝ่ายจะเริ่มเกมใหม่ ย้อนตาจะกลับไปก่อนตาของคุณ ปรับระดับได้ก่อนตาถัดไป</p><button id="close-help" class="primary">เข้าใจแล้ว</button></dialog>`;
 const hud = new ArenaHUD();
 let menuOpen = true;
+let matchPaused = false;
 let eventTimer: ReturnType<typeof setTimeout> | undefined;
 function newMatchId() { return globalThis.crypto?.randomUUID?.() || `match-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 let matchId = newMatchId();
@@ -266,7 +267,7 @@ function isBusy() {
   return !!scene?.animation || !!worker;
 }
 function canPlay() {
-  if (menuOpen || isBusy() || game.isGameOver() || localResult) return false;
+  if (menuOpen || matchPaused || isBusy() || game.isGameOver() || localResult) return false;
   if (mode === "bot" && game.turn() !== humanColor) return false;
   if (mode === "online")
     return (
@@ -297,7 +298,7 @@ function updateUI() {
   checkRewards();
   const result = mode === "online" ? state?.result : localResult;
   const turn = game.turn();
-  $("#status").textContent = result
+  $("#status").textContent = matchPaused ? "พักการประลอง" : result
     ? resultText(result)
     : game.isCheckmate()
       ? `รุกฆาต · ฝ่าย${turn === "w" ? "ดำ" : "ขาว"}ชนะ`
@@ -360,8 +361,12 @@ function updateUI() {
     $(`#${humanColor === "w" ? "black" : "white"}-label`).textContent = `${rival.name} · ${rival.title}`;
   }
   $("#training-panel").hidden = mode === "online";
+  $('[data-hud-open="training"]').hidden = mode === "online";
+  $(".pause-caption").textContent = mode === "online"
+    ? "แมตช์ออนไลน์ยังดำเนินต่อ · นาฬิกาจะไม่หยุด" : "พักวางแผน แล้วกลับไปสร้างตำนาน";
   $("#online-panel").hidden = mode !== "online";
   $("#local-actions").hidden = mode === "online";
+  $("#undo").hidden = mode === "online";
   $("#resign").hidden = mode !== "online" || !state?.started || !!state.result;
   $("#difficulty").hidden = mode !== "bot" || !!activeTrial;
   $("#side-control").hidden = mode !== "bot" || !!activeTrial;
@@ -649,7 +654,7 @@ function applyBotReply() {
     commitMove(reply.move.from, reply.move.to, reply.move.promotion);
 }
 function scheduleBot() {
-  if (menuOpen || mode !== "bot" || game.turn() === humanColor || game.isGameOver() || localResult) {
+  if (menuOpen || matchPaused || mode !== "bot" || game.turn() === humanColor || game.isGameOver() || localResult) {
     stopBot();
     return;
   }
@@ -739,6 +744,8 @@ function setMode(next: Mode) {
   if (mode === next) return;
   disconnect();
   mode = next;
+  matchPaused = !hud.drawer.hidden && next !== "online";
+  scene?.setPaused(matchPaused);
   newLocal();
   if (!OFFLINE && next === "online") { connect(); hud.open("room"); }
 }
@@ -879,6 +886,7 @@ if (!OFFLINE) setInterval(updateClocks, 200);
 for (const b of document.querySelectorAll<HTMLButtonElement>("[data-mode]"))
   b.onclick = () => setMode(b.dataset.mode as Mode);
 $("#reset").onclick = () => {
+  hud.close();
   if (activeTrial) { launchTrial(activeTrial); return; }
   if (OFFLINE && activeTraining) mode = "bot";
   newLocal();
@@ -1155,6 +1163,8 @@ renderGameBoard();
 scene?.resetView(mode === "bot" && humanColor === "b");
 updateUI();
 const title = new TitleScreen($("#app"), OFFLINE, {
+  settings: (host) => hud.attachSettings(host),
+  help: () => $<HTMLDialogElement>("#help-dialog").showModal(),
   selectSkin: (skin) => { selectSkin(skin); title.refresh(profile); },
   selectPiece: (color, origin, skin) => { selectPiece(color, origin, skin); title.refresh(profile); },
   selectArena: (id) => { selectArena(id); title.refresh(profile); },
@@ -1267,6 +1277,7 @@ function launchTrial(key: keyof typeof trials) {
 }
 function enterBoard() {
   menuOpen = false;
+  matchPaused = false;
   document.body.classList.add("arena-playing");
   hud.close();
   title.hide();
@@ -1310,12 +1321,14 @@ function openTitle() {
   clearSelection();
   clearBattleToast();
   menuOpen = true;
+  matchPaused = false;
   clearTimeout(eventTimer);
   document.body.classList.remove("arena-playing");
   hud.close();
   scene?.setPaused(true);
   $("#game-shell").hidden = true;
   title.show(profile, {
+    view: "menu",
     mode: mode === "online" && !OFFLINE ? "online" : activeTrial ? "campaign" : activeTraining ? "training" : mode,
     side: humanColor,
     depth: $<HTMLSelectElement>("#difficulty").value,
@@ -1323,8 +1336,14 @@ function openTitle() {
     training: activeTraining || "pawn",
     trial: activeTrial || "rescue",
   });
-  title.root.querySelector<HTMLButtonElement>("#launch-start")?.focus({ preventScroll: true });
   scrollTo(0, 0);
 }
 $("#title-return").onclick = openTitle;
+hud.onPauseChange = (paused) => {
+  if (menuOpen) return;
+  matchPaused = paused && mode !== "online";
+  if (matchPaused) { stopBot(); stopSounds(); scene?.setPaused(true); }
+  else { scene?.setPaused(false); scheduleBot(); }
+  updateUI();
+};
 title.show(profile, { mode: mode === "online" && !OFFLINE ? "online" : activeTrial ? "campaign" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot", side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn", trial: activeTrial || "rescue" });

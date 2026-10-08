@@ -1,9 +1,12 @@
-type Panel = "settings" | "training" | "history" | "missions" | "room";
+type Panel = "pause" | "settings" | "training" | "history" | "missions" | "room";
 /** Reuses existing game controls; drawers never resize or move the board. */
 export class ArenaHUD {
   readonly drawer: HTMLElement;
   private panels = new Map<Panel, HTMLElement>();
   private trigger: HTMLButtonElement | null = null;
+  onPauseChange?: (paused: boolean) => void;
+  private settingsHome: HTMLElement;
+  private backdrop: HTMLButtonElement;
   constructor() {
     const get = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
     const stage = get("#stage"), aside = get("aside");
@@ -13,7 +16,9 @@ export class ArenaHUD {
     aside.replaceChildren();
     aside.hidden = true;
     aside.setAttribute("aria-label", "เมนูสนามประลอง");
-    aside.innerHTML = '<div class="drawer-head"><h2 id="drawer-title"></h2><button id="drawer-close" aria-label="ปิดเมนู">✕</button></div>';
+    aside.setAttribute("role", "dialog");
+    aside.setAttribute("aria-modal", "true");
+    aside.innerHTML = '<div class="drawer-head"><button id="drawer-back" aria-label="กลับเมนูพักเกม">←</button><h2 id="drawer-title"></h2><button id="drawer-close" aria-label="ปิดเมนู">✕</button></div>';
     const info = document.createElement("section");
     info.className = "hud-info";
     info.innerHTML = '<div class="hud-players"></div>';
@@ -23,6 +28,7 @@ export class ArenaHUD {
     stage.append(info);
     stage.append(children.find((el) => el.id === "notice")!);
     const groups: Record<Panel, string[]> = {
+      pause: [],
       settings: [".settings", "#side-control"], training: ["#training-panel"],
       history: [".history"], missions: [".material-panel", "#missions", "#battle-log-panel"],
       room: [".tabs", "#online-panel", ".match-head", "footer"],
@@ -34,9 +40,11 @@ export class ArenaHUD {
     }
     const dock = document.createElement("nav");
     dock.id = "hud-dock"; dock.setAttribute("aria-label", "เครื่องมือสนามประลอง");
-    dock.innerHTML = '<div class="hud-actions"></div><div class="hud-menus"><button data-hud-open="settings">⚙ ตั้งค่า</button><button data-hud-open="training">✦ ฝึก</button><button data-hud-open="missions">☆ ภารกิจ</button><button data-hud-open="history">≡ บันทึก</button><button data-hud-open="room">⌘ โหมด</button></div>';
+    dock.innerHTML = '<div class="hud-actions"></div><button id="pause-game" aria-label="เมนูพักเกม" aria-controls="arena-drawer" aria-expanded="false">☰ <span>เมนู</span></button>';
     const actions = dock.firstElementChild!;
-    actions.append(children.find((el) => el.id === "local-actions")!);
+    const undo = children.find((el) => el.id === "local-actions")!.querySelector<HTMLButtonElement>("#undo")!;
+    undo.textContent = "↶"; undo.title = "ย้อนตา"; undo.setAttribute("aria-label", "ย้อนตา");
+    actions.append(undo);
     for (const id of ["view", "flip", "skip"]) actions.append(get("#" + id));
     const board = children.find((el) => el.id === "board-details") as HTMLDetailsElement;
     board.querySelector("summary")!.textContent = "2D";
@@ -48,10 +56,21 @@ export class ArenaHUD {
       input.dispatchEvent(new Event("change")); this.syncSound();
     };
     actions.append(mute);
-    actions.append(children.find((el) => el.id === "resign")!);
+    const pause = this.panels.get("pause")!;
+    pause.innerHTML = '<p class="pause-caption">พักวางแผน แล้วกลับไปสร้างตำนาน</p><button id="pause-resume" class="primary">กลับสู่การประลอง →</button><nav class="pause-menu"><button data-hud-open="missions">☆ ภารกิจและสถานการณ์</button><button data-hud-open="history">≡ บันทึกการเดิน</button><button data-hud-open="settings">⚙ ภาพและเสียง</button><button data-hud-open="training">✦ สนามฝึก</button><button data-hud-open="room">⌘ ห้องออนไลน์</button></nav><div class="pause-match-actions"></div>';
+    const matchActions = pause.querySelector(".pause-match-actions")!;
+    matchActions.append(children.find((el) => el.id === "local-actions")!, children.find((el) => el.id === "resign")!);
+    const home = get("#title-return"); home.textContent = "กลับเมนูหลัก";
+    const help = get("#help"); help.textContent = "วิธีเล่น"; help.classList.remove("icon");
+    matchActions.append(home, help);
+    this.settingsHome = this.panels.get("settings")!;
+    this.backdrop = document.createElement("button");
+    this.backdrop.id = "pause-backdrop"; this.backdrop.hidden = true; this.backdrop.tabIndex = -1;
+    this.backdrop.setAttribute("aria-label", "กลับสู่เกม"); this.backdrop.onclick = () => this.close();
+    stage.append(this.backdrop);
     stage.append(dock);
     stage.append(aside);
-    dock.querySelectorAll<HTMLButtonElement>("[data-hud-open]").forEach((button) => {
+    aside.querySelectorAll<HTMLButtonElement>("[data-hud-open]").forEach((button) => {
       button.setAttribute("aria-controls", "arena-drawer"); button.setAttribute("aria-expanded", "false");
       button.onclick = () => {
         if (!aside.hidden && aside.dataset.panel === button.dataset.hudOpen) this.close();
@@ -59,29 +78,54 @@ export class ArenaHUD {
       };
     });
     get("#drawer-close").onclick = () => this.close();
+    get("#drawer-back").onclick = () => this.open("pause");
+    get("#pause-game").onclick = () => aside.hidden ? this.open("pause") : this.close();
+    get("#pause-resume").onclick = () => this.close();
     board.addEventListener("toggle", () => { if (board.open) this.close(); });
     document.addEventListener("keydown", (event) => {
+      if (get("#game-shell").hidden || document.querySelector("dialog[open]")) return;
       if (event.key === "Escape" && !document.querySelector("dialog[open]")) {
         if (!aside.hidden) { event.preventDefault(); this.close(); }
+        else if (document.querySelector<HTMLButtonElement>(".battle-result-close")) {
+          event.preventDefault(); document.querySelector<HTMLButtonElement>(".battle-result-close")!.click();
+        }
         else if (board.open) board.open = false;
+        else { event.preventDefault(); this.open("pause"); }
+      }
+      if (event.key === "Tab" && !aside.hidden) {
+        const items = [...aside.querySelectorAll<HTMLElement>('button:not(:disabled), select, input, summary')].filter((el) => el.getClientRects().length);
+        const first = items[0], last = items.at(-1);
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
       }
     });
     this.syncSound();
   }
   open(name: Panel) {
-    const titles = { settings: "ภาพและเสียง", training: "สนามฝึก", history: "บันทึกการประลอง", missions: "ภารกิจและสถานการณ์", room: "โหมดและห้องออนไลน์" };
+    const titles = { pause: "พักการประลอง", settings: "ภาพและเสียง", training: "สนามฝึก", history: "บันทึกการประลอง", missions: "ภารกิจและสถานการณ์", room: "ห้องออนไลน์" };
+    if (this.drawer.hidden) this.onPauseChange?.(true);
     for (const [key, panel] of this.panels) panel.hidden = key !== name;
     this.drawer.hidden = false; this.drawer.dataset.panel = name;
+    this.backdrop.hidden = false;
+    this.drawer.querySelector<HTMLElement>("#drawer-back")!.hidden = name === "pause";
     this.drawer.scrollTop = 0;
     this.drawer.querySelector("#drawer-title")!.textContent = titles[name];
     document.querySelectorAll<HTMLButtonElement>("[data-hud-open]").forEach((button) => button.setAttribute("aria-expanded", String(button.dataset.hudOpen === name)));
-    this.trigger = document.querySelector(`[data-hud-open="${name}"]`);
-    this.drawer.querySelector<HTMLButtonElement>("#drawer-close")!.focus({ preventScroll: true });
+    this.trigger = document.querySelector("#pause-game");
+    this.trigger?.setAttribute("aria-expanded", "true");
+    this.drawer.querySelector<HTMLButtonElement>(name === "pause" ? "#pause-resume" : "#drawer-close")!.focus({ preventScroll: true });
   }
   close() {
+    const wasOpen = !this.drawer.hidden;
     this.drawer.hidden = true;
+    this.backdrop.hidden = true;
+    if (wasOpen) this.onPauseChange?.(false);
     document.querySelectorAll<HTMLButtonElement>("[data-hud-open]").forEach((button) => button.setAttribute("aria-expanded", "false"));
     this.trigger?.focus({ preventScroll: true });
+    this.trigger?.setAttribute("aria-expanded", "false");
+  }
+  attachSettings(host: HTMLElement | null) {
+    (host || this.settingsHome).prepend(document.querySelector(".settings")!);
   }
   syncSound() {
     const enabled = document.querySelector<HTMLInputElement>("#sound")!.checked;

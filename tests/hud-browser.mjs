@@ -16,6 +16,17 @@ try {
   await page.route(url, (route) => route.fulfill({ contentType: "text/html", body: readFileSync("offline/Special-Chess-Offline.html", "utf8") }));
   await page.setViewportSize({ width: 1100, height: 800 });
   await page.goto(url); await enterGame(page, "bot");
+  assert.equal(await page.locator("#game-shell > header").isVisible(), false);
+  assert.equal((await page.locator("#stage").boundingBox()).y, 0);
+  await page.keyboard.press("Escape");
+  assert.equal(await page.locator("#arena-drawer").getAttribute("data-panel"), "pause");
+  assert.match(await page.locator("#status").innerText(), /พัก/);
+  await page.locator("#drawer-close").focus();
+  await page.keyboard.press("Shift+Tab");
+  assert.equal(await page.evaluate(() => document.activeElement.id), "help");
+  await page.keyboard.press("Tab");
+  assert.equal(await page.evaluate(() => document.activeElement.id), "drawer-close");
+  await page.keyboard.press("Escape");
   mkdirSync("test-results", { recursive: true });
   for (const [name, width, height] of [["desktop", 1100, 800], ["mobile", 390, 844], ["landscape", 844, 390]]) {
     await page.setViewportSize({ width, height });
@@ -48,6 +59,15 @@ try {
   await page.locator('[data-square="c3"]').click();
   await page.locator('[data-square="d5"]').click();
   await page.waitForFunction(() => !!document.querySelector("#stage").dataset.movePhase);
+  await openPanel(page, "pause");
+  const pausedPhase = await page.locator("#stage").getAttribute("data-move-phase");
+  assert.ok(pausedPhase, "pause must freeze a live combat sequence");
+  const pausedSave = await page.evaluate(() => localStorage.getItem("special-chess-offline-game"));
+  await page.waitForTimeout(250);
+  assert.equal(await page.locator("#stage").getAttribute("data-move-phase"), pausedPhase);
+  assert.equal(await page.evaluate(() => localStorage.getItem("special-chess-offline-game")), pausedSave);
+  await page.screenshot({ path: "test-results/pause-mobile.png" });
+  await closePanel(page);
   // Quick mute must leave the attack running, rather than skip the animation.
   await page.locator("#hud-mute").click();
   assert.equal(await page.locator("#sound").isChecked(), false);

@@ -1,4 +1,4 @@
-import { enterGame, openPanel, closePanel } from "./enter-game.mjs";
+import { enterGame, openPanel, closePanel, resetGame } from "./enter-game.mjs";
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
@@ -67,7 +67,7 @@ try {
     () => document.querySelectorAll("#moves .san").length === 1,
   );
   await page.locator("#skip").click();
-  await page.locator("#reset").click();
+  await resetGame(page);
   await closePanel(page);
   await page.locator("#board-details summary").click();
   async function square(p, s) {
@@ -94,7 +94,7 @@ try {
   await page.locator("#board-details summary").click();
   assert.match(await page.locator("#moves").innerText(), /d5/);
   console.log("checkmate test");
-  await page.locator("#reset").click();
+  await resetGame(page);
   for (const [f, t] of [
     ["f2", "f3"],
     ["e7", "e5"],
@@ -117,7 +117,7 @@ try {
   );
   console.log("castling test");
   // Castling is represented by both pieces, even when animation is skipped.
-  await page.locator("#reset").click();
+  await resetGame(page);
   for (const [f, t] of [
     ["e2", "e4"],
     ["e7", "e5"],
@@ -224,10 +224,15 @@ try {
   await guest.locator("#board-details summary").click();
   await openPanel(guest, "settings");
   await guest.locator("#reduced").check();
+  assert.match(await guest.locator(".pause-caption").textContent(), /นาฬิกาจะไม่หยุด/);
+  const clockBefore = await guest.locator("#white-clock").textContent();
+  await guest.waitForTimeout(1200);
+  assert.notEqual(await guest.locator("#white-clock").textContent(), clockBefore, "online clock keeps running in the menu");
   await move(page, "e2", "e4");
   await guest.waitForFunction(
     () => document.querySelectorAll("#moves .san").length === 1,
   );
+  await closePanel(guest);
   await guest.locator("#skip").click();
   await move(guest, "e7", "e5");
   await page.waitForFunction(
@@ -240,7 +245,7 @@ try {
     () => document.querySelectorAll("#moves .san").length === 2,
   );
   assert.match(await guest.locator("#black-label").innerText(), /คุณ/);
-  await guest.locator("#resign").click();
+  await openPanel(guest, "pause"); await guest.locator("#resign").click();
   await page.waitForFunction(() =>
     document.querySelector("#status").textContent.includes("ยอมแพ้"),
   );

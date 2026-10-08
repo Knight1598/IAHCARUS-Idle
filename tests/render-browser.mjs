@@ -176,6 +176,20 @@ try {
       fixture.frame(now); fixture.setPaused(true);
     });
     await page.waitForFunction(() => document.querySelector("#stage").dataset.movePhase === "charge");
+    const beforePause = await page.evaluate(() => {
+      // Restart the pause window in this call; software rendering may delay the
+      // earlier frame/waitForFunction before the timestamp can be sampled.
+      fixture.setPaused(false); fixture.setPaused(true);
+      return { start: fixture.animation.start, now: performance.now() };
+    });
+    await page.waitForTimeout(200);
+    const afterPause = await page.evaluate(() => {
+      fixture.setPaused(false);
+      const state = { start: fixture.animation.start, now: performance.now() };
+      fixture.setPaused(true); return state;
+    });
+    assert.ok(afterPause.start - beforePause.start >= 190, "paused combat must preserve its animation time");
+    assert.ok(Math.abs((afterPause.now - beforePause.now) - (afterPause.start - beforePause.start)) < 30, "resuming must not jump through the paused portion");
     assert.equal(await page.evaluate(() => fixture.animation.object.position.distanceTo(fixture.animation.from)), 0);
     assert.equal(await page.evaluate(() => fixture.animation.lock.name), "destination-lock");
     await page.evaluate(() => {

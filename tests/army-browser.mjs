@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { chromium } from 'playwright';
-import { enterGame, openPanel, closePanel } from './enter-game.mjs';
+import { enterGame, openPanel, closePanel, enterMenu, chooseMode, launchPrepared, returnToMenu } from './enter-game.mjs';
 
 const browser = await chromium.launch({
   ...(process.env.CHROMIUM_PATH || existsSync('/usr/bin/chromium') ? { executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium' } : {}),
@@ -18,7 +18,8 @@ try {
   await page.locator('#lobby-preview canvas').waitFor();
   const profile = () => page.evaluate(() => JSON.parse(localStorage.getItem('special-chess-profile')));
   // Two identical classes receive independent cosmetics; both armies retain them.
-  await page.locator('#lobby-armory-tab').click();
+  await enterMenu(page);
+  await page.locator('[data-menu-go="armory"]').click();
   await page.locator('[data-piece-origin="b1"]').click();
   await page.locator('[data-piece-skin-option="ember"]').click();
   await page.locator('[data-piece-origin="g1"]').click();
@@ -35,7 +36,9 @@ try {
   await page.locator('#lobby-preview canvas').waitFor();
   assert.deepEqual((await profile()).loadouts, equipped.loadouts);
   // Selecting black in the launch options must also select a real black origin slot.
+  await chooseMode(page, 'bot');
   await page.locator('#launch-side').selectOption('b');
+  await page.locator('#flow-next').click();
   await page.locator('#lobby-armory-tab').click();
   assert.match(await page.locator('#armory-slot').innerText(), /b8/);
   await page.locator('[data-piece-skin-option="frost"]').click();
@@ -57,21 +60,19 @@ try {
     await page.screenshot({ path: `test-results/armory-${viewport.width}.png` });
   }
   await page.setViewportSize({ width: 1200, height: 850 });
-  await page.locator('#lobby-battle-tab').click();
   await enterGame(page, 'local');
   assert.equal(await page.locator('#stage canvas:not(.battle-overlay)').count(), 1);
   assert.equal(await page.locator('#lobby-preview canvas').count(), 0);
   assert.deepEqual((await profile()).loadouts, { w: { b1: 'ember', g1: 'frost' }, b: { e7: 'ember', b8: 'frost' } });
   await openPanel(page, 'settings'); await page.locator('#reduced').check(); await closePanel(page);
-  await page.locator('#title-return').click();
+  await returnToMenu(page);
   async function ensureBoard() {
     if (!await page.locator('#board-details').evaluate(el => el.open)) await page.locator('#board-details summary').click();
   }
   async function launchTrial(key) {
-    await page.locator('#lobby-battle-tab').click();
-    await page.locator('[data-title-mode="campaign"]').click();
+    await chooseMode(page, 'campaign');
     await page.locator('#launch-trial').selectOption(key);
-    await page.locator('#launch-start').click();
+    await launchPrepared(page);
     await page.locator('#stage canvas:not(.battle-overlay)').waitFor();
     await ensureBoard();
   }
@@ -131,9 +132,9 @@ try {
   assert.equal(await page.locator('#stage').getAttribute('data-victory-pose'), 'w');
   // Deployed training pieces keep the equipped class skin, even away from b1.
   await page.locator('[data-result="home"]').click();
-  await page.locator('[data-title-mode="training"]').click();
+  await chooseMode(page, "training");
   await page.locator('#launch-scenario').selectOption('knight');
-  await page.locator('#launch-start').click();
+  await launchPrepared(page);
   await openPanel(page, 'settings'); await page.locator('#battle-events').uncheck(); await closePanel(page);
   await ensureBoard(); await move('c3', 'd5');
   await page.locator('.battle-result').waitFor();

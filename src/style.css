@@ -858,50 +858,59 @@ dialog p {
   .header-actions { gap: 8px; }
 }
 
-/* Arena HUD: the board keeps its viewport; only one utility drawer opens. */
+/* The board owns the whole viewport; secondary controls live in pause. */
 body.arena-playing { overflow: hidden; }
 #game-shell { height: 100dvh; overflow: hidden; }
-#game-shell header { height: 56px; padding: 0 18px; }
-#game-shell .brand { font-size: 13px; }
-#game-shell .brand-mark { font-size: 30px; }
-#game-shell .brand small { font-size: 7px; }
-#game-shell .header-actions { gap: 10px; }
-#game-shell .layout { display: block; height: calc(100dvh - 56px); min-height: 0; }
+#game-shell > header { display: none; }
+#game-shell .layout { display: block; height: 100dvh; min-height: 0; }
 #game-shell #stage { height: 100%; min-height: 0; }
-#arena-drawer { position: absolute; z-index: 12; top: 62px; right: 14px; bottom: 124px; width: min(320px, calc(100% - 28px)); padding: 14px; border: 1px solid #415976; border-radius: 14px; background: #101b2bf5; box-shadow: 0 10px 45px #0008; backdrop-filter: blur(14px); overflow-y: auto; }
-.drawer-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; position: sticky; top: -14px; padding: 8px 0; background: #101b2b; z-index: 2; }
-.drawer-head h2 { margin: 0; font-size: 14px; color: var(--gold); }
-#drawer-close { padding: 6px 10px; }
-#arena-drawer .match-head, #arena-drawer footer { display: none; }
-#arena-drawer .settings, #arena-drawer .history { margin: 0; border: 0; padding: 0; }
-#arena-drawer #moves, #arena-drawer #battle-log { max-height: none; }
-#arena-drawer details { margin: 10px 0; }
-.hud-info { position: absolute; top: 12px; left: 16px; z-index: 3; max-width: min(380px, calc(100% - 32px)); pointer-events: none; }
-.hud-players { display: flex; gap: 8px; }
-.hud-info .player { padding: 6px 10px; gap: 7px; border-radius: 8px; background: #101a28cf; }
-.hud-info .avatar { width: 24px; height: 28px; font-size: 24px; }
-.hud-info .player strong { font-size: 10px; }
-.hud-info .player small { font-size: 9px; margin: 0; }
-.hud-info .clock { font-size: 15px; margin-left: 8px; }
-.hud-info #status { min-height: 0; padding: 5px 10px; margin: 5px 0 0; font-size: 11px; background: #0b1421bd; border-radius: 6px; }
-.hud-info #result, .hud-info #xp-reward { font-size: 11px; padding: 6px 10px; margin: 5px 0; }
-.arena-top { left: auto; right: 16px; top: 18px; flex-direction: column; text-align: right; gap: 6px; font-size: 8px; }
-#hud-dock { position: absolute; z-index: 10; bottom: max(10px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); display: grid; gap: 7px; padding: 8px; border: 1px solid #34475e; border-radius: 14px; background: #0d1725ed; backdrop-filter: blur(14px); width: max-content; max-width: calc(100% - 16px); }
-.hud-actions, .hud-menus { display: flex; gap: 6px; align-items: center; justify-content: center; }
-#hud-dock button, #board-details > summary { padding: 7px 10px; font-size: 11px; min-height: 33px; white-space: nowrap; }
-#hud-dock button.icon { width: 33px; height: 33px; padding: 0; font-size: 19px; }
+#arena-drawer { position: absolute; z-index: 17; top: 50%; right: 4%; translate: 0 -50%; width: min(380px, calc(100% - 32px)); max-height: calc(100% - 40px); padding: 22px; border: 1px solid #b89a5f50; border-radius: 5px; background: linear-gradient(145deg, #14283cf5, #0c1625fa); box-shadow: 0 15px 60px #0007; overflow-y: auto; scrollbar-width: thin; }
+#pause-backdrop { position: absolute; inset: 0; z-index: 16; width: 100%; height: 100%; border: 0; border-radius: 0; background: linear-gradient(90deg, #07101c60, #07101cb5); cursor: default; }
+.drawer-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.drawer-head h2 { flex: 1; font-size: 19px; color: #e7d0a9; margin: 0; }
+.drawer-head button { padding: 6px 10px; background: none; border-color: #71839a30; }
+#arena-drawer [data-hud-panel] { padding-top: 0; }
+#arena-drawer .settings { border: 0; padding: 0; margin: 0; gap: 15px; }
+#arena-drawer .settings label { font-size: 12px; }
+#arena-drawer details { margin-top: 12px; }
+#arena-drawer .history { max-height: none; }
+#arena-drawer footer { position: static; margin: 16px 0 0; padding: 10px; }
+#arena-drawer .match-head { display: none; }
+#arena-drawer #local-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+#arena-drawer #difficulty { flex: 1; min-width: 0; font-size: 12px; }
+.pause-caption { color: #8da8be; font-size: 12px; margin: 0 0 20px; line-height: 1.8; }
+#pause-resume { width: 100%; padding: 15px; margin-bottom: 18px; background: linear-gradient(100deg, #cba66c, #ead1a1); color: #17202b; border-color: #e0bd84; border-radius: 3px; }
+.pause-menu { display: grid; gap: 6px; }
+.pause-menu button { text-align: left; border-radius: 3px; padding: 12px 15px; background: #142338a8; border-color: #7592aa30; }
+.pause-match-actions { display: grid; gap: 10px; margin-top: 20px; padding-top: 18px; border-top: 1px solid #647d9530; }
+.pause-match-actions > button { background: none; font-size: 12px; }
+.hud-info { position: absolute; top: max(14px, env(safe-area-inset-top)); left: 18px; right: 18px; z-index: 8; pointer-events: none; }
+.hud-players { display: flex; justify-content: space-between; gap: 18px; }
+.hud-info .player { min-width: 165px; margin: 0; padding: 9px 13px; border: 1px solid #536b8555; border-radius: 4px; background: #0c1727bf; }
+.hud-info .player.current { border-color: #d8b777aa; background: #a083391c; }
+.hud-info .avatar { width: 32px; height: 32px; font-size: 22px; }
+.hud-info .player strong { font-size: 11px; }
+.hud-info .player small { font-size: 10px; }
+.hud-info .clock { margin-left: 10px; font-size: 15px; }
+.hud-info #status { position: absolute; top: 1px; left: 50%; transform: translateX(-50%); min-height: 0; padding: 9px 18px; margin: 0; font-size: 12px; text-align: center; background: #0b1421b8; border: 1px solid #546b7d33; border-radius: 3px; width: max-content; max-width: 38%; }
+.hud-info #result, .hud-info #xp-reward { width: fit-content; font-size: 11px; padding: 6px 10px; margin: 6px 0 0; background: #0b1421b8; }
+.arena-top { left: 50%; right: auto; top: 59px; transform: translateX(-50%); font-size: 8px; gap: 10px; white-space: nowrap; }
+#hud-dock { position: absolute; z-index: 10; bottom: max(14px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); display: flex; gap: 14px; padding: 7px 10px; border: 1px solid #6a81964a; border-radius: 5px; background: #0d1725e8; width: max-content; max-width: calc(100% - 20px); }
+.hud-actions { display: flex; gap: 7px; align-items: center; }
+#hud-dock button, #board-details > summary { padding: 8px 10px; font-size: 11px; min-height: 36px; white-space: nowrap; }
+#hud-dock button.icon { width: 36px; height: 36px; padding: 0; font-size: 19px; }
+#hud-dock #undo { font-size: 19px; padding-block: 4px; }
+#hud-dock #pause-game { color: #e8cfa0; border-color: #caa86c60; }
 #hud-dock button[aria-expanded="true"] { border-color: var(--gold); color: var(--gold); }
-#hud-dock #local-actions { margin: 0; display: flex; gap: 6px; flex-wrap: nowrap; }
-#hud-dock #difficulty { width: 80px; padding: 7px 6px; font-size: 10px; height: 33px; }
 #board-details { margin: 0; padding: 0; border: 0; }
 #board-details > summary { list-style: none; border: 1px solid #34465f; border-radius: 8px; background: #182334; cursor: pointer; }
 #board-details > summary::-webkit-details-marker { display: none; }
 #board-details[open] > summary { color: var(--mint); border-color: var(--mint); }
-#flat-board { position: absolute; bottom: calc(100% + 16px); left: 50%; transform: translateX(-50%); width: min(410px, calc(100vw - 24px), calc(100dvh - 250px)); margin: 0; border: 6px solid #172437; border-radius: 9px; box-shadow: 0 10px 45px #000a; }
+#flat-board { position: absolute; bottom: calc(100% + 18px); left: 50%; transform: translateX(-50%); width: min(410px, calc(100vw - 30px), calc(100dvh - 185px)); margin: 0; border: 6px solid #172437; border-radius: 5px; box-shadow: 0 10px 45px #000a; }
 #flat-board button { aspect-ratio: 1; min-height: 0; font-size: clamp(22px, 5vmin, 36px); }
-#notice { position: absolute; z-index: 9; left: 16px; bottom: 140px; max-width: min(300px, calc(100% - 32px)); padding: 0; margin: 0; font-size: 11px; pointer-events: none; }
-#notice:not(:empty) { padding: 8px 12px; background: #101b2bee; border-radius: 8px; border: 1px solid var(--line); }
-.arena-bottom { bottom: 118px; left: 16px; right: 16px; }
+#notice { position: absolute; z-index: 18; left: 16px; bottom: 100px; max-width: min(300px, calc(100% - 32px)); padding: 0; margin: 0; font-size: 11px; pointer-events: none; }
+#notice:not(:empty) { padding: 8px 12px; background: #101b2bee; border-radius: 5px; border: 1px solid var(--line); }
+.arena-bottom { bottom: 78px; left: 16px; right: 16px; }
 #hint { font-size: 10px; max-width: 100%; padding: 5px 8px; }
 .arena-bottom > div { display: none; }
 .cinematic .cinema-bar { height: 3%; }
@@ -912,29 +921,28 @@ body.arena-playing { overflow: hidden; }
 #stage #battle-toast small { display: none; }
 #stage:has(#battle-toast.visible) #event { opacity: 0; transform: translateX(-105%); }
 @media (max-width: 700px) {
-  #game-shell header { padding: 0 10px; }
-  #game-shell .brand { font-size: 10px; letter-spacing: 1px; gap: 5px; }
-  #game-shell .brand small, #game-shell .header-actions .tag { display: none; }
-  #game-shell .header-actions { gap: 6px; }
-  #game-shell .header-actions button { padding: 7px 9px; font-size: 11px; }
-  .hud-info { left: 9px; top: 10px; }
-  .hud-info .player { padding: 5px 7px; gap: 5px; }
-  .hud-info .clock { margin-left: 3px; font-size: 13px; }
+  .hud-info { left: 10px; right: 10px; top: 10px; }
+  .hud-info .player { padding: 6px 8px; gap: 6px; min-width: 110px; }
+  .hud-info .clock { margin-left: 3px; font-size: 12px; }
   .hud-info .player strong { display: none; }
-  .arena-top { right: 9px; top: 12px; font-size: 7px; letter-spacing: 0; }
-  #hud-dock { gap: 6px; padding: 6px; }
-  .hud-actions, .hud-menus, #hud-dock #local-actions { gap: 4px; }
-  #hud-dock button, #board-details > summary { padding: 7px 6px; font-size: 10px; }
-  #hud-dock #difficulty { width: 60px; }
-  #hud-dock button.icon { width: 29px; }
-  #arena-drawer { top: 90px; bottom: 124px; right: 8px; width: min(320px, calc(100% - 16px)); }
-  #stage #event, #stage #battle-toast { top: 98px; width: min(215px, 58%); padding: 7px 10px; }
+  .hud-info .player small { font-size: 9px; }
+  .hud-info .avatar { width: 24px; height: 26px; font-size: 19px; }
+  .hud-info #status { top: 51px; max-width: 95%; font-size: 10px; padding: 6px 12px; }
+  .arena-top { top: 89px; font-size: 7px; gap: 5px; }
+  #hud-dock { gap: 8px; padding: 6px; }
+  .hud-actions { gap: 5px; }
+  #hud-dock button, #board-details > summary { padding: 7px 8px; font-size: 10px; }
+  #hud-dock button.icon { width: 32px; }
+  #pause-game span { display: none; }
+  #arena-drawer { right: 16px; padding: 19px; }
+  #stage #event, #stage #battle-toast { top: 117px; width: min(215px, 58%); padding: 7px 10px; }
   #stage #event strong, #stage #battle-toast strong { font-size: 11px; }
 }
 @media (max-height: 520px) {
-  #game-shell header { height: 44px; }
-  #game-shell .layout { height: calc(100dvh - 44px); }
-  #hud-dock { left: auto; right: 8px; transform: none; bottom: 8px; }
-  #flat-board { bottom: 8px; left: auto; right: calc(100% + 12px); transform: none; width: min(320px, calc(100dvh - 62px)); }
-  #arena-drawer { top: 12px; bottom: 108px; }
+  #hud-dock { left: auto; right: 12px; transform: none; bottom: 10px; }
+  #flat-board { bottom: 6px; left: auto; right: calc(100% + 12px); transform: none; width: min(320px, calc(100dvh - 62px)); }
+  #arena-drawer { max-height: calc(100% - 24px); }
+  #hint { max-width: 40%; }
+  .arena-bottom { bottom: 14px; }
 }
+@media (prefers-reduced-motion: reduce) { #stage #event, #stage #battle-toast { transition: none; } }

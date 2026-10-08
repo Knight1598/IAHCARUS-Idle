@@ -16,7 +16,11 @@ interface TitleCallbacks {
   selectPiece?: (color: Color, origin: Square, skin: SkinId) => void;
   preview?: (host: HTMLElement | null, color: Color, origin?: Square) => void;
   audition?: (piece: PieceSymbol, skin: SkinId) => void;
+  settings?: (host: HTMLElement | null) => void;
+  help?: () => void;
 }
+type MenuView = "title" | "menu" | "mode" | "setup" | "army" | "arena" | "armory" | "settings";
+const journey: MenuView[] = ["mode", "setup", "army", "arena"];
 const glyphs: Record<PieceSymbol, string> = { p: "♟", n: "♞", b: "♝", r: "♜", q: "♛", k: "♚" };
 const rivalCards = Object.entries(rivals).map(([depth, rival]) => ({ ...rival, depth, icon: ["♞", "♜", "♛"][Number(depth) - 1] }));
 
@@ -29,6 +33,9 @@ export class TitleScreen {
   private color: Color = "w";
   private origin: Square = "b1";
   private piece: PieceSymbol = "n";
+  private view: MenuView = "title";
+  private armoryReturn: MenuView = "menu";
+  private previewKey = "";
 
   constructor(host: HTMLElement, offline: boolean, private callbacks: TitleCallbacks) {
     this.root = document.createElement("section");
@@ -59,11 +66,14 @@ export class TitleScreen {
           <footer class="lobby-launch"><div class="xp-line"><span>ความก้าวหน้าแม่ทัพ</span><span id="title-xp"></span></div><progress id="title-xp-bar" max="200" value="0"></progress><div class="title-start"><button id="launch-start" class="primary">⚔ เข้าสู่ศึก</button><button id="launch-resume" hidden>เล่นศึกที่บันทึกไว้ต่อ</button></div><span class="lobby-save-note">กองทัพและความก้าวหน้าบันทึกในเครื่องนี้</span></footer>
         </section>
       </div>`;
+    this.composeFlow();
     host.prepend(this.root);
     this.root.querySelectorAll<HTMLButtonElement>("[data-arena-option]").forEach((button) => button.onclick = () => {
       callbacks.selectArena?.(button.dataset.arenaOption as ArenaId);
     });
-    this.root.querySelectorAll<HTMLButtonElement>("[data-title-mode]").forEach((button) => button.onclick = () => this.setMode(button.dataset.titleMode as TitleMode));
+    this.root.querySelectorAll<HTMLButtonElement>("[data-title-mode]").forEach((button) => button.onclick = () => {
+      this.setMode(button.dataset.titleMode as TitleMode); this.go("setup");
+    });
     this.root.querySelectorAll<HTMLButtonElement>("[data-skin-option]").forEach((button) => button.onclick = () => {
       const skin = button.dataset.skinOption as SkinId;
       if (!this.profile || !isSkinUnlocked(this.profile, skin)) return;
@@ -92,10 +102,11 @@ export class TitleScreen {
       this.renderSkins();
       this.preview();
     });
-    this.get<HTMLButtonElement>("#lobby-battle-tab").onclick = () => this.setArmory(false);
-    this.get<HTMLButtonElement>("#lobby-armory-tab").onclick = () => this.setArmory(true);
+    this.get<HTMLButtonElement>("#lobby-battle-tab").onclick = () => this.go("mode");
+    this.get<HTMLButtonElement>("#lobby-armory-tab").onclick = () => this.openArmory();
     this.get<HTMLSelectElement>("#launch-depth").onchange = () => this.renderRivals();
     this.get<HTMLSelectElement>("#launch-trial").onchange = () => this.setMode(this.selected);
+    this.get<HTMLSelectElement>("#launch-scenario").onchange = () => this.setMode(this.selected);
     this.get<HTMLSelectElement>("#launch-side").onchange = () => {
       if (!this.armory) {
         this.color = this.get<HTMLSelectElement>("#launch-side").value as Color;
@@ -118,26 +129,99 @@ export class TitleScreen {
       trial: this.get<HTMLSelectElement>("#launch-trial").value,
     });
     this.get<HTMLButtonElement>("#launch-resume").onclick = () => callbacks.resume(this.skin);
+    this.get<HTMLButtonElement>("#title-enter").onclick = () => this.go("menu");
+    this.get<HTMLButtonElement>("#flow-back").onclick = () => this.back();
+    this.get<HTMLButtonElement>("#flow-next").onclick = () => this.go(journey[Math.min(3, journey.indexOf(this.view) + 1)]);
+    this.root.querySelectorAll<HTMLButtonElement>("[data-menu-go]").forEach((button) => button.onclick = () => {
+      if (button.dataset.menuGo === "armory") this.openArmory();
+      else if (button.dataset.menuGo === "help") callbacks.help?.();
+      else this.go(button.dataset.menuGo as MenuView);
+    });
+    this.root.querySelectorAll<HTMLButtonElement>("[data-journey-step]").forEach((button) => button.onclick = () => {
+      const index = Number(button.dataset.journeyStep);
+      if (index < journey.indexOf(this.view)) this.go(journey[index]);
+    });
+    document.addEventListener("keydown", (event) => {
+      if (this.root.hidden || document.querySelector("dialog[open]")) return;
+      if (event.key === "Escape" && this.view !== "title") { event.preventDefault(); this.back(); }
+      else if (event.key === "Enter" && this.view === "title") { event.preventDefault(); this.go("menu"); }
+    });
   }
 
+  /** Keep one live army preview and expose one decision at a time. */
+  private composeFlow() {
+    const preview = this.get("#lobby-preview"), avatar = this.get(".lobby-avatar");
+    const commander = this.get(".commander-card"), progress = this.get(".lobby-launch");
+    const modes = this.get(".title-modes"), bot = this.get("#launch-bot");
+    const trainingChoice = this.get("#launch-training"), campaign = this.get("#launch-campaign");
+    const note = this.get("#title-mode-note"), collection = this.get(".lobby-collection");
+    const arena = this.get(".arena-picker"), armory = this.get("#lobby-armory");
+    const start = this.get("#launch-start"), resume = this.get("#launch-resume");
+    const customize = this.get("#lobby-armory-tab");
+    this.root.innerHTML = `<div class="menu-world"></div><div class="menu-shade"></div>
+      <header class="game-menu-top"><button id="flow-back" aria-label="ย้อนกลับ">← <span>ย้อนกลับ</span></button><span class="game-wordmark">♞ SPECIAL CHESS</span><div class="menu-commander"></div></header>
+      <main class="game-menu-content"><section class="menu-page title-cover" data-menu-view="title"><small>THE ROYAL CHRONICLES</small><h1>SPECIAL<br><em>CHESS</em></h1><p>ทุกหมากมีตำนาน · ทุกศึกมีเรื่องราว</p><button id="title-enter" class="primary">เริ่มตำนาน <span>→</span></button><small class="start-prompt">กด Enter หรือแตะเพื่อเริ่ม</small></section>
+      <section class="menu-page" data-menu-view="menu" hidden><small>YOUR LEGEND CONTINUES</small><h1>บัญชาการ<br><em>ตำนานของคุณ</em></h1><nav class="main-game-menu" aria-label="เมนูหลัก"><div id="resume-slot"></div><button id="lobby-battle-tab">เข้าสู่ศึก <span>→</span></button><button data-menu-go="armory">คลังแสง <span>✦</span></button><button data-menu-go="settings">ตั้งค่า <span>⚙</span></button><button data-menu-go="help">วิธีเล่น <span>?</span></button></nav><div id="menu-progress"></div></section>
+      <section class="menu-page" data-menu-view="mode" hidden><small>01 / CHOOSE YOUR BATTLE</small><h1>เลือกเส้นทาง</h1><p>วันนี้กองทัพของคุณจะสร้างตำนานแบบไหน?</p><div id="mode-slot"></div></section>
+      <section class="menu-page" data-menu-view="setup" hidden><small>02 / PREPARE FOR BATTLE</small><h1 id="setup-heading">เตรียมศึก</h1><div id="setup-slot"></div></section>
+      <section class="menu-page" data-menu-view="army" hidden><small>03 / YOUR ARMY</small><h1>กองทัพของคุณ</h1><p>เลือกชุดกองทัพ หรือแต่งอวตารให้หมากแต่ละตัว</p><div id="army-slot"></div></section>
+      <section class="menu-page" data-menu-view="arena" hidden><small>04 / ENTER THE ARENA</small><h1>เลือกโลกแห่งศึก</h1><div id="arena-slot"></div><div id="battle-brief" class="battle-brief"></div></section>
+      <section class="menu-page" data-menu-view="armory" hidden><small>THE ARMORY</small><h1>สร้างเอกลักษณ์</h1><div id="armory-slot-content"></div></section>
+      <section class="menu-page" data-menu-view="settings" hidden><small>YOUR EXPERIENCE</small><h1>ภาพและเสียง</h1><div id="title-settings-slot"></div></section></main>
+      <div class="menu-avatar-slot"></div><footer class="game-menu-bottom"><nav class="journey-steps" aria-label="ขั้นตอนเตรียมศึก">${["โหมด", "เตรียมศึก", "กองทัพ", "สนาม"].map((label, index) => `<button data-journey-step="${index}"><i>${index + 1}</i>${label}</button>`).join("")}</nav><div class="menu-continue"><button id="flow-next" class="primary">ต่อไป →</button></div></footer>`;
+    this.get(".menu-world").append(preview); this.get(".menu-avatar-slot").append(avatar);
+    this.get(".menu-commander").append(commander); this.get("#mode-slot").append(modes);
+    this.get("#setup-slot").append(bot, trainingChoice, campaign, note);
+    this.get("#army-slot").append(collection, customize); this.get("#arena-slot").append(arena);
+    this.get("#armory-slot-content").append(armory); armory.hidden = false;
+    this.get(".menu-continue").append(start); this.get("#resume-slot").append(resume);
+    progress.querySelector(".title-start")?.remove(); progress.querySelector(".lobby-save-note")?.remove();
+    this.get("#menu-progress").append(progress);
+    customize.textContent = "✦ แต่งหมากรายตัว"; start.textContent = "เข้าสู่สนาม →";
+    this.root.dataset.menuView = "title";
+  }
+  private openArmory() { this.armoryReturn = this.view; this.go("armory"); }
+  private back() {
+    const index = journey.indexOf(this.view);
+    this.go(this.view === "armory" ? this.armoryReturn : this.view === "settings" ? "menu" :
+      index > 0 ? journey[index - 1] : index === 0 ? "menu" : "title");
+  }
+  private go(view: MenuView) {
+    this.callbacks.settings?.(view === "settings" ? this.get("#title-settings-slot") : null);
+    this.view = view; this.root.dataset.menuView = view; this.armory = view === "armory";
+    this.root.querySelectorAll<HTMLElement>("[data-menu-view]").forEach((page) => { page.hidden = page.dataset.menuView !== view; page.scrollTop = 0; });
+    this.get("#flow-back").hidden = view === "title";
+    const step = journey.indexOf(view);
+    this.get(".game-menu-bottom").hidden = step < 0;
+    this.get("#flow-next").hidden = view === "arena";
+    this.get<HTMLButtonElement>("#launch-start").hidden = view !== "arena";
+    this.get<HTMLButtonElement>("#launch-start").disabled = view !== "arena";
+    this.get("#flow-next").textContent = view === "setup" ? "จัดกองทัพ →" : view === "army" ? "เลือกสนาม →" : "เตรียมศึก →";
+    this.root.querySelectorAll<HTMLButtonElement>("[data-journey-step]").forEach((button) => {
+      const index = Number(button.dataset.journeyStep); button.disabled = index >= step;
+      button.classList.toggle("current", index === step); button.classList.toggle("complete", index < step);
+      button.setAttribute("aria-current", index === step ? "step" : "false");
+    });
+    if (!this.armory) { this.color = this.get<HTMLSelectElement>("#launch-side").value as Color; this.origin = this.color === "w" ? "b1" : "b8"; this.piece = "n"; }
+    this.renderSkins(); this.updateBrief(); this.preview();
+    const current = this.get<HTMLElement>(`[data-menu-view="${view}"]`);
+    current.classList.remove("menu-enter"); void current.offsetWidth; current.classList.add("menu-enter");
+    [...current.querySelectorAll<HTMLElement>("button:not(:disabled), select")].find((el) => el.getClientRects().length)?.focus({ preventScroll: true });
+  }
+  private updateBrief() {
+    if (!this.profile) return;
+    const modeNames = { bot: "ศึกแม่ทัพ", local: "ศึกสองกองทัพ", training: "สนามฝึก", campaign: "บันทึกสงคราม", online: "ดวลออนไลน์" };
+    this.get("#setup-heading").textContent = modeNames[this.selected];
+    const opponent = this.selected === "bot" ? rivals[Number(this.get<HTMLSelectElement>("#launch-depth").value) as 1 | 2 | 3].name : modeNames[this.selected];
+    this.get("#battle-brief").textContent = `${opponent} · ${skins[this.skin].name} · ${arenas[this.profile.arena].name}`;
+  }
   private get<T extends HTMLElement = HTMLElement>(selector: string) { return this.root.querySelector<T>(selector)!; }
   private previewSkin() { return this.profile && this.armory ? pieceSkin(this.profile, this.color, this.origin) : this.skin; }
-  private preview() { this.callbacks.preview?.(this.get("#lobby-preview"), this.color, this.armory ? this.origin : undefined); }
-  private setArmory(value: boolean) {
-    this.armory = value;
-    if (!value) {
-      this.color = this.get<HTMLSelectElement>("#launch-side").value as Color;
-      this.origin = this.color === "w" ? "b1" : "b8";
-      this.piece = "n";
-    }
-    this.get("#lobby-armory").hidden = !value;
-    this.get("#lobby-battle").hidden = value;
-    for (const [id, active] of [["#lobby-armory-tab", value], ["#lobby-battle-tab", !value]] as const) {
-      this.get(id).classList.toggle("active", active);
-      this.get(id).setAttribute("aria-pressed", String(active));
-    }
-    this.renderSkins();
-    this.preview();
+  private preview() {
+    const key = JSON.stringify([this.skin, this.profile?.arena, this.profile?.loadouts, this.color, this.armory ? this.origin : "army"]);
+    if (key === this.previewKey) return;
+    this.previewKey = key;
+    this.callbacks.preview?.(this.get("#lobby-preview"), this.color, this.armory ? this.origin : undefined);
   }
   private renderRivals() {
     const depth = this.get<HTMLSelectElement>("#launch-depth").value;
@@ -158,7 +242,8 @@ export class TitleScreen {
     this.get("#launch-training").hidden = mode !== "training";
     this.get("#launch-campaign").hidden = mode !== "campaign";
     const trial = trials[this.get<HTMLSelectElement>("#launch-trial").value as keyof typeof trials];
-    this.get("#title-mode-note").textContent = mode === "bot" ? "เอาชนะแม่ทัพและทำภารกิจ รับ XP ปลดล็อกอวตารใหม่" : mode === "campaign" ? `${trial?.story || "เรื่องราวสั้นและเป้าหมายเฉพาะ"} · รางวัลเมื่อผ่านครั้งแรก` : mode === "training" ? "ผ่านภารกิจครั้งแรก รับ 40 XP แล้วนำทักษะไปใช้ในศึกจริง" : mode === "online" ? "ห้องท้าดวลส่วนตัว · ฝ่ายละ 5 นาที · รับ XP เมื่อศึกจบ" : "เลือกกองทัพทั้งสองฝั่ง แล้วผลัดกันบัญชาการบนเครื่องเดียว";
+    const scenario = training[this.get<HTMLSelectElement>("#launch-scenario").value as keyof typeof training];
+    this.get("#title-mode-note").textContent = mode === "bot" ? "เอาชนะแม่ทัพและทำภารกิจ รับ XP ปลดล็อกอวตารใหม่" : mode === "campaign" ? `${trial?.story || "เรื่องราวสั้นและเป้าหมายเฉพาะ"} · รางวัลเมื่อผ่านครั้งแรก` : mode === "training" ? `${scenario?.hint || "ฝึกยุทธวิธี"} · ผ่านครั้งแรก รับ 40 XP` : mode === "online" ? "ห้องท้าดวลส่วนตัว · ฝ่ายละ 5 นาที · รับ XP เมื่อศึกจบ" : "เลือกกองทัพทั้งสองฝั่ง แล้วผลัดกันบัญชาการบนเครื่องเดียว";
   }
   private renderSkins() {
     if (!this.profile) return;
@@ -222,8 +307,10 @@ export class TitleScreen {
     this.get("#title-xp").textContent = `${progress.current} / ${progress.next} XP`;
     this.get<HTMLProgressElement>("#title-xp-bar").value = progress.current;
     this.renderSkins();
+    this.updateBrief();
+    if (!this.root.hidden) this.preview();
   }
-  show(profile: Profile, settings: { mode: TitleMode; side: string; depth: string; resume: boolean; training?: string; trial?: string }) {
+  show(profile: Profile, settings: { mode: TitleMode; side: string; depth: string; resume: boolean; training?: string; trial?: string; view?: "title" | "menu" }) {
     this.get<HTMLSelectElement>("#launch-side").value = settings.side;
     this.get<HTMLSelectElement>("#launch-depth").value = settings.depth;
     this.get<HTMLSelectElement>("#launch-scenario").value = settings.training || "pawn";
@@ -237,7 +324,7 @@ export class TitleScreen {
     this.refresh(profile);
     this.renderRivals();
     this.root.hidden = false;
-    this.preview();
+    this.go(settings.view || "title");
   }
-  hide() { this.root.hidden = true; this.callbacks.preview?.(null, this.color); }
+  hide() { this.root.hidden = true; this.callbacks.settings?.(null); this.previewKey = ""; this.callbacks.preview?.(null, this.color); }
 }

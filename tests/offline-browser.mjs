@@ -1,4 +1,4 @@
-import { enterGame, openPanel, closePanel } from "./enter-game.mjs";
+import { enterGame, openPanel, closePanel, resetGame, setDifficulty } from "./enter-game.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -66,7 +66,7 @@ try {
   await page.waitForSelector("canvas");
   assert.equal(await page.locator(".tabs").isVisible(), false);
   assert.equal(await page.locator("#online-panel").isVisible(), false);
-  assert.equal(await page.locator("#difficulty").isVisible(), true);
+  await openPanel(page, "pause"); assert.equal(await page.locator("#difficulty").isVisible(), true); await closePanel(page);
   assert.match(await page.locator("#mode-tag").innerText(), /SOLO/);
   await openPanel(page, "settings");
   await page.locator("#reduced").check();
@@ -80,8 +80,8 @@ try {
     await page.locator("#skip").click();
   }
   for (const depth of ["1", "2", "3"]) {
-    await page.locator("#reset").click();
-    await page.locator("#difficulty").selectOption(depth);
+    await resetGame(page);
+    await setDifficulty(page, depth);
     await move("e2", "e4");
     await page.waitForFunction(
       () => document.querySelectorAll("#moves .san").length === 2,
@@ -104,7 +104,7 @@ try {
   // Reset while the bot is thinking must prevent stale replies.
   await move("d2", "d4");
   await page.waitForTimeout(260);
-  await page.locator("#reset").click();
+  await resetGame(page);
   await page.waitForTimeout(600);
   assert.equal(await page.locator("#moves .san").count(), 0);
   // Bad destinations preserve the selected piece and provide useful feedback.
@@ -116,9 +116,8 @@ try {
   assert.equal(await page.locator('[data-square="e2"]').evaluate((el) => el.classList.contains("selected")), true);
   assert.equal(await page.locator("#moves .san").count(), 0);
   // Black-side games: bot opens, orientation, undo, persistence and cancellation.
-  await page.locator("#difficulty").selectOption("1");
-  await openPanel(page, "settings");
-  await page.locator("#human-side").selectOption("b");
+  await setDifficulty(page, "1");
+  await openPanel(page, "settings"); await page.locator("#human-side").selectOption("b"); await closePanel(page);
   await page.waitForFunction(() => document.querySelectorAll("#moves .san").length === 1);
   await page.locator("#skip").click();
   assert.match(await page.locator("#white-label").innerText(), /อิกนิส/);
@@ -138,8 +137,7 @@ try {
   await closePanel(page);
   await page.locator("#board-details summary").click();
   await move("h7", "h6");
-  await openPanel(page, "settings");
-  await page.locator("#human-side").selectOption("w");
+  await openPanel(page, "settings"); await page.locator("#human-side").selectOption("w"); await closePanel(page);
   await page.waitForTimeout(400);
   assert.equal(await page.locator("#moves .san").count(), 0);
   // An ordinary pawn capture stays short; all-events mode restores its cutscene.
@@ -240,6 +238,7 @@ try {
   assert.match(await page.locator("#moves").innerText(), /Nxd5/);
   assert.match(await page.locator('[data-square="d5"]').innerText(), /♘/);
   // A normal 3D pick after completion exercises camera and pointer restoration.
+  if (await page.locator(".battle-result-close").isVisible()) await page.locator(".battle-result-close").click();
   await closePanel(page);
   await page.locator("#board-details summary").click();
   async function canvasSquare(square) {
@@ -354,8 +353,8 @@ try {
   await openPanel(page, "settings");
   await page.locator("#battle-events").check();
   console.log("PASS: counterattacks, comeback cinematic, mission stars, undo/history restoration, event toggle and saved graphics quality");
-  await page.locator("#reset").click();
-  assert.equal(await page.locator("#difficulty").isVisible(), true);
+  await resetGame(page);
+  await openPanel(page, "pause"); assert.equal(await page.locator("#difficulty").isVisible(), true); await closePanel(page);
   assert.match(await page.locator("#mode-tag").innerText(), /SOLO/);
   await closePanel(page);
   await page.locator("#board-details summary").click();
