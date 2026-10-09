@@ -1,7 +1,7 @@
 // Cosmetics describe presentation only. Unlocks currently live in the browser
 // profile, so this validation does not establish ownership of paid items.
 export const cosmeticSkins = Object.freeze([
-  "classic", "ember", "frost", "astral", "royal",
+  "classic", "ember", "frost", "astral", "royal", "storm", "void", "prism",
 ]);
 
 const isRecord = (value) => value !== null && typeof value === "object" &&

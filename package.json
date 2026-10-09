@@ -25,6 +25,7 @@
     "test:economy": "node tests/economy-browser.mjs",
     "test:daily": "node tests/daily-browser.mjs",
     "test:tactics": "node tests/tactics-browser.mjs",
+    "test:freestyle": "node tests/freestyle-browser.mjs",
     "test:special": "node tests/special-browser.mjs",
     "test:modes": "node tests/modes-browser.mjs",
     "test:player": "node tests/player-browser.mjs",

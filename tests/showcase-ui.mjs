@@ -43,12 +43,12 @@ try {
   assert.deepEqual(await page.evaluate(() => calls), [], "showing the showcase neither plays nor enables audio");
   assert.equal(await page.locator("canvas").count(), 0, "control harness creates no renderer");
   assert.equal(await page.locator("#showcase-arena option").count(), 8);
-  assert.equal(await page.locator("#showcase-attacker-skin option").count(), 5);
-  assert.equal(await page.locator("#showcase-defender-skin option").count(), 5);
+  assert.equal(await page.locator("#showcase-attacker-skin option").count(), 8);
+  assert.equal(await page.locator("#showcase-defender-skin option").count(), 8);
   assert.equal(await page.locator('[data-showcase-role="attacker"]').count(), 6);
   assert.equal(await page.locator('[data-showcase-role="defender"]').count(), 6);
   assert.equal(await page.locator("#showcase-stop").isDisabled(), true);
-  const pieces = ["p", "n", "b", "r", "q", "k"], skins = ["classic", "ember", "frost", "astral", "royal"];
+  const pieces = ["p", "n", "b", "r", "q", "k"], skins = ["classic", "ember", "frost", "astral", "royal", "storm", "void", "prism"];
   for (const piece of pieces) {
     await page.locator(`[data-showcase-role="attacker"][data-showcase-piece="${piece}"]`).click();
     for (const skin of skins) {
@@ -116,5 +116,5 @@ try {
   await page.evaluate(() => showcase.dispose());
   assert.equal(await page.locator("#combat-showcase").count(), 0);
   assert.deepEqual(errors, []); assert.deepEqual(requests.filter(request => request !== url), []);
-  console.log("PASS: presentation-only showcase, all 30 class/skin selections, Skip/Escape safety, A/B payloads, 22 events and 9 music states, audio opt-in, responsive controls and no renderer/context/network creation");
+  console.log("PASS: presentation-only showcase, all 48 class/skin selections, Skip/Escape safety, A/B payloads, 22 events and 9 music states, audio opt-in, responsive controls and no renderer/context/network creation");
 } finally { await browser.close(); }

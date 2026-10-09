@@ -121,3 +121,33 @@ test('ultimate checkmate notation saves and restores a completed match with exac
   assert.equal(restored.isCheckmate(), true); assert.equal(restored.fen(), g.fen());
   assert.deepEqual(restored.snapshot(), g.snapshot());
 });
+
+test('alternate skills actually change destinations, jump over blockers and retain king safety', () => {
+  for (const [piece, target, excluded] of [['n','e5','c5'],['b','d5','c5'],['r','d5','e5'],['q','c5','d5'],['p','d3','c4']]) {
+    const fen = `7k/8/8/8/8/2${piece.toUpperCase()}5/8/K7 w - - 0 1`;
+    const g = new SpecialChess(fen, undefined, { charges:5, skills:{[piece]:'alternate'} });
+    assert.ok(g.ultimateMoves('c3').some(m => m.to === target), piece);
+    assert.ok(!g.ultimateMoves('c3').some(m => m.to === excluded), piece);
+  }
+  const queen = new SpecialChess('7k/8/8/8/2P5/2Q5/8/K7 w - - 0 1', undefined, { skills:{q:'alternate'} });
+  assert.ok(queen.ultimateMoves('c3').some(m => m.to === 'c5'));
+  const king = new SpecialChess('7k/8/8/8/8/8/8/K7 w - - 0 1', undefined, { skills:{k:'alternate'} });
+  assert.ok(king.ultimateMoves('a1').some(m => m.to === 'c3'));
+  const danger = new SpecialChess('7k/8/8/8/8/8/1r6/K7 w - - 0 1', undefined, { skills:{k:'alternate'} });
+  assert.equal(danger.ultimateMoves('a1').length,0);
+  const pinned = new SpecialChess('4r2k/8/8/8/8/8/4N3/4K3 w - - 0 1',undefined,{skills:{n:'alternate'}});
+  assert.equal(pinned.ultimateMoves('e2').length,0);
+});
+test('freestyle charges, reuse, snapshots, replay and undo keep the selected rules', () => {
+  const fen = '7k/8/8/8/8/2N5/8/K7 w - - 0 1';
+  const config = { charges:5, reusable:true, skills:{n:'alternate'} };
+  const g = new SpecialChess(fen,undefined,config), before=g.snapshot();
+  const action=g.ultimateMoves('c3').find(m=>m.to==='e5');g.move(action);g.move('Kh7');
+  assert.equal(g.remaining.w,4);assert.equal(g.available('e5'),true);
+  assert.deepEqual(g.clone().snapshot(),g.snapshot());
+  const restored = new SpecialChess(fen,undefined,config);for(const san of g.history())restored.move(san);
+  assert.deepEqual(restored.snapshot(),g.snapshot());assert.equal(restored.fen(),g.fen());
+  g.undo();g.undo();assert.deepEqual(g.snapshot(),before);
+  const disabled=new SpecialChess(fen,undefined,{charges:0});assert.equal(disabled.ultimateMoves().length,0);
+  assert.deepEqual(disabled.legalActions().map(m=>m.san),new Chess(fen).moves());
+});

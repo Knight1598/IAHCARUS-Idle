@@ -7,12 +7,13 @@ export const economicModes = [
   { id: "payday", name: "Puzzle Payday", label: "แก้โจทย์หาเงิน", base: "rush", entry: 0, prize: 25, description: "รุกฆาตหนึ่งตาใน 3 นาที · พลาดได้ไม่เกิน 3 ครั้ง", rules: "เมื่อรอบจบ รับ 25 ต่อข้อที่แก้ได้ (สูงสุด 500) · เข้าฟรี · รับเงินครั้งเดียวต่อรอบ" },
 ];
 export const skinPool = [
-  { skin: "ember", chance: 32, shards: 20 }, { skin: "frost", chance: 32, shards: 20 },
-  { skin: "astral", chance: 26, shards: 35 }, { skin: "royal", chance: 10, shards: 80 },
+  { skin: "ember", chance: 22, shards: 20 }, { skin: "frost", chance: 22, shards: 20 },
+  { skin: "astral", chance: 16, shards: 35 }, { skin: "royal", chance: 8, shards: 80 },
+  { skin: "storm", chance: 20, shards: 20 }, { skin: "void", chance: 8, shards: 80 }, { skin: "prism", chance: 4, shards: 120 },
 ];
 export const pullCost = 150;
 export const pityLimit = 8;
-export const forgeCosts = { ember: 60, frost: 60, astral: 120, royal: 240 };
+export const forgeCosts = { ember: 60, frost: 60, astral: 120, royal: 240, storm: 60, void: 240, prism: 360 };
 export const isEconomicMode = id => economicModes.some(mode => mode.id === id);
 export const economicDefinition = id => economicModes.find(mode => mode.id === id);
 const skinIds = ["classic", ...skinPool.map(item => item.skin)];
@@ -76,7 +77,7 @@ export function rollSkin(wallet, unlocked = [], random = Math.random) {
   const duplicate = wallet.owned.includes(reward.skin) || unlocked.includes(reward.skin);
   const payment = transaction(wallet, `pull:${wallet.pulls + 1}`, -pullCost, `เปิดผนึก ${reward.skin}${duplicate ? " · สกินซ้ำ" : " · สกินใหม่"}`, false);
   return { skin: reward.skin, duplicate, shards: duplicate ? reward.shards : 0, guaranteed,
-    wallet: { ...payment.wallet, pulls: wallet.pulls + 1, pity: reward.skin === "royal" ? 0 : wallet.pity + 1,
+    wallet: { ...payment.wallet, pulls: wallet.pulls + 1, pity: ["royal", "void", "prism"].includes(reward.skin) ? 0 : wallet.pity + 1,
       shards: Math.min(10000000, wallet.shards + (duplicate ? reward.shards : 0)), owned: [...new Set([...wallet.owned, reward.skin])] } };
 }
 export function forgeSkin(wallet, skin, unlocked = []) {

@@ -59,3 +59,6 @@
   #ultimate-guide { padding: 15px; }
 }
 @media (max-height: 550px) and (min-width: 601px) { #ultimate-hud { top: 90px; width: 190px; padding: 8px; } #ultimate-arm small { font-size: 8px; } }
+/* Up to nine freestyle charges stay readable inside the compact HUD. */
+.ultimate-meter > div > span { display:grid; grid-template-columns:auto 1fr; align-items:start; gap:3px; min-width:0; }
+.ultimate-meter b { display:grid; grid-template-columns:repeat(3, minmax(7px, 1fr)); gap:2px; margin-left:2px; }

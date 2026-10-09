@@ -14,7 +14,7 @@ try {
   const url = 'http://localhost:31468/special-test';
   await page.route(url, route => route.fulfill({ contentType: 'text/html', body: readFileSync('offline/Special-Chess-Offline.html', 'utf8') }));
   await page.goto(url); await chooseMode(page, 'special');
-  assert.equal(await page.locator('#special-brief .ultimate-catalog article').count(), 6);
+  assert.equal(await page.locator('#skills-slot .skill-loadout-card').count(), 6);
   await page.locator('#special-opponent').selectOption('local');
   mkdirSync('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/special-duel-brief.png' });

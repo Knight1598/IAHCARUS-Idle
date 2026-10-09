@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { combatProfiles, combatProfile, resolveDefense } from "../src/combat-profiles.ts";
 
 const pieces = ["p", "n", "b", "r", "q", "k"];
-const skins = ["classic", "ember", "frost", "astral", "royal"];
+const skins = ["classic", "ember", "frost", "astral", "royal", "storm", "void", "prism"];
 
-test("all thirty real class and skin combinations have cached, immutable combat identities", () => {
+test("all forty-eight real class and skin combinations have cached, immutable combat identities", () => {
   const ids = new Set();
   for (const piece of pieces) {
     const shapes = new Set(), choreography = new Set(), timbres = new Set();
@@ -30,11 +30,11 @@ test("all thirty real class and skin combinations have cached, immutable combat 
       assert.ok(profile.camera.shake > 0 && profile.camera.shake < .06);
       assert.throws(() => { profile.motion.reach = 100; }, TypeError);
     }
-    assert.equal(shapes.size, 5, "every skin changes shape or flourishing, not only colour");
-    assert.equal(choreography.size, 5, "every skin changes posing cadence and trajectory");
-    assert.equal(timbres.size, 5, "each skin also has a sonic texture");
+    assert.equal(shapes.size, 8, "every skin changes shape or flourishing, not only colour");
+    assert.equal(choreography.size, 8, "every skin changes posing cadence and trajectory");
+    assert.equal(timbres.size, 8, "each skin also has a sonic texture");
   }
-  assert.equal(ids.size, 30);
+  assert.equal(ids.size, 48);
   assert.equal(new Set(pieces.map(piece => combatProfile(piece, "classic").motion.opening)).size, 6);
   assert.equal(new Set(pieces.map(piece => combatProfile(piece, "classic").vfx.signature)).size, 6);
   assert.equal(new Set(pieces.map(piece => combatProfile(piece, "classic").sound.timbre)).size, 6);

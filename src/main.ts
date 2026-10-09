@@ -27,8 +27,8 @@ import { BattlePresentation } from "./presentation";
 import type { ArmyCosmetics } from "../shared/cosmetics.js";
 import { matchStory, latestMoment } from "./battle";
 import { matchMaterial, type CinematicScope } from "./gameplay";
-import { SpecialChess, ultimates, type UltimateMove } from "./special";
-import { VariantChess, createVariant, modeDefinitions, rushPuzzle, type VariantId } from "./variants";
+import { SpecialChess, ultimates, readSpecialConfig, type UltimateMove } from "./special";
+import { VariantChess, createVariant, variantInitialFen, modeDefinitions, rushPuzzle, type VariantId } from "./variants";
 import { newModeSession, readModeSession, mirrorScore, type ModeSession } from "./mode-session";
 import { installPlayer, type PlayerManager } from "./player";
 import { installDesign, geometricPiece } from "./design";
@@ -116,6 +116,7 @@ let matchReward: { amount: number; message: string } | null = null;
 let humanColor: Color = "w";
 let initialFen = new Chess().fen();
 let specialDuel = false;
+let specialConfig = readSpecialConfig();
 let activeVariant: ModeSession | null = null;
 let activeContract: Contract | null = null;
 let player: PlayerManager | undefined;
@@ -757,8 +758,8 @@ function updateSpecialHUD() {
   if (!(game instanceof SpecialChess)) return;
   const reserves = game.remaining;
   for (const [color, selector] of [["w", "#ultimate-white"], ["b", "#ultimate-black"]] as const) {
-    $(selector).innerHTML = Array.from({ length: 3 }, (_, i) => `<i class="${i < reserves[color] ? "charged" : "spent"}">◆</i>`).join("");
-    $(selector).setAttribute("aria-label", `เหลือ ${reserves[color]} จาก 3 ครั้ง`);
+    $(selector).innerHTML = Array.from({ length: game.config.charges }, (_, i) => `<i class="${i < reserves[color] ? "charged" : "spent"}">◆</i>`).join("");
+    $(selector).setAttribute("aria-label", `เหลือ ${reserves[color]} จาก ${game.config.charges} ครั้ง`);
   }
   const arm = $<HTMLButtonElement>("#ultimate-arm"), piece = selected && game.get(selected);
   const ready = !!selected && game.available(selected);
@@ -766,12 +767,12 @@ function updateSpecialHUD() {
   arm.setAttribute("aria-pressed", String(!!game.armed));
   arm.classList.toggle("armed", !!game.armed);
   if (piece) {
-    arm.style.setProperty("--ultimate-color", `#${ultimates[piece.type].color.toString(16)}`);
-    arm.querySelector("strong")!.textContent = game.armed ? "ยกเลิกอัลติ" : ultimates[piece.type].label;
-    arm.querySelector("small")!.textContent = !ready ? reserves[piece.color] === 0 ? "พลังฝ่ายนี้หมดแล้ว" : "หมากตัวนี้ใช้อัลติแล้ว" : arm.disabled ? "ยังไม่มีช่องอัลติที่เดินได้" : ultimates[piece.type].description;
+    arm.style.setProperty("--ultimate-color", `#${game.skill(piece.type).color.toString(16)}`);
+    arm.querySelector("strong")!.textContent = game.armed ? "ยกเลิกอัลติ" : game.skill(piece.type).label;
+    arm.querySelector("small")!.textContent = !ready ? reserves[piece.color] === 0 ? "พลังฝ่ายนี้หมดแล้ว" : "หมากตัวนี้ใช้อัลติแล้ว" : arm.disabled ? "ยังไม่มีช่องอัลติที่เดินได้" : game.skill(piece.type).description;
   } else {
     arm.querySelector("strong")!.textContent = "เลือกหมากเพื่อใช้อัลติ";
-    arm.querySelector("small")!.textContent = "ฝ่ายละ 3 ครั้ง · ตัวละ 1 ครั้ง";
+    arm.querySelector("small")!.textContent = `ฝ่ายละ ${game.config.charges} ครั้ง · ${game.config.reusable ? "หมากใช้ซ้ำได้" : "ตัวละ 1 ครั้ง"}`;
   }
   const confirm = $<HTMLButtonElement>("#ultimate-confirm");
   confirm.hidden = !ultimateTarget || !game.armed;
@@ -797,6 +798,11 @@ function enemyUltimateBoard() {
 }
 $("#ultimate-help").onclick = () => {
   if (!(game instanceof SpecialChess) || isBusy()) return;
+  $("#ultimate-guide > p").textContent = `ฝ่ายละ ${game.config.charges} ชาร์จ · ${game.config.reusable ? "หมากใช้ซ้ำได้" : "ตัวละหนึ่งครั้ง"} · ใช้แทนการเดินหนึ่งตา · คิงต้องปลอดภัย`;
+  $("#ultimate-guide .ultimate-catalog").innerHTML = (["p","n","b","r","q","k"] as PieceSymbol[]).map(piece => {
+    const skill = (game as SpecialChess).skill(piece);
+    return `<article style="--ultimate-color:#${skill.color.toString(16)}"><i>${symbols.w[piece]}</i><div><small>${skill.name}</small><strong>${skill.label}</strong><p>${skill.description}</p></div></article>`;
+  }).join("");
   const enemy = enemyUltimateBoard()!;
   const select = $<HTMLSelectElement>("#ultimate-enemy");
   select.innerHTML = '<option value="">เลือกหมากเพื่อดูแนวเดินที่เป็นไปได้</option>' + enemy.board().flat().filter(p => p && p.color === enemy.turn()).map(p => `<option value="${p!.square}" ${!enemy.available(p!.square) ? "disabled" : ""}>${symbols[p!.color][p!.type]} ${names[p!.type]} ${p!.square.toUpperCase()}${!enemy.available(p!.square) ? " · อัลติใช้ไม่ได้แล้ว" : ""}</option>`).join("");
@@ -808,7 +814,7 @@ $("#ultimate-enemy").onchange = () => {
   const enemy = enemyUltimateBoard(), square = $<HTMLSelectElement>("#ultimate-enemy").value as Square;
   const moves = square && enemy ? enemy.ultimateMoves(square) : [];
   scene?.showUltimateThreats([...new Set(moves.map(m => m.to))]);
-  $("#ultimate-enemy-note").textContent = square && enemy ? `${ultimates[enemy.get(square)!.type].label} · ${[...new Set(moves.map(m => m.to))].join(" · ").toUpperCase() || "ยังไม่มีทางเดินที่ปลอดภัย"} — แนวที่เดินได้จากตำแหน่งปัจจุบัน; หลังคุณเดินอาจเปลี่ยนไป` : "ยังไม่ใช่การรุกจริง · คู่แข่งต้องใช้สิทธิ์อัลติเพื่อเดินตามแนวนี้";
+  $("#ultimate-enemy-note").textContent = square && enemy ? `${enemy.skill(enemy.get(square)!.type).label} · ${[...new Set(moves.map(m => m.to))].join(" · ").toUpperCase() || "ยังไม่มีทางเดินที่ปลอดภัย"} — แนวที่เดินได้จากตำแหน่งปัจจุบัน; หลังคุณเดินอาจเปลี่ยนไป` : "ยังไม่ใช่การรุกจริง · คู่แข่งต้องใช้สิทธิ์อัลติเพื่อเดินตามแนวนี้";
 };
 $("#ultimate-guide-close").onclick = () => $<HTMLDialogElement>("#ultimate-guide").close();
 $("#ultimate-guide").addEventListener("close", () => {
@@ -930,8 +936,8 @@ function deathSound(move: Move, _event: MoveEvent) {
 function attackEvent(before: Chess, after: Chess, move: Move, skin?: SkinId) {
   const event = analyzeMove(before, after, move);
   if ((move as UltimateMove).ultimate) {
-    event.title = ultimates[move.piece].name;
-    event.subtitle = `${ultimates[move.piece].label} · ${event.kind === "mate" ? "รุกฆาต" : event.kind.includes("check") ? "รุกคิง" : "ULTIMATE RELEASE"}`;
+    event.title = (game instanceof SpecialChess ? game.skill(move.piece) : { name: "ULTIMATE", label: "อัลติ" }).name;
+    event.subtitle = `${(game instanceof SpecialChess ? game.skill(move.piece) : { name: "ULTIMATE", label: "อัลติ" }).label} · ${event.kind === "mate" ? "รุกฆาต" : event.kind.includes("check") ? "รุกคิง" : "ULTIMATE RELEASE"}`;
   } else if ((move as Move & { chaos?: boolean }).chaos) {
     event.title = "WIND BREAK"; event.subtitle = "เปลี่ยนแนวเดิน · พลิกแผนด้วยลมสนาม";
   } else if (event.kind === "capture") {
@@ -1070,7 +1076,7 @@ function saveLocal() {
   if (mode !== "online") {
     storage.set(
       saveKey,
-      JSON.stringify({ mode, specialDuel, activeVariant, activeContract, humanColor, initialFen, history: game.history(), matchId, activeTraining, activeTrial, activeDaily, matchReward }),
+      JSON.stringify({ mode, specialDuel, specialConfig, activeVariant, activeContract, humanColor, initialFen, history: game.history(), matchId, activeTraining, activeTrial, activeDaily, matchReward }),
     );
     hasSavedLocalGame = true;
   }
@@ -1092,7 +1098,8 @@ function newLocal() {
   $("#training-hint").textContent = "";
   stopBot();
   scene?.cancel();
-  game = specialDuel ? new SpecialChess() : new Chess();
+  if (specialDuel && specialConfig.formation !== "standard") initialFen = variantInitialFen(specialConfig.formation === "skirmish" ? "mirror" : "draft", { seed: specialConfig.seed });
+  game = specialDuel ? new SpecialChess(initialFen, undefined, specialConfig) : new Chess();
   localResult = null;
   lastMove = undefined;
   clearSelection();
@@ -1428,8 +1435,9 @@ try {
   ) {
     activeVariant = readModeSession(saved.activeVariant);
     specialDuel = !activeVariant && saved.specialDuel === true;
+    specialConfig = readSpecialConfig(saved.specialConfig);
     game = activeVariant && activeVariant.id !== "rush" ? createVariant(activeVariant.id, activeVariant.options, saved.initialFen)
-      : specialDuel ? new SpecialChess(saved.initialFen || new Chess().fen()) : new Chess(saved.initialFen || new Chess().fen());
+      : specialDuel ? new SpecialChess(saved.initialFen || new Chess().fen(), undefined, specialConfig) : new Chess(saved.initialFen || new Chess().fen());
     initialFen = game.fen();
     for (const m of saved.history) game.move(m);
     mode = saved.mode;
@@ -1746,7 +1754,7 @@ function replayLastCapture() {
   while (index >= 0 && !history[index].captured) index--;
   if (index < 0) { notice("ยังไม่มีฉากสังหารในศึกนี้"); return; }
   const move = history[index];
-  const after = game instanceof VariantChess && activeVariant ? createVariant(activeVariant.id, activeVariant.options, initialFen) : game instanceof SpecialChess ? new SpecialChess(initialFen) : new Chess(move.before);
+  const after = game instanceof VariantChess && activeVariant ? createVariant(activeVariant.id, activeVariant.options, initialFen) : game instanceof SpecialChess ? new SpecialChess(initialFen, undefined, specialConfig) : new Chess(move.before);
   if (after instanceof SpecialChess || after instanceof VariantChess) for (const prior of history.slice(0, index)) after.move(prior);
   const before = after instanceof VariantChess ? after.clone() : new Chess(after.fen());
   const replayMove = after.move(move);
@@ -1795,6 +1803,7 @@ function launchGame(settings: LaunchSettings) {
   storage.set(difficultyKey, settings.depth);
   scene?.setSkin(profile.skin);
   specialDuel = settings.mode === "special";
+  specialConfig = readSpecialConfig(settings.special);
   const variantId = modeDefinitions.find(definition => definition.id === (contract?.base || settings.mode))?.id;
   activeVariant = variantId ? newModeSession(variantId, settings.variant || { seed: Date.now() >>> 0 }, humanColor) : null;
   mode = contract ? contract.base === "rush" ? "local" : "bot" : variantId ? variantId === "rush" ? "local" : settings.opponent || "bot" : settings.mode === "special" ? settings.opponent || "bot" : settings.mode === "training" ? "local" : (settings.mode === "campaign" || settings.mode === "daily") ? "bot" : settings.mode as Mode;
@@ -1837,7 +1846,7 @@ function openTitle() {
   title.show(profile, {
     view: "menu",
     mode: activeContract?.mode || activeVariant?.id || (mode === "online" && !OFFLINE ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : mode),
-    variant: activeVariant?.options, opponent: mode === "local" ? "local" : "bot",
+    special: specialConfig, variant: activeVariant?.options, opponent: mode === "local" ? "local" : "bot",
     side: humanColor,
     depth: $<HTMLSelectElement>("#difficulty").value,
     resume: mode === "online" ? !!session : hasSavedLocalGame,
@@ -1860,7 +1869,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) { stopBot(); scene?.setPaused(true, true); }
   else { scene?.setPaused(menuOpen || matchPaused); if (!showcaseActive) syncMusic(); scheduleBot(); }
 });
-title.show(profile, { variant: activeVariant?.options, opponent: mode === "local" ? "local" : "bot", mode: activeContract?.mode || activeVariant?.id || (mode === "online" && !OFFLINE ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot"), side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn", trial: activeTrial || "rescue" });
+title.show(profile, { special: specialConfig, variant: activeVariant?.options, opponent: mode === "local" ? "local" : "bot", mode: activeContract?.mode || activeVariant?.id || (mode === "online" && !OFFLINE ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot"), side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn", trial: activeTrial || "rescue" });
 
 installDesign();
 player = installPlayer({ offline: OFFLINE,

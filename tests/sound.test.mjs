@@ -105,14 +105,14 @@ test("cancel stops every PCM voice including its delayed layer and reverberation
 });
 
 
-test("skin combat signatures change material and rhythm for all thirty class/skin combinations", () => {
+test("skin combat signatures change material and rhythm for all forty-eight class/skin combinations", () => {
   const signatures = new Set();
-  for (const piece of pieces) for (const skin of ["classic", "ember", "frost", "astral", "royal"]) {
+  for (const piece of pieces) for (const skin of ["classic", "ember", "frost", "astral", "royal", "storm", "void", "prism"]) {
     const recipe = combatSoundRecipe(piece, skin, "impact", 0);
     assert.ok(recipe.every((layer) => layer.kind !== "tone" || layer.wave === "sine"));
     signatures.add(JSON.stringify(recipe));
   }
-  assert.equal(signatures.size, 30);
+  assert.equal(signatures.size, 48);
 });
 
 test("effect cancellation preserves music buses, mute and volume remain independent", () => {
@@ -154,11 +154,26 @@ test("a cold frame racing worker preparation keeps one cache entry per take", as
 test("rapid preview cancellation resolves obsolete preparation and never starts effects", async () => {
   const context = audioContext(), sound = new SpaceAudio(context);
   const requests = [];
-  for (const skin of ["classic", "ember", "frost", "astral", "royal"]) {
+  for (const skin of ["classic", "ember", "frost", "astral", "royal", "storm", "void", "prism"]) {
     requests.push(sound.prepareCombat("q", skin)); sound.cancelEffects();
   }
   await Promise.all(requests);
   assert.equal(sound.activeVoices, 0);
   assert.ok(sound.diagnostics.cacheEntries <= 1, "only the active worker job may finish after cancellation");
   sound.dispose();
+});
+
+test('new skin combat cues produce finite, audible PCM with bounded levels and distinct takes', async () => {
+  const { renderSoundRecipe } = await import('../src/audio-synthesis.ts');
+  for (const skin of ['storm','void','prism']) for (const piece of pieces) {
+    const fingerprints=new Set();
+    for (const cue of ['charge','release','clash','impact','disintegrate']) for (let take=0;take<SOUND_VARIANTS;take++) {
+      const pcm=renderSoundRecipe(combatSoundRecipe(piece,skin,cue,take),12000,417+take);
+      let peak=0,energy=0;
+      for(const channel of [pcm.left,pcm.right])for(const value of channel){assert.ok(Number.isFinite(value));peak=Math.max(peak,Math.abs(value));energy+=value*value;}
+      assert.ok(peak>.001 && peak<.75,`${skin}:${piece}:${cue} silent/clipping`);
+      if(cue==='impact')fingerprints.add(energy.toFixed(5));
+    }
+    assert.equal(fingerprints.size,SOUND_VARIANTS,`${skin}:${piece} repeats identical takes`);
+  }
 });

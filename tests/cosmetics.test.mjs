@@ -27,11 +27,11 @@ test("32 canonical origin slots have readable avatars and distinct theme skills"
   assert.equal(new Set(all).size, 32);
   assert.deepEqual(initialArmySlots("w").map(({ origin }) => origin), ["a1", "b1", "c1", "d1", "e1", "f1", "g1", "h1", "a2", "b2", "c2", "d2", "e2", "f2", "g2", "h2"]);
   for (const piece of Object.keys(pieceNames)) {
-    assert.equal(new Set(Object.values(avatarNames).map((theme) => theme[piece])).size, 5);
-    assert.equal(new Set(Object.values(skillNames).map((theme) => theme[piece])).size, 5);
+    assert.equal(new Set(Object.values(avatarNames).map((theme) => theme[piece])).size, 8);
+    assert.equal(new Set(Object.values(skillNames).map((theme) => theme[piece])).size, 8);
   }
   for (const skin of Object.values(skins)) {
-    assert.ok(skin.tier >= 1 && skin.tier <= 4);
+    assert.ok(skin.tier >= 1 && skin.tier <= 5);
     assert.ok(skin.rarity && skin.description && skin.effect);
   }
 });

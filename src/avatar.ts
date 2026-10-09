@@ -30,7 +30,7 @@ export function avatarResourceStats() {
     geometries += entries.length;
     for (const geometry of entries) for (const attribute of Object.values(geometry.attributes)) bytes += attribute.array.byteLength;
   }
-  return { profiles: avatarTemplates.size, geometries, bytes, maxProfiles: 30 };
+  return { profiles: avatarTemplates.size, geometries, bytes, maxProfiles: 6 * Object.keys(skins).length };
 }
 
 /** Articulated fighters use shared armour materials and one merged mesh per material per bone. */
@@ -137,6 +137,15 @@ export function createAvatar(type: PieceSymbol, side: "w" | "b", skin: SkinId) {
   }
   if (type === "q") for (const direction of [-1, 1]) for (let i = 0; i < 3; i++)
     add("torso", new THREE.ConeGeometry(0.1, 0.8 - i * 0.12, 3), 1, direction * (0.4 + i * 0.18), 0.22, 0.18, 0, 0, direction * -0.9);
+  if (skin === "storm") for (const sign of [-1, 1]) {
+    box("torso", .08, .75, .08, sign * (broad + .08), .5, 0, 1, sign * .45);
+    box("head", .05, .36, .05, sign * .25, .38, 0, 1, sign * .4);
+  }
+  if (skin === "void") for (let i = 0; i < 2; i++) add("torso", new THREE.TorusGeometry(.62 + i * .14, .025, 4, 24), 1, 0, .42, .3, i * .7);
+  if (skin === "prism") for (let i = 0; i < 3; i++) {
+    add("head", new THREE.TorusGeometry(.45 + i * .13, .025, 4, 6), 1, 0, .22 + i * .08, .24, i * .4);
+    for (const sign of [-1, 1]) add("torso", new THREE.OctahedronGeometry(.12), 1, sign * (.58 + i * .13), .5 - i * .1);
+  }
   if (skin === "ember") for (const direction of [-1, 1])
     add("torso", new THREE.ConeGeometry(0.13, 0.48, 3), 1, direction * broad, 0.59, 0, 0, 0, direction * -0.35);
   if (skin === "frost") for (const direction of [-1, 1]) add("torso", new THREE.OctahedronGeometry(0.18), 1, direction * (broad + 0.08), 0.51);
@@ -165,7 +174,13 @@ export function createAvatar(type: PieceSymbol, side: "w" | "b", skin: SkinId) {
   if (type === "n") {
     const edge = new THREE.TorusGeometry(0.54, 0.028, 4, 16, Math.PI * 0.72); edge.translate(-0.2, 0.18, 0); weaponParts.push(edge);
   }
-  if (skin === "frost") {
+  if (skin === "storm") {
+    for (const sign of [-1, 1]) { const fin = new THREE.BoxGeometry(.05, .4, .035); fin.rotateZ(sign * .55); fin.translate(sign * .12, .37, 0); weaponParts.push(fin); }
+  } else if (skin === "void") {
+    const eclipse = new THREE.TorusGeometry(.27, .03, 4, 24); eclipse.translate(0, .5, 0); weaponParts.push(eclipse);
+  } else if (skin === "prism") {
+    for (let i = 0; i < 3; i++) { const shard = new THREE.OctahedronGeometry(.1); shard.translate((i - 1) * .14, .6 + i * .14, 0); weaponParts.push(shard); }
+  } else if (skin === "frost") {
     for (const sign of [-1, 1]) { const crystal = new THREE.OctahedronGeometry(0.085); crystal.translate(sign * 0.11, 0.37, 0); weaponParts.push(crystal); }
   } else if (skin === "astral") {
     const orbit = new THREE.TorusGeometry(type === "r" ? 0.31 : 0.16, 0.018, 4, 16); orbit.rotateX(Math.PI / 2); orbit.translate(0, 0.32, 0); weaponParts.push(orbit);
@@ -320,8 +335,13 @@ const auraFragment = `
       float tip = pow(max(0.0, sin(vUv.x * 6.28318 - uTime * 2.8)), 4.0);
       alpha = (0.12 + tip * 0.5) * energy; core = tip * 0.7;
     }
+    if (uSkin > 6.5) { core = max(core, pow(abs(sin(angle * 3.0 + uTime)), 12.0)); alpha *= .8 + .2 * cos(angle * 6.0 - uTime); }
+    else if (uSkin > 5.5) { alpha *= .45 + .55 * pow(abs(sin(vLocal.y * 4.0 - uTime * 1.5)), 3.0); }
+    else if (uSkin > 4.5) { alpha *= .35 + .65 * step(.55, sin(angle * 9.0 + vLocal.y * 11.0 - uTime * 7.0)); }
     alpha *= uFade; if (alpha < 0.004) discard;
-    gl_FragColor = vec4(mix(uColor * (0.7 + height * 0.45), uBright, core), alpha);
+    vec3 tint = mix(uColor * (0.7 + height * 0.45), uBright, core);
+    if (uSkin > 6.5) tint = mix(tint, vec3(.65) + .35 * cos(vec3(0.0,2.1,4.2) + angle * 2.0 + uTime), .45);
+    gl_FragColor = vec4(tint, alpha);
     #include <colorspace_fragment>
   }
 `;
@@ -329,7 +349,7 @@ const auraFragment = `
 /** Three batches: travelling floor runes, flowing energy envelope and class-shaped ribbons. */
 export function createAvatarAura(type: PieceSymbol, side: "w" | "b", skin: SkinId) {
   const root = new THREE.Group(); root.name = `avatar-aura-${type}-${skin}`;
-  const style = ["p", "n", "b", "r", "q", "k"].indexOf(type); const skinIndex = ["classic", "ember", "frost", "astral", "royal"].indexOf(skin);
+  const style = ["p", "n", "b", "r", "q", "k"].indexOf(type); const skinIndex = Object.keys(skins).indexOf(skin);
   const color = new THREE.Color((side === "w" ? skins[skin].white : skins[skin].black)[1]);
   const makeMaterial = (layer: number) => new THREE.ShaderMaterial({
     uniforms: { uTime: { value: 0 }, uCharge: { value: 0 }, uFade: { value: 0 }, uLayer: { value: layer }, uStyle: { value: style }, uSkin: { value: skinIndex },
@@ -369,6 +389,9 @@ export function createAvatarAura(type: PieceSymbol, side: "w" | "b", skin: SkinI
     add(2, new THREE.ConeGeometry(0.045, 0.8 - i * 0.12, 3), sign * (0.58 + i * 0.14), 1.35 - i * 0.12, 0.36, 0, sign * -0.65);
     add(2, new THREE.TorusGeometry(0.65 + i * 0.1, 0.013, 4, 24, Math.PI * 0.35), sign * 0.17, 1.1, 0.4, 0, sign * 0.45);
   }
+  if (skin === "storm") for (let i = 0; i < 6; i++) add(2, new THREE.BoxGeometry(.025, .7, .025), Math.cos(i * Math.PI / 3) * .75, .5, Math.sin(i * Math.PI / 3) * .75, 0, i % 2 ? .5 : -.5);
+  if (skin === "void") for (let i = 0; i < 2; i++) add(2, new THREE.TorusGeometry(.8 + i * .16, .018, 4, 32), 0, 1.15, .35, i * .85);
+  if (skin === "prism") for (let i = 0; i < 3; i++) add(2, new THREE.TorusGeometry(.75 + i * .15, .016, 4, 6), 0, 1.35, .4, i * .4);
   if (skins[skin].tier >= 3) add(2, new THREE.TorusGeometry(1.08, 0.012, 4, 48), 0, 1.4, 0.45);
   const materials = batches.map((geometry, layer) => {
     const merged = mergeGeometries(geometry)!; geometry.forEach((g) => g.dispose());

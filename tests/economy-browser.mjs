@@ -24,7 +24,7 @@ async function fixture(profile = readProfile(null), save = null) {
       localStorage.setItem("economy-test-initialized", "true");
     }
     const native = crypto.getRandomValues.bind(crypto);
-    crypto.getRandomValues = array => array instanceof Uint32Array ? (array.fill(Math.floor(.95 * 4294967296)), array) : native(array);
+    crypto.getRandomValues = array => array instanceof Uint32Array ? (array.fill(Math.floor(.64 * 4294967296)), array) : native(array);
   }, { profile, save });
   await page.goto(url); await enterMenu(page);
   return { page, context };

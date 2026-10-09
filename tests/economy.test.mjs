@@ -34,9 +34,9 @@ test("all five contracts settle wins, draws and losses according to published ca
     assert.equal(settleContract(paid, mode.id, mode.id, { draw: true }).amount, mode.id === "payday" ? 0 : mode.entry);
   }
 });
-test("skin probabilities have exact boundaries, four distinct results, duplicate shards and eight-pull guarantee", () => {
+test("skin probabilities have exact boundaries, seven distinct results, duplicate shards and eight-pull guarantee", () => {
   const base = { ...readEconomy(), credits: 3000 };
-  for (const [value, skin] of [[0,"ember"],[.31999,"ember"],[.32,"frost"],[.64,"astral"],[.90,"royal"]]) {
+  for (const [value, skin] of [[0,"ember"],[.21999,"ember"],[.22,"frost"],[.44,"astral"],[.60,"royal"],[.68,"storm"],[.88,"void"],[.96,"prism"]]) {
     const reward = rollSkin(base, [], () => value);
     assert.equal(reward.skin, skin); assert.equal(reward.wallet.credits, 2850); assert.equal(reward.duplicate, false);
   }
@@ -50,7 +50,7 @@ test("skin probabilities have exact boundaries, four distinct results, duplicate
 });
 test("a collected skin equips on an independent piece at level one and survives migration", () => {
   let profile = readProfile(null);
-  profile.economy = rollSkin(profile.economy, [], () => .95).wallet;
+  profile.economy = rollSkin(profile.economy, [], () => .64).wallet;
   assert.equal(profile.xp, 0); assert.equal(isSkinUnlocked(profile, "royal"), true);
   profile = equipPiece(profile, "w", "b1", "royal");
   const restored = readProfile(JSON.stringify(profile));
@@ -73,10 +73,14 @@ test("daily credits cannot be reclaimed by reload and dates have separate claims
 test("account cosmetic backups retain credits, guarantee progress, inventory and claim deduplication", () => {
   const profile = readProfile(null);
   profile.economy = enterContract(profile.economy, "backup", "bounty").wallet;
-  profile.economy = rollSkin(profile.economy, [], () => .7).wallet;
+  profile.economy = rollSkin(profile.economy, [], () => .5).wallet;
+  profile.economy.owned.push("void", "prism");
+  profile.loadouts.w.b1 = "prism";
   const backup = cosmeticProgression(JSON.parse(JSON.stringify(profile)));
   const restored = readProfile(JSON.stringify(backup));
   assert.deepEqual(restored.economy, profile.economy);
   assert.equal(enterContract(restored.economy, "backup", "bounty").added, false);
   assert.equal(isSkinUnlocked(restored, "astral"), true);
+  assert.equal(pieceSkin(restored, "w", "b1"), "prism");
+  assert.equal(isSkinUnlocked(restored, "void"), true);
 });

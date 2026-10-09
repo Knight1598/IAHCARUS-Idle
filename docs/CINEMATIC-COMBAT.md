@@ -28,7 +28,7 @@ event's captured square for the victim rather than assuming it is the destinatio
 
 ## Class and skin identities
 
-`src/combat-profiles.ts` caches all 30 actual class/skin profiles. Their nested
+`src/combat-profiles.ts` caches all 48 actual class/skin profiles. Their nested
 motion, VFX, sound and camera data is immutable. Motion uses class building blocks
 and additional skin gestures; effects use the same existing shader batches.
 
@@ -48,6 +48,9 @@ and additional skin gestures; effects use the same existing shader batches.
 | Frost Guard (`frost`) | Precise stance and crystalline guard | Fracture facets, extra shards and seals |
 | Astral Order (`astral`) | Lateral phase gesture and turning mantle | Dimensional rifts, additional rings and reverse orbit |
 | Golden Sovereign (`royal`) | Ceremonial raised guard and weighty finish | Judgement rings and royal wave shapes |
+| Storm Circuit (`storm`) | Fast plasma cadence and conductive weapons | Zigzag paths and pulsed lightning runes |
+| Void Reaper (`void`) | Deliberate phase recoil and eclipse weapons | Inward collapse, eclipse rings and contraction |
+| Prism Ascendant (`prism`) | Precise crystal follow-through and triple crown | Refracted hexagonal paths and shifting spectrum |
 
 `resolveDefense(attacker, defender, seed)` considers attack type, defender class
 and defender skin. For example, casters answer spell/storm attacks with barriers;
@@ -92,7 +95,7 @@ scene checks sequence identity after cue and impact callbacks, including reentra
 skip/reset. Cancellation clears active actors, temporary effects, overlay state
 and all current effect voices (including event SFX); a new sequence owns its own cue cursor.
 Hand-bound melee weapons are guided toward the current opponent at contact.
-Native geometry checks verify intersection for pawn, knight and king across all five skins.
+Native geometry checks verify intersection for pawn, knight and king across all eight skins.
 Hidden tabs freeze the same timeline, including menu previews. Resume preserves
 the current phase; a fresh online presentation received while hidden starts
 immediately on return without inheriting the entire earlier pause.
@@ -112,13 +115,13 @@ These budgets cover the `CombatVFX` group, not total scene draw calls. Avatars,
 their aura batches, optional guard and the bounded defeat burst are separate.
 Compact effects use the low budget. Automatic quality can also reduce pixel ratio
 without changing the timeline or imposing a second motion frame-rate gate.
-Avatar templates cache CPU vertex data for the finite 30 profiles; live geometry
+Avatar templates cache CPU vertex data for the finite 48 profiles; live geometry
 wrappers and fading materials remain independently disposable. `avatarResourceStats()`
 reports template counts and stored vertex bytes.
 
 ## Verification and limits
 
-The native core checks cover all 30 profile identities, immutable caching,
+The native core checks cover all 48 profile identities, immutable caching,
 deterministic defense choices, the nine cue landmarks, bounded monotonic progress,
 and duration clamps:
 

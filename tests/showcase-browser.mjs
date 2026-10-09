@@ -49,8 +49,8 @@ try {
   await page.locator("#open-showcase").click();
   await page.locator("#showcase-preview canvas").waitFor();
   assert.equal(await page.evaluate(() => audioContexts), 0);
-  assert.equal(await page.locator("#showcase-attacker-skin option").count(), 5);
-  assert.equal(await page.locator("#showcase-defender-skin option").count(), 5);
+  assert.equal(await page.locator("#showcase-attacker-skin option").count(), 8);
+  assert.equal(await page.locator("#showcase-defender-skin option").count(), 8);
   assert.equal(await page.locator("#showcase-arena option").count(), 8);
   await page.locator("#showcase-enable-sound").click();
   assert.equal(await page.evaluate(() => audioContexts), 1);
@@ -75,7 +75,7 @@ try {
   assert.deepEqual(sequence.filter(c => ["clash", "counter", "armor", "disintegrate"].includes(c.cue)).map(c => [c.piece,c.skin]), Array(4).fill(["r", "frost"]));
   assert.ok(sequence.find(c => c.cue === "impact").time > sequence.find(c => c.cue === "counter").time);
   // Exercise every class/skin resolution and immediate repeated Skip without committing a move.
-  for (const piece of ["p", "n", "b", "r", "q", "k"]) for (const skin of ["classic", "ember", "frost", "astral", "royal"]) {
+  for (const piece of ["p", "n", "b", "r", "q", "k"]) for (const skin of ["classic", "ember", "frost", "astral", "royal", "storm", "void", "prism"]) {
     await page.locator(`[data-showcase-role="attacker"][data-showcase-piece="${piece}"]`).click();
     await page.locator("#showcase-attacker-skin").selectOption(skin);
     await page.locator("#showcase-play").click();
@@ -120,6 +120,6 @@ try {
   assert.equal(await page.locator("#audio-music").inputValue(), "47");
   assert.equal(await page.evaluate(() => audioContexts), 0, "reload requires a new explicit sound gesture");
   assert.deepEqual(errors, []);
-  writeFileSync("test-results/showcase-v2.json", JSON.stringify({ sequence, diagnostics, classes: 6, skins: 5, realDevice: false }, null, 2));
-  console.log("Showcase passed: 30 class/skin pairs, reactive synchronized cues, repeated Skip, viewport bounds, A/B, saved mix, one opt-in context, unchanged match and XP.");
+  writeFileSync("test-results/showcase-v2.json", JSON.stringify({ sequence, diagnostics, classes: 6, skins: 8, realDevice: false }, null, 2));
+  console.log("Showcase passed: 48 class/skin pairs, reactive synchronized cues, repeated Skip, viewport bounds, A/B, saved mix, one opt-in context, unchanged match and XP.");
 } finally { await browser?.close(); await vite.close(); }

@@ -173,7 +173,16 @@ function applySkinSoundProfile(recipe: SoundRecipe, skin: SkinId, cue: string, u
     if (layer.kind === "tone") { layer.from *= pitch; layer.to *= pitch; }
     // Profile tails affect aftermath; anticipation stays on the shared score.
     if (["impact", "death", "disintegrate", "armor"].includes(cue)) layer.duration *= tail;
-    if (skin === "ember") {
+    if (skin === "storm") {
+      if (layer.kind === "tone") { layer.texture = "plasma"; layer.fm *= 2.2; layer.from *= 1.2; layer.partials = [.38, .17, .08]; }
+      layer.offset += i % 3 * .012; layer.duration *= .86;
+    } else if (skin === "void") {
+      if (layer.kind === "tone") { layer.texture = "choir"; layer.from *= .65; layer.to *= .7; layer.fm *= 1.4; }
+      layer.pan = i % 2 ? -.55 : .55; layer.cutoff = Math.min(2200, layer.cutoff);
+    } else if (skin === "prism") {
+      if (layer.kind === "tone") { layer.texture = "metal"; layer.partials = [.25, .18, .13]; layer.from *= 1.14; layer.fm *= .6; }
+      layer.offset += i * .018; layer.pan = i % 2 ? -.4 : .4;
+    } else if (skin === "ember") {
       layer.cutoff = Math.min(4400, layer.cutoff * .8); layer.offset += i % 2 * .018;
       if (layer.kind === "tone") { layer.texture = "plasma"; layer.fm *= 1.55; layer.partials = [.46, .2, .09]; }
     } else if (skin === "frost") {

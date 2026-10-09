@@ -8,6 +8,9 @@ export const skins = {
   frost: { name: "Frost Guard", label: "ผู้พิทักษ์เหมันต์", level: 1, rarity: "หายาก", tier: 2, effect: "frost", description: "ผู้พิทักษ์น้ำแข็ง เกราะผลึกและรอยแตกที่เย็นจัด", white: [0xe1f5ff, 0x78d9ff], black: [0x1b2b43, 0x699eff], glow: "#78d9ff" },
   astral: { name: "Astral Order", label: "ภาคีดวงดาว", level: 2, rarity: "มหากาพย์", tier: 3, effect: "astral", description: "อวตารอวกาศ วงโคจรดวงดาวและรอยแยกมิติ", white: [0xf2e5ff, 0xe2a0ff], black: [0x2b2240, 0xb389ff], glow: "#e2a0ff" },
   royal: { name: "Golden Sovereign", label: "ราชันทองคำ", level: 4, rarity: "ตำนาน", tier: 4, effect: "royal", description: "อวตารจักรพรรดิ อาวุธพิพากษาและตราราชันหลายชั้น", white: [0xffefd3, 0xf4c66d], black: [0x233731, 0x78e6b2], glow: "#f4c66d" },
+  storm: { name: "Storm Circuit", label: "วงจรสายฟ้า", level: 2, rarity: "หายาก", tier: 2, effect: "storm", description: "เกราะครีบตัวนำ ออร่าซิกแซกและคมสายฟ้าแตกแขนง", white: [0xe1fff3, 0x61ffc4], black: [0x162e36, 0x45efd5], glow: "#61ffc4" },
+  void: { name: "Void Reaper", label: "ผู้เก็บเกี่ยวสุญญากาศ", level: 6, rarity: "ตำนาน", tier: 4, effect: "void", description: "วงแหวนคราส อาวุธวงแหวนนอกมิติและแรงยุบตัวเข้าศูนย์กลาง", white: [0xe3dcff, 0x9c76ff], black: [0x151021, 0xdd63cb], glow: "#9c76ff" },
+  prism: { name: "Prism Ascendant", label: "ผู้ตื่นรู้แห่งปริซึม", level: 8, rarity: "มายาธิค", tier: 5, effect: "prism", description: "มงกุฎผลึกสามชั้น ออร่าหักเหแสงและคมปริซึมแยกแนว", white: [0xf2ffff, 0x9df5ff], black: [0x25253c, 0xffa2e9], glow: "#9df5ff" },
 } as const;
 export type SkinId = keyof typeof skins;
 export interface Profile {

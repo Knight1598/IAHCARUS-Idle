@@ -9,7 +9,7 @@ const derive = promisify(scrypt);
 const SESSION_COOKIE = "iahcarus_session";
 const SESSION_LIFETIME = 7 * 24 * 60 * 60 * 1000;
 const PASSWORD_OPTIONS = { N: 16384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 };
-const skins = new Set(["classic", "ember", "frost", "astral", "royal"]);
+const skins = new Set(["classic", "ember", "frost", "astral", "royal", "storm", "void", "prism"]);
 const arenas = new Set(["citadel", "ember", "frost", "astral", "storm", "grove", "reactor", "eclipse"]);
 const has = (object, key) => Object.hasOwn(object, key);
 const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);

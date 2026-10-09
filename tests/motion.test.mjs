@@ -7,7 +7,7 @@ import { fighterPose, defenderPose } from "../src/motion.ts";
 import { createAvatar, animateAvatar, animateDefender, avatarResourceStats } from "../src/avatar.ts";
 
 const classes = ["p", "n", "b", "r", "q", "k"];
-const skins = ["classic", "ember", "frost", "astral", "royal"];
+const skins = ["classic", "ember", "frost", "astral", "royal", "storm", "void", "prism"];
 const sample = (type, progress, skin = "classic") => {
   const frame = captureFrame(progress);
   return fighterPose(type, frame.charge, frame.strike, progress * 2.6,
@@ -51,13 +51,13 @@ test("attacks shift weight and recover rather than holding their strike forever"
   }
 });
 
-test("all thirty class/skin combinations change actual kinematics, including defenses", () => {
+test("all forty-eight class/skin combinations change actual kinematics, including defenses", () => {
   for (const type of classes) {
     const attacks = skins.map((skin) => JSON.stringify([sample(type, 0.28, skin), sample(type, 0.65, skin)]));
-    assert.equal(new Set(attacks).size, 5, `${type} skin attack kinematics repeat`);
+    assert.equal(new Set(attacks).size, 8, `${type} skin attack kinematics repeat`);
     const defenses = skins.map((skin) => JSON.stringify(defenderPose(type, 0, 1.25,
       { combat: true, progress: 1.25 / 2.6, profile: combatProfile(type, skin), reaction: "parry" })));
-    assert.equal(new Set(defenses).size, 5, `${type} skin defense kinematics repeat`);
+    assert.equal(new Set(defenses).size, 8, `${type} skin defense kinematics repeat`);
   }
 });
 
@@ -130,7 +130,7 @@ test("procedural geometry is cached on CPU with independent GPU wrappers and fad
   const before = avatarResourceStats();
   for (let i = 0; i < 100; i++) releaseAvatar(createAvatar("n", "w", "astral"));
   assert.deepEqual(avatarResourceStats(), before, "repeat captures must not grow template memory");
-  assert.equal(before.profiles, 30);
+  assert.equal(before.profiles, 48);
   assert.ok(before.bytes < 3_000_000, `procedural avatar cache unexpectedly large: ${before.bytes}`);
 });
 

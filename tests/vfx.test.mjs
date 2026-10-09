@@ -108,10 +108,10 @@ test("the blocked opening, finisher and disintegration use separate choreography
   dispose(vfx);
 });
 
-test("all thirty class and skin signatures resolve geometry and profile values within every budget", () => {
+test("all forty-eight class and skin signatures resolve geometry and profile values within every budget", () => {
   for (const quality of ["low", "auto", "high"]) for (const piece of ["p", "n", "b", "r", "q", "k"]) {
     const signatures = [];
-    for (const skin of ["classic", "ember", "frost", "astral", "royal"]) {
+    for (const skin of ["classic", "ember", "frost", "astral", "royal", "storm", "void", "prism"]) {
       const vfx = new CombatVFX({ piece, skin, color: 0xffffff, quality, captured: true,
         defenderPiece: "r", defenderSkin: "frost", defenderColor: 0x699eff, reaction: "brace" });
       const profile = combatProfile(piece, skin), u = vfx.group.children[0].material.uniforms;
@@ -136,7 +136,7 @@ test("all thirty class and skin signatures resolve geometry and profile values w
       }
       dispose(vfx);
     }
-    assert.equal(new Set(signatures).size, 5);
+    assert.equal(new Set(signatures).size, 8);
   }
 });
 

@@ -1,5 +1,5 @@
 import type { PieceSymbol } from "chess.js";
-import type { SkinId } from "./profile.ts";
+import { skins, type SkinId } from "./profile.ts";
 
 /** Presentation data only: none of these values change chess or special rules. */
 export type CombatPhase = "faceoff" | "opening" | "defense" | "finisher" | "defeat";
@@ -92,6 +92,9 @@ interface SkinIdentity {
 // These skins change choreography, shapes and timbre, rather than only hue.
 // Their intensity is cosmetic: duration, outcome and legal destinations agree.
 const skinIdentities: Record<SkinId, SkinIdentity> = {
+  storm: { style: "explosive", flourish: "combustion", texture: "energy", tempo: 1.2, reach: 1.04, lift: 1.12, twist: 1.08, recoil: 1.1, anticipation: .7, followThrough: 1.15, counterReach: 1.05, lobes: 1, rings: 0, shards: 4, trail: .9, burst: 1.05, orbit: 1.5, pitch: 1.16, body: .95, tail: .8, camera: 1 },
+  void: { style: "phase", flourish: "rift", texture: "space", tempo: .92, reach: 1.14, lift: 1.2, twist: 1.2, recoil: .62, anticipation: 1.3, followThrough: 1.2, counterReach: 1.1, lobes: 1, rings: 2, shards: 6, trail: 1.15, burst: 1.13, orbit: -1.4, pitch: .72, body: 1.25, tail: 1.4, camera: 1.1 },
+  prism: { style: "precise", flourish: "fracture", texture: "ice", tempo: 1.04, reach: 1.1, lift: 1.32, twist: 1.15, recoil: .85, anticipation: 1.22, followThrough: 1.25, counterReach: 1.14, lobes: 4, rings: 2, shards: 10, trail: 1.32, burst: 1.22, orbit: 1.25, pitch: 1.18, body: 1.08, tail: 1.35, camera: 1.15 },
   classic: { style: "disciplined", flourish: "clean", texture: "energy", tempo: 1, reach: 1, lift: 1, twist: 1, recoil: 1, anticipation: 1, followThrough: 1, counterReach: 1, lobes: 0, rings: 0, shards: 0, trail: 1, burst: 1, orbit: 1, pitch: 1, body: 1, tail: 1, camera: 1 },
   ember: { style: "explosive", flourish: "combustion", texture: "fire", tempo: 1.13, reach: 1.08, lift: 1.18, twist: 1.12, recoil: 1.28, anticipation: .78, followThrough: 1.25, counterReach: 1.12, lobes: 1, rings: 0, shards: 6, trail: 1.28, burst: 1.16, orbit: 1.2, pitch: .94, body: 1.15, tail: .84, camera: 1.12 },
   frost: { style: "precise", flourish: "fracture", texture: "ice", tempo: .9, reach: .98, lift: .8, twist: .78, recoil: .84, anticipation: 1.15, followThrough: .86, counterReach: .8, lobes: 3, rings: 1, shards: 10, trail: .82, burst: .94, orbit: .7, pitch: 1.12, body: .92, tail: 1.2, camera: .86 },
@@ -110,7 +113,7 @@ function buildProfile(piece: PieceSymbol, skin: SkinId): CombatProfile {
       followThrough: c.motion.followThrough * s.followThrough, counterReach: c.motion.counterReach * s.counterReach }),
     vfx: Object.freeze({ ...c.vfx, flourish: s.flourish,
       lobes: c.vfx.lobes + s.lobes, rings: c.vfx.rings + s.rings,
-      shards: c.vfx.shards + s.shards, trailWidth: c.vfx.trailWidth * s.trail,
+      shards: Math.min(28, c.vfx.shards + s.shards + Math.max(0, skins[skin].tier - 3)), trailWidth: c.vfx.trailWidth * s.trail,
       burstScale: c.vfx.burstScale * s.burst, orbitSpeed: c.vfx.orbitSpeed * s.orbit }),
     sound: Object.freeze({ ...c.sound, texture: s.texture,
       pitch: c.sound.pitch * s.pitch, body: c.sound.body * s.body, tail: c.sound.tail * s.tail }),
@@ -119,7 +122,7 @@ function buildProfile(piece: PieceSymbol, skin: SkinId): CombatProfile {
   });
 }
 
-/** Thirty cached, immutable profiles keep the render loop allocation-free. */
+/** Forty-eight cached, immutable profiles keep the render loop allocation-free. */
 export const combatProfiles: Readonly<Record<PieceSymbol, Readonly<Record<SkinId, CombatProfile>>>> = Object.freeze(
   Object.fromEntries((Object.keys(classes) as PieceSymbol[]).map(piece => [piece,
     Object.freeze(Object.fromEntries((Object.keys(skinIdentities) as SkinId[]).map(skin => [skin, buildProfile(piece, skin)]))),

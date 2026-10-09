@@ -76,7 +76,7 @@ test('daily XP and unlocks are granted once per date, survive reload and keep th
     const reward = dailyProgress(profile.claimed, challenge.day).reward;
     const claim = claimXP(profile, challenge.id, reward);
     assert.equal(claim.added, true);
-    if (i === 1) assert.deepEqual(claim.unlocked, ['astral']);
+    if (i === 1) assert.deepEqual(claim.unlocked, ['astral', 'storm']);
     profile = readProfile(JSON.stringify(claim.profile));
     assert.equal(claimXP(profile, challenge.id, reward).added, false);
   }

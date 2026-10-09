@@ -50,13 +50,16 @@ immediately without requiring its XP level; existing XP unlocks still work.
 
 | Skin | Normal chance | Duplicate shards | Forge cost |
 | --- | ---: | ---: | ---: |
-| Ember Knights | 32% | 20 | 60 |
-| Frost Guard | 32% | 20 | 60 |
-| Astral Order | 26% | 35 | 120 |
-| Golden Sovereign | 10% | 80 | 240 |
+| Ember Knights | 22% | 20 | 60 |
+| Frost Guard | 22% | 20 | 60 |
+| Astral Order | 16% | 35 | 120 |
+| Golden Sovereign | 8% | 80 | 240 |
+| Storm Circuit | 20% | 20 | 60 |
+| Void Reaper | 8% | 80 | 240 |
+| Prism Ascendant | 4% | 120 | 360 |
 
-After seven consecutive capsules without Golden Sovereign, the eighth is
-guaranteed to contain it. Any Golden Sovereign result resets that counter. The
+After seven consecutive capsules without a legendary/mythic result, the eighth is
+guaranteed to contain it. Any Golden Sovereign, Void Reaper or Prism Ascendant result resets that counter. The
 screen shows the actual chance for the next pull, including 100% at guarantee.
 An already-owned or XP-unlocked skin gives shards. Forge spends only shards to
 unlock a chosen unowned skin. Skins remain cosmetic and do not alter chess rules.

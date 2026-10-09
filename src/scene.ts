@@ -161,7 +161,13 @@ function buildPiece(type: PieceSymbol, color: "w" | "b", skin: SkinId) {
   // the same body/accent batches below, including mixed armies.
   if (skin !== "classic") {
     const height = type === "p" ? 0.48 : type === "r" ? 0.6 : 0.7;
-    if (skin === "ember") {
+    if (skin === "storm") {
+      for (const sign of [-1, 1]) { const fin = mesh(new THREE.BoxGeometry(.035,.4,.06),accent,group,sign*.24,height+.08); fin.rotation.z=sign*.4; }
+    } else if (skin === "void") {
+      for (let i=0;i<2;i++) mesh(new THREE.TorusGeometry(.26+i*.07,.018,4,24),accent,group,0,height+.1).rotation.x=i*.65;
+    } else if (skin === "prism") {
+      for (let i=0;i<3;i++) { mesh(new THREE.OctahedronGeometry(.08),accent,group,(i-1)*.17,height+.16); mesh(new THREE.TorusGeometry(.23+i*.045,.014,4,6),accent,group,0,height+.2+i*.06); }
+    } else if (skin === "ember") {
       for (const direction of [-1, 1]) {
         const fin = mesh(new THREE.ConeGeometry(0.1, type === "r" ? 0.34 : 0.25, 3), accent, group, direction * 0.24, height + 0.13, 0);
         fin.rotation.z = direction * -0.45;
@@ -769,9 +775,11 @@ export class ChessScene {
         const skin = this.appearances[piece.square] || this.skin;
         const tier = skins[skin].tier;
         const sides = combatStyles[piece.type].sides;
-        const rings = [[0.39, skin === "frost" ? 6 : sides, 0, 0.018], [0.31, 24, 0, 0.022],
+        const rings = [[0.39, skin === "prism" || skin === "frost" ? 6 : skin === "storm" ? 12 : sides, 0, 0.018], [0.31, 24, 0, 0.022],
           [0.46, 24, 1, 0.018], [0.34, sides * 2, 0, 0.072], [0.37, sides * 2, 2, 0.23]];
         if (tier >= 3) rings.push([0.44, skin === "royal" ? 8 : 32, 0, 0.045]);
+        if (tier >= 4) rings.push([0.41, skin === "void" ? 32 : 6, 0, 0.1]);
+        if (tier >= 5) rings.push([0.43, 6, 0, 0.16]);
         const auraColor = new THREE.Color(battleColor(piece.color, undefined, skin));
         for (const [radius, segments, glow, height] of rings) {
           const geometry = glow === 2 ? new THREE.CylinderGeometry(radius * 0.85, radius, 0.42, segments, 1, true)
@@ -779,16 +787,18 @@ export class ChessScene {
           if (glow !== 2) geometry.rotateX(-Math.PI / 2);
           geometry.translate(p.x, height, p.z);
           const count = geometry.getAttribute("position").count;
-          const centers = new Float32Array(count * 3), flags = new Float32Array(count), colors = new Float32Array(count * 3), tiers = new Float32Array(count), schools = new Float32Array(count);
+          const centers = new Float32Array(count * 3), flags = new Float32Array(count), colors = new Float32Array(count * 3), tiers = new Float32Array(count), schools = new Float32Array(count), families = new Float32Array(count);
           for (let i = 0; i < count; i++) {
             centers.set([p.x, sides + p.z * 2, p.z], i * 3); flags[i] = glow;
             colors.set([auraColor.r, auraColor.g, auraColor.b], i * 3); tiers[i] = tier;
+            families[i] = Object.keys(skins).indexOf(skin);
             schools[i] = ["p", "n", "b", "r", "q", "k"].indexOf(piece.type);
           }
           geometry.setAttribute("aCenter", new THREE.BufferAttribute(centers, 3));
           geometry.setAttribute("aGlow", new THREE.BufferAttribute(flags, 1));
           geometry.setAttribute("aColor", new THREE.BufferAttribute(colors, 3));
           geometry.setAttribute("aTier", new THREE.BufferAttribute(tiers, 1));
+          geometry.setAttribute("aFamily", new THREE.BufferAttribute(families, 1));
           geometry.setAttribute("aSchool", new THREE.BufferAttribute(schools, 1));
           geometries.push(geometry);
         }
@@ -798,16 +808,16 @@ export class ChessScene {
       geometries.forEach((g) => g.dispose());
       const material = new THREE.ShaderMaterial({
         uniforms: { uTime: { value: performance.now() / 1000 }, uColor: { value: new THREE.Color(0xffffff) } },
-        vertexShader: `attribute vec3 aCenter; attribute float aGlow; attribute vec3 aColor; attribute float aTier; attribute float aSchool; uniform float uTime;
-          varying vec2 vLocal; varying float vPhase; varying float vGlow; varying vec3 vColor; varying float vTier; varying float vHeight; varying float vSchool;
+        vertexShader: `attribute vec3 aCenter; attribute float aGlow; attribute vec3 aColor; attribute float aTier; attribute float aSchool; attribute float aFamily; uniform float uTime;
+          varying vec2 vLocal; varying float vPhase; varying float vGlow; varying vec3 vColor; varying float vTier; varying float vHeight; varying float vSchool; varying float vFamily;
           void main() { vec3 p = position; vec2 local = p.xz - aCenter.xz;
             float angle = uTime * (aTier > 2.5 ? -0.17 : 0.13) + aCenter.y * 0.2;
             float c = cos(angle), s = sin(angle);
             p.xz = aCenter.xz + mat2(c,-s,s,c) * local;
-            vLocal = local; vPhase = aCenter.y; vGlow = aGlow; vColor = aColor; vTier = aTier; vHeight = p.y; vSchool = aSchool;
+            vLocal = local; vPhase = aCenter.y; vGlow = aGlow; vColor = aColor; vTier = aTier; vHeight = p.y; vSchool = aSchool; vFamily = aFamily;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(p,1.0); }`,
         fragmentShader: `uniform vec3 uColor; uniform float uTime;
-          varying vec2 vLocal; varying float vPhase; varying float vGlow; varying vec3 vColor; varying float vTier; varying float vHeight; varying float vSchool;
+          varying vec2 vLocal; varying float vPhase; varying float vGlow; varying vec3 vColor; varying float vTier; varying float vHeight; varying float vSchool; varying float vFamily;
           void main() {
             float radius=length(vLocal)/0.46, angle=atan(vLocal.y,vLocal.x);
             float pulse=0.72+0.13*sin(uTime*1.5+vPhase);
@@ -824,7 +834,15 @@ export class ChessScene {
               float petalsGlow=flow*smoothstep(0.12,0.28,radius)*(1.0-smoothstep(0.7,1.0,radius));
               alpha=halo*0.32+petalsGlow*0.08;
             } else alpha=0.30+flow*0.17+sweep*0.2;
+            if(vFamily>6.5){flow=pow(abs(cos(angle*6.0-radius*9.0+uTime)),8.0);alpha*=0.7+flow*0.5;}
+            else if(vFamily>5.5){alpha*=0.4+0.6*pow(abs(sin(radius*12.0+uTime*1.2)),3.0);}
+            else if(vFamily>4.5){alpha*=0.4+0.6*step(0.4,sin(angle*12.0+radius*9.0-uTime*5.0));}
+            else if(vFamily>3.5){alpha*=0.8+0.2*cos(angle*8.0-uTime*0.7);}
+            else if(vFamily>2.5){alpha*=0.5+0.5*pow(abs(sin(angle*3.0-radius*8.0+uTime)),2.0);}
+            else if(vFamily>1.5){alpha*=0.65+0.35*step(0.2,cos(angle*6.0+radius*10.0));}
+            else if(vFamily>0.5){alpha*=0.7+0.3*sin(angle*5.0-radius*9.0-uTime*3.0);}
             vec3 tint=mix(vColor,vec3(0.88,0.97,1.0),sweep*0.24);
+            if(vFamily>6.5)tint=mix(tint,vec3(0.65)+0.35*cos(vec3(0.0,2.1,4.2)+angle*2.0+uTime),0.45);
             gl_FragColor=vec4(uColor*tint*(0.85+sweep*0.4),alpha*pulse*(0.85+vTier*0.05));
             #include <tonemapping_fragment>
             #include <colorspace_fragment>

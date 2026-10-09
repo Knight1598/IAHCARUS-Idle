@@ -51,3 +51,10 @@ for (const depth of [1,2,3]) test(`control bot depth ${depth} prefers its fifth 
   active.move(reply);
   assert.equal(active.outcome().winner, 'b'); assert.equal(active.progress().scores.b, 5);
 });
+
+for (const depth of [1,2,3]) test(`freestyle bot depth ${depth} respects selected diagonal-blink skill and charge budget`, () => {
+  const game = new SpecialChess('7k/8/8/4q3/8/2N5/7P/K7 w - - 0 1', undefined, {charges:5,reusable:true,skills:{n:'alternate'}});
+  reply=null;self.onmessage({data:{fen:game.fen(),depth,special:game.snapshot()}});
+  assert.ok(reply);assert.equal(reply.ultimate,true);
+  const move=game.move(reply);assert.equal(move.to,'e5');assert.equal(move.captured,'q');assert.equal(game.remaining.w,4);
+});

@@ -53,7 +53,7 @@ test("match rewards unlock skins and survive save/reload without duplicate XP", 
   assert.equal(reward.profile.xp, 320);
   assert.equal(reward.profile.wins, 1);
   assert.equal(reward.profile.matches, 1);
-  assert.deepEqual(reward.unlocked, ["astral"]);
+  assert.deepEqual(reward.unlocked, ["astral", "storm"]);
   const restored = readProfile(JSON.stringify(reward.profile));
   assert.equal(claimXP(restored, "match-1", 200, true, true).added, false);
   assert.equal(restored.xp, 320);
