@@ -14,7 +14,7 @@ export async function chooseMode(page, mode) {
 export async function launchPrepared(page) {
   while (await page.locator("#title-screen").getAttribute("data-menu-view") !== "arena") await page.locator("#flow-next").click();
   await page.locator("#launch-start").click();
-  await page.waitForSelector("#stage canvas");
+  await page.waitForSelector("#stage > canvas");
 }
 export async function enterGame(page, mode) {
   if (mode) await chooseMode(page, mode);
@@ -22,7 +22,7 @@ export async function enterGame(page, mode) {
     await enterMenu(page);
     if (await page.locator("#launch-resume").isVisible()) {
       await page.locator("#launch-resume").click();
-      await page.waitForSelector("#stage canvas"); return;
+      await page.waitForSelector("#stage > canvas"); return;
     }
     await page.locator("#lobby-battle-tab").click();
   }

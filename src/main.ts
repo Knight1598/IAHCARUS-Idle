@@ -36,6 +36,9 @@ import "./mode-ui.css";
 import "./design.css";
 import BotWorker from "./bot.ts?worker&inline";
 import { duelEndpoint, duelInvite, invitationCode } from "./online";
+import { DuelSignals } from './duel-signals';
+import { decodeReplay,readReplay,replayGame,type MatchReplay } from './match-replay';
+import { ReplayStudio } from './replay-studio';
 import { DuelLobby } from "./duel-lobby";
 import { duelRules, type RoomSettings } from "../shared/duel-room.js";
 import "./online.css";
@@ -61,11 +64,18 @@ interface State {
     to: Square;
     promotion?: PieceSymbol;
     san: string;
+    ultimate?:boolean;
+    beforeResources?:ReturnType<SpecialChess["snapshot"]>;
   };
   clocks: { w: number; b: number };
   started: boolean;
   ready: {w:boolean;b:boolean};
   protocol?:number;
+  resources?:ReturnType<SpecialChess["snapshot"]>;
+  teams?:Record<Color,import("./duel-draft").SkillTeam>;
+  series?:{round:number;score:Record<string,number>;winner:string|null;locked:boolean};
+  seats?:Record<Color,string|null>;
+  signals?:{id:string;color:Color;signal:string}[];
   settings?:RoomSettings;
   settingsRevision?:number;
   host?:Color|null;
@@ -114,6 +124,10 @@ let matchPaused = false;
 let eventTimer: ReturnType<typeof setTimeout> | undefined;
 function newMatchId() { return globalThis.crypto?.randomUUID?.() || `match-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 let matchId = newMatchId();
+let replayActive=false;
+let replayRecord:MatchReplay|null=null;
+let replayStudio:ReplayStudio|undefined;
+let replayRestore:(()=>void)|undefined;
 let hasSavedLocalGame = false;
 let activeTraining: keyof typeof training | null = null;
 let activeTrial: keyof typeof trials | null = null;
@@ -219,7 +233,7 @@ $('#duel-connect').onclick=()=>{
   if(!endpoint){notice('ใช้ HTTPS ของเซิร์ฟเวอร์เกม หรือ localhost สำหรับทดสอบ');return;}
   disconnect();onlineEndpoint=endpoint;storage.set('special-chess-duel-server',endpoint);configAttempted=true;connect();
 };
-$('#duel-ready').onclick=()=>{if(session&&!state?.started&&!duelLobby.pendingSettings())send({type:'ready',ready:!state?.ready?.[session.color],settingsRevision:state?.settingsRevision});};
+$('#duel-ready').onclick=()=>{if(session&&!state?.started&&!duelLobby.pendingPreparation())send({type:'ready',ready:!state?.ready?.[session.color],settingsRevision:state?.settingsRevision});};
 function updateDuelLobby(){
   duelLobby.update(state,session?.color||null,ws?.readyState===1);
   const connected=ws?.readyState===1;
@@ -230,7 +244,7 @@ function updateDuelLobby(){
   $<HTMLButtonElement>('#duel-connect').disabled=!!session;
   $<HTMLInputElement>('#duel-server').disabled=!!session;
   $('#duel-server-settings').toggleAttribute('open',!onlineEndpoint);
-  const ready=$<HTMLButtonElement>('#duel-ready');ready.hidden=!session||!!state?.started||!!state?.result;ready.disabled=!connected||duelLobby.pendingSettings();
+  const ready=$<HTMLButtonElement>('#duel-ready');ready.hidden=!session||!!state?.started||!!state?.result;ready.disabled=!connected||duelLobby.pendingPreparation();
   ready.textContent=state?.ready?.[session?.color||'w']?'ยกเลิกพร้อม':'พร้อมประลอง';ready.setAttribute('aria-pressed',String(!!state?.ready?.[session?.color||'w']));
   $('#duel-summary').textContent=state?.settings?`${duelRules[state.settings.rule].name} · ${state.settings.baseMs/60000} นาที +${state.settings.increment} วินาที`:'ตั้งกติกา · เตรียมกองทัพ · พร้อมประลอง';
   $('#duel-code-help').textContent=session?'ส่งรหัสห้องให้เพื่อนเปิดเกม → ท้าดวลออนไลน์ → กรอกรหัส → จอยห้อง แล้วกดพร้อมทั้งสองคน':'สร้างห้องแล้วส่งรหัส 6 ตัวให้เพื่อน หรือกรอกรหัสที่ได้รับเพื่อเข้าร่วม';
@@ -260,6 +274,7 @@ function syncMusic() {
 }
 let profile = readProfile(storage.get("special-chess-profile"));
 function saveProfile() { storage.set("special-chess-profile", JSON.stringify(profile)); }
+const duelSignals=new DuelSignals($('#stage'),send,()=>soundEngine()?.playEvent('ui'));
 const duelLobby=new DuelLobby(onlinePanel,send,()=>profile,(color,army)=>{
   profile={...profile,skin:army.skin,loadouts:{...profile.loadouts,[color]:{...army.loadout}}};saveProfile();title.refresh(profile);
 });
@@ -325,6 +340,7 @@ function selectPiece(color: Color, origin: Square, skin: SkinId) {
   saveProfile();
 }
 function armyAppearances(history = game.history({ verbose: true }), fen = initialFen) {
+  if(replayActive&&replayRecord)return appearanceMap(fen,history,{...profile,skin:'classic',loadouts:{w:{...Object.fromEntries(new Chess().board().flat().filter(p=>p?.color==='w').map(p=>[p!.square,replayRecord!.cosmetics.w.loadout[p!.square]||replayRecord!.cosmetics.w.skin]))},b:{...Object.fromEntries(new Chess().board().flat().filter(p=>p?.color==='b').map(p=>[p!.square,replayRecord!.cosmetics.b.loadout[p!.square]||replayRecord!.cosmetics.b.skin]))}}});
   const owner = mode === "bot" ? humanColor : undefined;
   let appearanceProfile: Profile = activeTrial || activeTraining ? scenarioLoadout(profile, fen) : profile;
   if (mode === "online" && state?.cosmetics) {
@@ -372,6 +388,7 @@ function grantReward(id: string, amount: number, win = false, match = false) {
   if (mode !== "online") saveLocal();
 }
 function checkRewards() {
+  if(replayActive)return;
   let rewardVisible = false;
   const stars = (color: Color) => Object.values(story().missions[color]).filter(Boolean).length;
   if (activeVariant && game instanceof VariantChess) {
@@ -452,6 +469,7 @@ function isBusy() {
   return !!scene?.animation || !!worker;
 }
 function canPlay() {
+  if(replayActive)return false;
   if (menuOpen || matchPaused || isBusy() || game.isGameOver() || localResult) return false;
   if (mode === "bot" && game.turn() !== humanColor) return false;
   if (mode === "online")
@@ -487,7 +505,8 @@ function updateUI() {
   checkRewards();
   const result = mode === "online" ? state?.result : localResult;
   const turn = game.turn();
-  $("#status").textContent = matchPaused ? "พักการประลอง" : result
+  $("#stage").classList.toggle("match-replay",replayActive);
+  $("#status").textContent = replayActive ? "รีเพลย์ · ดูการเดินย้อนหลัง" : matchPaused ? "พักการประลอง" : result
     ? resultText(result)
     : game.isCheckmate()
       ? `รุกฆาต · ฝ่าย${turn === "w" ? "ดำ" : "ขาว"}ชนะ`
@@ -504,14 +523,14 @@ function updateUI() {
     "current",
     turn === "b" && !game.isGameOver() && !result,
   );
-  $("#result").hidden = !(result || game.isGameOver());
+  $("#result").hidden = replayActive || !(result || game.isGameOver());
   $("#result").textContent = result
     ? resultText(result)
     : game.isCheckmate()
       ? "ราชันถูกล้อม · การประลองสิ้นสุด"
       : "การประลองจบด้วยผลเสมอ";
   $("#white-label").textContent =
-    mode === "online"
+    replayActive ? "กองทัพขาว · รีเพลย์" : mode === "online"
       ? (session?.color === "w" ? "คุณ" : "คู่แข่ง") +
         (state?.connected.w ? " · เชื่อมต่อ" : " · หลุด")
       : mode === "bot"
@@ -520,7 +539,7 @@ function updateUI() {
           : "บอต · " + $<HTMLSelectElement>("#difficulty").selectedOptions[0].textContent
         : (specialDuel || activeVariant) && humanColor === "b" ? "ผู้เล่น 2" : "ผู้เล่น 1";
   $("#black-label").textContent =
-    mode === "online"
+    replayActive ? "กองทัพดำ · รีเพลย์" : mode === "online"
       ? (session?.color === "b" ? "คุณ" : "คู่แข่ง") +
         (state?.connected.b ? " · เชื่อมต่อ" : " · ยังไม่เชื่อมต่อ")
       : mode === "bot"
@@ -535,12 +554,12 @@ function updateUI() {
         : "○ กำลังเชื่อมต่อ"
       : "OFFLINE READY";
   $("#mode-tag").textContent =
-    activeVariant ? modeDefinitions.find(definition => definition.id === activeVariant!.id)!.name.toUpperCase() : specialDuel ? "SPECIAL DUEL · ULTIMATE ARENA" : activeDaily ? "DAILY RIFT" : activeTrial ? "TACTICAL CHAPTER" : mode === "bot"
+    replayActive ? "MATCH THEATER" : activeVariant ? modeDefinitions.find(definition => definition.id === activeVariant!.id)!.name.toUpperCase() : specialDuel ? "SPECIAL DUEL · ULTIMATE ARENA" : activeDaily ? "DAILY RIFT" : activeTrial ? "TACTICAL CHAPTER" : mode === "bot"
       ? "SOLO CHALLENGE"
       : mode === "online"
         ? state?.settings ? `${duelRules[state.settings.rule].name}${state.settings.rule==='threeCheck'?` · ขาว ${state.checks?.w||0}/3 ดำ ${state.checks?.b||0}/3`:''}` : "ONLINE DUEL"
         : "LOCAL DUEL";
-  $("#hint").textContent = selected
+  $("#hint").textContent = replayActive ? "รีเพลย์ · ไม่มีผลต่อแมตช์หรือรางวัล" : selected
     ? `${names[game.get(selected)!.type]} · ${selected.toUpperCase()} — เลือกช่องปลายทาง`
     : mode === "online" && !state?.started
       ? "ส่งรหัสห้องให้เพื่อนเพื่อเริ่ม"
@@ -586,6 +605,7 @@ function updateUI() {
   }
   $("#stage").classList.toggle("online-duel",mode==="online");
   updateDuelLobby();
+  duelSignals.update(mode==='online'&&!!state?.started&&!state.result,state?.signals?.at(-1));
   $("#room-info").hidden = !session;
   $("#leave").hidden = !session;
   $("#create").hidden = !!session;
@@ -615,6 +635,7 @@ function updateUI() {
   syncMusic();
 }
 function updatePresentation() {
+  if(replayActive)return;
   if (!presentation || menuOpen || scene?.animation || visualReplay || armoryAudition) return;
   const result = mode === "online" ? state?.result : localResult;
   const trainingWon = activeTraining && game.history({ verbose: true }).some((move) => move.from === training[activeTraining!].from && move.to === training[activeTraining!].to);
@@ -624,7 +645,8 @@ function updatePresentation() {
   resultPresentationKey = key;
   const owner = mode === "online" ? session?.color : mode === "bot" || activeTrial || activeVariant?.id === "rush" ? humanColor : undefined;
   const winner = result?.winner ?? (game.isCheckmate() ? game.turn() === "w" ? "b" : "w" : null);
-  const mvp = battleMVP(initialFen, game.history({ verbose: true }), owner, activeVariant && game instanceof VariantChess ? () => createVariant(activeVariant!.id, activeVariant!.options, initialFen) : game instanceof SpecialChess ? () => new SpecialChess(initialFen,undefined,specialConfig) : undefined);
+  const actualSpecialConfig=game instanceof SpecialChess?game.config:specialConfig;
+  const mvp = battleMVP(initialFen, game.history({ verbose: true }), owner, activeVariant && game instanceof VariantChess ? () => createVariant(activeVariant!.id, activeVariant!.options, initialFen) : game instanceof SpecialChess ? () => new SpecialChess(initialFen,undefined,actualSpecialConfig) : undefined);
   const mvpSkin = mvp ? armyAppearances([])[mvp.origin] || profile.skin : profile.skin;
   const titleText = activeVariant?.id === "rush" ? activeVariant.rushRemaining <= 0 ? "Puzzle Rush จบแล้ว" : winner === humanColor ? "อ่านเกมได้เฉียบคม" : "ลองโจทย์ถัดไป" : activeDaily ? winner === humanColor ? "พิชิตศึกประจำวัน" : "ราชันรอการแก้มือ" : trainingWon ? "ฝึกสำเร็จ" : activeTrial ? winner === humanColor ? "ภารกิจสำเร็จ" : "ลองวางแผนใหม่" : winner === null ? "ศึกเสมอ" : owner ? winner === owner ? "ชัยชนะของกองทัพคุณ" : "ราชันรอการกลับมา" : `ชัยชนะฝ่าย${winner === "w" ? "ขาว" : "ดำ"}`;
   presentation.showResult({
@@ -1077,6 +1099,8 @@ function submitMove(from: Square, to: Square, promotion: PieceSymbol = "q") {
   commitMove(from, to, promotion);
 }
 function commitMove(from: Square, to: Square, promotion: PieceSymbol = "q", ultimate = false, portal = false) {
+  if(replayActive)return;
+  if(mode==='online'){if(canPlay()){send({type:'move',from,to,promotion,ultimate,revision:state?.revision});clearSelection();}return;}
   const before = game instanceof VariantChess || game instanceof SpecialChess ? game.clone() : new Chess(game.fen());
   let move;
   try {
@@ -1096,7 +1120,7 @@ function applyBotReply() {
     commitMove(reply.move.from, reply.move.to, reply.move.promotion, reply.move.ultimate, reply.move.portal);
 }
 function scheduleBot() {
-  if (menuOpen || matchPaused || mode !== "bot" || game.turn() === humanColor || game.isGameOver() || localResult) {
+  if (replayActive || menuOpen || matchPaused || mode !== "bot" || game.turn() === humanColor || game.isGameOver() || localResult) {
     stopBot();
     return;
   }
@@ -1132,6 +1156,7 @@ function scheduleBot() {
   }, 80);
 }
 function saveLocal() {
+  if(replayActive)return;
   if (mode !== "online") {
     storage.set(
       saveKey,
@@ -1240,6 +1265,7 @@ async function connect() {
     try {
       const m = JSON.parse(e.data);
       if (m.type === "error") {
+        duelLobby.failed();
         requestPending = false;
         notice(m.message);$("#duel-message").textContent=m.message;
         if (
@@ -1286,12 +1312,14 @@ async function connect() {
   updateUI();
 }
 function receiveState(next: State) {
+  if(replayActive&&(next.revision!==state?.revision||!next.result))closeMatchReplay();
+  archiveMatch(next);
   const wasStarted=!!state?.started;
   const wasResult=!!state?.result;
   const changed = !state || next.revision !== state.revision;
   const presenceChanged = !state || next.started !== state.started ||
     next.connected.w !== state.connected.w || next.connected.b !== state.connected.b || next.ready?.w!==state.ready?.w || next.ready?.b!==state.ready?.b ||
-    next.drawOffer!==state.drawOffer || next.rematch?.w!==state.rematch?.w || next.rematch?.b!==state.rematch?.b;
+    next.signals?.at(-1)?.id!==state.signals?.at(-1)?.id || next.series?.round!==state.series?.round || next.series?.winner!==state.series?.winner || next.drawOffer!==state.drawOffer || next.rematch?.w!==state.rematch?.w || next.rematch?.b!==state.rematch?.b;
   state = next;
   serverStamp = Date.now();
   if (changed) {
@@ -1303,18 +1331,19 @@ function receiveState(next: State) {
     stopBot();
     scene?.cancel();
     clearSelection();
-    const rebuilt = new Chess();
+    const rebuilt = next.resources ? new SpecialChess(undefined,undefined,next.resources.config) : new Chess();
     for (const m of next.history) rebuilt.move(m);
     game = rebuilt;
     localResult = null;
     if (next.latest) {
-      const before = new Chess(next.latest.before);
+      const before = next.latest.beforeResources ? new SpecialChess(next.latest.before,next.latest.beforeResources) : new Chess(next.latest.before);
       const move = before.move({
         from: next.latest.from,
         to: next.latest.to,
         promotion: next.latest.promotion || "q",
+        ...(next.latest.ultimate?{ultimate:true}:{}),
       });
-      const beforeGame = new Chess(next.latest.before);
+      const beforeGame = next.latest.beforeResources ? new SpecialChess(next.latest.before,next.latest.beforeResources) : new Chess(next.latest.before);
       animate(beforeGame, move);
     } else {
       lastMove = undefined;
@@ -1329,7 +1358,7 @@ function receiveState(next: State) {
     $<HTMLSelectElement>('#arena-select').value=next.settings.arena;
   }
   $<HTMLSelectElement>('#arena-select').disabled=!!session;
-  if(next.started&&!wasStarted){hud.close();notice("เริ่มประลอง · ฝ่ายขาวเดินก่อน");}
+  if(next.started&&!wasStarted){hud.close();presentation?.showIntro({opponent:'กองทัพดำ',player:'กองทัพขาว',title:`${next.settings?duelRules[next.settings.rule].name:'ONLINE DUEL'} · รอบ ${next.series?.round||1} · ฝ่ายขาวเดินก่อน`});notice("เริ่มประลอง · ฝ่ายขาวเดินก่อน");}
   if(next.result&&!wasResult)hud.close();
   if(wasStarted&&!next.started&&wasResult){hud.open('room');notice('กลับล็อบบี้แล้ว · เตรียมหมากและกดพร้อมอีกครั้ง');}
   // Clock snapshots should not rebuild/focus the accessible board every second.
@@ -1718,6 +1747,9 @@ presentation = new BattlePresentation($("#stage"), {
     newLocal();
   },
 });
+const archiveButton=document.createElement('button');archiveButton.id='match-archive';archiveButton.textContent='รีเพลย์การแข่งขัน';archiveButton.onclick=()=>openReplayArchive();$('.history').prepend(archiveButton);
+const menuArchive=document.createElement('button');menuArchive.id='menu-match-archive';menuArchive.textContent='รีเพลย์ · ดูหรือรับบันทึกจากเพื่อน';menuArchive.onclick=()=>openReplayArchive();title.root.querySelector('.main-game-menu')!.append(menuArchive);
+replayStudio=new ReplayStudio($('#stage'),showMatchReplay,closeMatchReplay,()=>scene?.resetView(!scene.flipped));
 const replayButton = document.createElement("button");
 replayButton.id = "replay-capture";
 replayButton.textContent = "↺ ดูฉากสังหารล่าสุด";
@@ -1847,7 +1879,7 @@ function replayLastCapture() {
   while (index >= 0 && !history[index].captured) index--;
   if (index < 0) { notice("ยังไม่มีฉากสังหารในศึกนี้"); return; }
   const move = history[index];
-  const after = game instanceof VariantChess && activeVariant ? createVariant(activeVariant.id, activeVariant.options, initialFen) : game instanceof SpecialChess ? new SpecialChess(initialFen, undefined, specialConfig) : new Chess(move.before);
+  const after = game instanceof VariantChess && activeVariant ? createVariant(activeVariant.id, activeVariant.options, initialFen) : game instanceof SpecialChess ? new SpecialChess(initialFen, undefined, game.config) : new Chess(move.before);
   if (after instanceof SpecialChess || after instanceof VariantChess) for (const prior of history.slice(0, index)) after.move(prior);
   const before = after instanceof VariantChess ? after.clone() : new Chess(after.fen());
   const replayMove = after.move(move);
@@ -1919,6 +1951,7 @@ function launchGame(settings: LaunchSettings) {
   }
 }
 function openTitle() {
+  if(replayActive)closeMatchReplay();
   if (mode === "online" && state?.started && !state.result) {
     notice("แมตช์ออนไลน์กำลังแข่งอยู่ จบเกมหรือยอมแพ้ก่อนกลับหน้าหลัก");
     return;
@@ -1980,3 +2013,40 @@ setInterval(() => {
   saveLocal();
 }, 250);
 document.addEventListener("visibilitychange", () => { rushStamp = performance.now(); });
+
+const replayArchiveKey='special-chess-match-replays';
+let archivedReplayId='';
+function archiveMatch(next:State){
+  if(!next.result||!next.settings||!next.cosmetics||!next.history.length)return;
+  const id=`${next.code}:${next.series?.round||1}:${next.revision}`;if(id===archivedReplayId)return;
+  const record=readReplay({version:1,settings:next.settings,teams:next.teams,cosmetics:next.cosmetics,moves:next.history});if(!record)return;
+  archivedReplayId=id;
+  let records:MatchReplay[]=[];try{records=JSON.parse(storage.get(replayArchiveKey)||'[]').map(readReplay).filter(Boolean);}catch{}
+  storage.set(replayArchiveKey,JSON.stringify([record,...records].slice(0,10)));
+}
+function openReplayArchive(){
+  if(mode==='online'&&state?.started&&!state.result){notice('ดูรีเพลย์ได้หลังจบแมตช์');return;}
+  let dialog=document.querySelector<HTMLDialogElement>('#replay-archive-dialog');
+  if(!dialog){dialog=document.createElement('dialog');dialog.id='replay-archive-dialog';dialog.innerHTML='<small>MATCH ARCHIVE</small><h2>รีเพลย์การแข่งขัน</h2><label>แมตช์ที่บันทึกไว้<select id="replay-records"></select></label><button id="replay-open-record">ดูแมตช์นี้</button><label>รับรหัสรีเพลย์จากเพื่อน<textarea id="replay-import-code" maxlength="32768" rows="3" spellcheck="false"></textarea></label><button id="replay-import">เปิดรีเพลย์จากรหัส</button><p id="replay-import-status" role="status"></p><button id="replay-archive-close">ปิด</button>';$('#app').append(dialog);}
+  let records:MatchReplay[]=[];try{records=JSON.parse(storage.get(replayArchiveKey)||'[]').map(readReplay).filter(Boolean);}catch{}
+  const list=dialog.querySelector<HTMLSelectElement>('#replay-records')!;list.innerHTML=records.map((r,i)=>`<option value="${i}">${i+1}. ${duelRules[r.settings.rule].name} · ${r.moves.length} ตา</option>`).join('');
+  const open=dialog.querySelector<HTMLButtonElement>('#replay-open-record')!;open.disabled=!records.length;open.onclick=()=>{dialog!.close();replayStudio?.open(records[Number(list.value)]);};
+  dialog.querySelector<HTMLButtonElement>('#replay-import')!.onclick=()=>{const record=decodeReplay(dialog!.querySelector<HTMLTextAreaElement>('#replay-import-code')!.value.trim());if(!record){dialog!.querySelector('#replay-import-status')!.textContent='รหัสไม่ถูกต้อง หรือมีการเดินผิดกติกา';return;}dialog!.close();replayStudio?.open(record);};
+  dialog.querySelector<HTMLButtonElement>('#replay-archive-close')!.onclick=()=>dialog!.close();dialog.showModal();
+}
+function showMatchReplay(record:MatchReplay,ply:number,motion:boolean){
+  if(!replayActive){
+    const previousGame=game,previousFen=initialFen,previousMode=mode,previousMenu=menuOpen,previousResult=localResult,previousLast=lastMove;
+    replayRestore=()=>{game=previousGame;initialFen=previousFen;mode=previousMode;localResult=previousResult;lastMove=previousLast;scene?.cancel();renderGameBoard();scene?.setArena(state?.settings?.arena||profile.arena);updateUI();if(previousMenu)openTitle();else scheduleBot();};
+    replayActive=true;stopBot();resetPresentation();enterBoard();
+  }
+  replayRecord=record;scene?.cancel();initialFen=new Chess().fen();game=replayGame(record,ply);localResult=null;
+  scene?.setArena(record.settings.arena);scene?.setShowcase(null);scene?.setPaused(false);renderGameBoard();
+  if(motion&&ply>0){const before=replayGame(record,ply-1);animate(before,game.history({verbose:true}).at(-1)!);}
+  updateUI();$('#mode-tag').textContent='MATCH THEATER';$('#hint').textContent='รีเพลย์ · ไม่มีผลต่อแมตช์หรือรางวัล';
+}
+function closeMatchReplay(){
+  if(!replayActive)return;replayActive=false;replayRecord=null;replayStudio?.dismiss();const restore=replayRestore;replayRestore=undefined;restore?.();
+}
+const sharedReplay=location.hash.startsWith('#replay=')?decodeReplay(location.hash.slice(8)):null;
+if(sharedReplay)replayStudio?.open(sharedReplay);

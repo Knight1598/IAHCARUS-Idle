@@ -4,6 +4,8 @@ import { resolve, extname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { Chess } from "chess.js";
+import { SpecialChess } from "../src/special.ts";
+import { normalizeTeam } from "../src/duel-draft.ts";
 import { roomSettings, duelOutcome } from "../shared/duel-room.js";
 import { normalizeCosmetics } from "../shared/cosmetics.js";
 import { createAccountAPI } from "./accounts.mjs";
@@ -88,7 +90,7 @@ function snapshot(room, ws, latest = null) {
     clocks: clocks(room),
     started: room.started,
     ready:{w:!!room.players.w?.ready,b:!!room.players.b?.ready},
-    protocol:2,
+    protocol:3,
     rule:room.settings.rule,
     settings:room.settings,
     settingsRevision:room.settingsRevision,
@@ -96,6 +98,11 @@ function snapshot(room, ws, latest = null) {
     checks:room.checks,
     drawOffer:room.drawOffer,
     rematch:room.rematch,
+    teams: {w:room.players.w?.skills||normalizeTeam(null),b:room.players.b?.skills||normalizeTeam(null)},
+    resources:room.game instanceof SpecialChess?room.game.snapshot():null,
+    series:room.series,
+    seats:{w:room.players.w?.seat||null,b:room.players.b?.seat||null},
+    signals:room.signals,
     result: room.result,
     connected: {
       w: room.players.w?.ws?.readyState === 1,
@@ -112,7 +119,23 @@ function snapshot(room, ws, latest = null) {
     revision: room.revision,
   });
 }
+function scoreRound(room) {
+  if(!room.result||room.roundScored)return;
+  room.roundScored=true;
+  const seat=room.result.winner&&room.players[room.result.winner]?.seat;
+  if(seat)room.series.score[seat]++;
+  const target=room.settings.bestOf===3?2:1;
+  room.series.winner=['A','B'].find(s=>room.series.score[s]>=target)||null;
+  room.series.locked=room.settings.bestOf===3&&!room.series.winner;
+}
+function startGame(room) {
+  room.game=room.settings.rule==='special'?new SpecialChess(undefined,undefined,{charges:room.settings.charges,reusable:room.settings.reusable,drafted:true,teams:{w:room.players.w.skills,b:room.players.b.skills},skills:{},formation:'standard',seed:1}):new Chess();
+}
+function flipArmy(army,color) {
+  return normalizeCosmetics({skin:army.skin,loadout:Object.fromEntries(Object.entries(army.loadout).map(([s,id])=>[s[0]+(9-Number(s[1])),id]))},color);
+}
 function broadcast(room, latest = null) {
+  scoreRound(room);
   for (const p of Object.values(room.players))
     if (p) snapshot(room, p.ws, latest);
 }
@@ -173,6 +196,9 @@ wss.on("connection", (ws, req) => {
             settings:roomSettings(m.settings||{}, {rule:'standard',baseMs:clockMs,increment:0,arena:'citadel',allowDraw:true}),
             settingsRevision:0,
             hostToken:null,
+            signals:[],
+            roundScored:false,
+            series:{round:1,score:{A:0,B:0},winner:null,locked:false},
             checks:{w:0,b:0},
             drawOffer:null,
             rematch:{w:false,b:false},
@@ -211,7 +237,9 @@ wss.on("connection", (ws, req) => {
           ? room.players[color].cosmetics
           : normalizeCosmetics(m.armies?.[color] || m.cosmetics, color);
         const identity = m.type === "resume" ? room.players[color].identity : accountIdentity;
-        room.players[color] = { ws, token, cosmetics, identity, ready:m.type==="resume"&&room.started ? !!room.players[color]?.ready : false };
+        const seat=m.type==='resume'?room.players[color].seat:m.type==='create'?'A':(['w','b'].some(c=>room.players[c]?.seat==='A')?'B':'A');
+        const skills=m.type==='resume'?room.players[color].skills:normalizeTeam(m.skills);
+        room.players[color] = { ws, token, cosmetics, identity, seat, skills, ready:m.type==="resume"&&room.started ? !!room.players[color]?.ready : false };
         peers.set(ws, { code: room.code, color });
         room.touched = Date.now();
         settle(room);
@@ -227,6 +255,7 @@ wss.on("connection", (ws, req) => {
         if(room.started&&!room.result){room.result={winner:peer.color==='w'?'b':'w',reason:'resign'};room.revision++;}
         if(!room.started){
           const departing=room.players[peer.color];room.players[peer.color]=null;peers.delete(ws);
+          if(room.series.round>1||room.series.score.A||room.series.score.B)room.series={round:1,score:{A:0,B:0},winner:null,locked:false};
           if(room.hostToken===departing.token)room.hostToken=room.players[peer.color==='w'?'b':'w']?.token||null;
           for(const p of Object.values(room.players))if(p)p.ready=false;
           room.settingsRevision++;room.revision++;room.touched=Date.now();broadcast(room);
@@ -244,9 +273,17 @@ wss.on("connection", (ws, req) => {
       }
       if(m.type==='rematch') {
         if(!room.result)throw Error('เกมยังไม่จบ');
+        scoreRound(room);
         if(typeof m.ready!=='boolean')throw Error('คำขอเล่นใหม่ไม่ถูกต้อง');
         room.rematch[peer.color]=m.ready;
         if(['w','b'].every(c=>room.rematch[c]&&room.players[c]?.ws?.readyState===WebSocket.OPEN)){
+          if(room.settings.swapSides) {
+            [room.players.w,room.players.b]=[room.players.b,room.players.w];
+            for(const c of ['w','b']) {const p=room.players[c];p.cosmetics=flipArmy(p.cosmetics,c);peers.set(p.ws,{code:room.code,color:c});send(p.ws,{type:'session',code:room.code,color:c,token:p.token});}
+          }
+          if(room.series.winner)room.series={round:1,score:{A:0,B:0},winner:null,locked:false};
+          else room.series.round++;
+          room.roundScored=false;room.signals=[];
           room.game=new Chess();room.clocks={w:room.settings.baseMs,b:room.settings.baseMs};room.since=Date.now();
           room.started=false;room.result=null;room.checks={w:0,b:0};room.drawOffer=null;room.rematch={w:false,b:false};
           for(const p of Object.values(room.players))if(p)p.ready=false;
@@ -258,14 +295,16 @@ wss.on("connection", (ws, req) => {
         broadcast(room);
         throw Error("เกมจบแล้ว");
       }
-      if(m.type==='configure'||m.type==='equip') {
+      if(m.type==='configure'||m.type==='equip'||m.type==='skills') {
         if(room.started)throw Error('แก้ไขได้เฉพาะก่อนเริ่มประลอง');
         if(m.settingsRevision!==room.settingsRevision){snapshot(room,ws);throw Error('การตั้งค่าห้องเปลี่ยนแล้ว ลองใหม่อีกครั้ง');}
         if(m.type==='configure') {
           if(room.players[peer.color].token!==room.hostToken)throw Error('เฉพาะเจ้าของห้องเท่านั้นที่ตั้งกติกาได้');
+          if(room.series.locked)throw Error('กติกาซีรีส์ล็อกจนกว่าจะได้ผู้ชนะ');
           room.settings=roomSettings(m.settings,room.settings);
           room.clocks={w:room.settings.baseMs,b:room.settings.baseMs};
-        } else room.players[peer.color].cosmetics=normalizeCosmetics(m.cosmetics,peer.color);
+        } else if(m.type==='skills')room.players[peer.color].skills=normalizeTeam(m.skills);
+        else room.players[peer.color].cosmetics=normalizeCosmetics(m.cosmetics,peer.color);
         for(const p of Object.values(room.players))if(p)p.ready=false;
         room.settingsRevision++;room.revision++;broadcast(room);return;
       }
@@ -275,11 +314,16 @@ wss.on("connection", (ws, req) => {
         if(m.settingsRevision!==undefined&&m.settingsRevision!==room.settingsRevision){snapshot(room,ws);throw Error('กติกาหรือสกินเปลี่ยนแล้ว กรุณายืนยันพร้อมอีกครั้ง');}
         room.players[peer.color].ready=m.ready;
         if(['w','b'].every(c=>room.players[c]?.ready&&room.players[c]?.ws?.readyState===WebSocket.OPEN)){
-          room.started=true;room.since=Date.now();room.revision++;
+          startGame(room);room.started=true;room.since=Date.now();room.revision++;
         }
         broadcast(room);return;
       }
       if (!room.started) throw Error("รอผู้เล่นอีกฝ่ายและยืนยันพร้อมทั้งคู่");
+      if(m.type==='signal') {
+        if(!['wellPlayed','niceMove','thinking','rematch','goodLuck'].includes(m.signal))throw Error('สัญญาณไม่ถูกต้อง');
+        const p=room.players[peer.color];if(Date.now()-(p.lastSignal||0)<5000)throw Error('รอ 5 วินาทีก่อนส่งสัญญาณถัดไป');
+        p.lastSignal=Date.now();room.signals.push({id:randomBytes(6).toString('hex'),color:peer.color,signal:m.signal});room.signals=room.signals.slice(-5);broadcast(room);return;
+      }
       if(m.type==='draw') {
         if(!room.settings.allowDraw)throw Error('ห้องนี้ปิดการเสนอเสมอ');
         if(!['offer','accept','decline','cancel'].includes(m.action))throw Error('คำขอเสมอไม่ถูกต้อง');
@@ -316,6 +360,9 @@ wss.on("connection", (ws, req) => {
           !["q", "r", "b", "n"].includes(m.promotion || "q")
         )
           throw Error("รูปแบบการเดินไม่ถูกต้อง");
+        if(m.ultimate!==undefined&&typeof m.ultimate!=="boolean")throw Error("สกิลไม่ถูกต้อง");
+        if(m.ultimate&&!(room.game instanceof SpecialChess))throw Error("ห้องนี้ไม่ได้เปิดอัลติเมท");
+        const beforeResources=room.game instanceof SpecialChess?room.game.snapshot():null;
         const before = room.game.fen();
         let move;
         try {
@@ -323,6 +370,7 @@ wss.on("connection", (ws, req) => {
             from: m.from,
             to: m.to,
             promotion: m.promotion || "q",
+            ...(m.ultimate===true?{ultimate:true}:{}),
           });
         } catch {
           throw Error("เดินผิดกติกา");
@@ -334,6 +382,8 @@ wss.on("connection", (ws, req) => {
         room.result=duelOutcome(room.game,room.settings.rule,move,room.checks);
         broadcast(room, {
           before,
+          beforeResources,
+          ultimate:!!move.ultimate,
           from: move.from,
           to: move.to,
           promotion: move.promotion,

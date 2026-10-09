@@ -17,9 +17,10 @@ RUN --mount=type=secret,id=npm_ca,required=false \
 COPY --from=build /app/dist ./dist
 COPY server ./server
 COPY shared ./shared
+COPY src/special.ts src/duel-draft.ts src/field-events.ts ./src/
 # COPY preserves workspace permissions; runtime code must remain readable to USER node.
 # Keep code root-owned, with write access reserved for the account-data directory.
-RUN chmod -R u=rwX,go=rX /app/server /app/shared /app/dist \
+RUN chmod -R u=rwX,go=rX /app/server /app/shared /app/src /app/dist \
     && chmod 644 /app/package*.json \
     && mkdir -p /app/data \
     && chmod 700 /app/data \

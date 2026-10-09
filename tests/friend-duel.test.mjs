@@ -6,6 +6,7 @@ import { WebSocket } from 'ws';
 import { duelEndpoint,duelInvite,invitationCode } from '../src/online.ts';
 import { Chess } from 'chess.js';
 import { roomSettings,duelOutcome } from '../shared/duel-room.js';
+import { readReplay,encodeReplay,decodeReplay,replayGame,replayLink } from '../src/match-replay.ts';
 async function service(t,extra={}) {
  const child=spawn(process.execPath,['server/index.mjs'],{env:{...process.env,PORT:'0',GUEST_DUEL_ONLY:'true',...extra},stdio:['ignore','pipe','pipe']});t.after(()=>child.kill());
  const port=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Server timeout')),5000);child.stdout.on('data',d=>{const m=String(d).match(/port (\d+)/);if(m){clearTimeout(timer);resolve(Number(m[1]));}});child.on('exit',()=>{clearTimeout(timer);reject(Error('Server exited'));});});
@@ -76,7 +77,7 @@ test('draw requires opponent consent, and rematch requires both votes then a new
  b.send({type:'draw',action:'accept'});const ended=await a.wait(m=>m.type==='state'&&m.result);assert.deepEqual(ended.result,{winner:null,reason:'agreement'});
  a.send({type:'rematch',ready:true});const pending=await b.wait(m=>m.type==='state'&&m.rematch.w);assert.ok(pending.result);
  b.send({type:'rematch',ready:true});const lobby=await a.wait(m=>m.type==='state'&&!m.started&&!m.result&&m.revision>ended.revision);
- assert.deepEqual(lobby.history,[]);assert.deepEqual(lobby.ready,{w:false,b:false});assert.deepEqual(lobby.checks,{w:0,b:0});assert.equal(lobby.host,'w');
+ assert.deepEqual(lobby.history,[]);assert.deepEqual(lobby.ready,{w:false,b:false});assert.deepEqual(lobby.checks,{w:0,b:0});assert.equal(lobby.host,'b');
  a.send({type:'move',from:'e2',to:'e4',revision:lobby.revision});assert.match((await a.wait(m=>m.type==='error')).message,/พร้อม/);
 });
 test('online variant objectives win on their legal triggering move',()=>{
@@ -93,4 +94,33 @@ test('a waiting host transfers ownership on leave and disabled draw offers are e
  const c=await s.peer();c.send({type:'join',code:room.code});assert.equal((await c.wait(m=>m.type==='session')).color,'w');
  b.send({type:'ready',ready:true,settingsRevision:changed.settingsRevision});c.send({type:'ready',ready:true,settingsRevision:changed.settingsRevision});await b.wait(m=>m.type==='state'&&m.started);
  b.send({type:'draw',action:'offer'});assert.match((await b.wait(m=>m.type==='error')).message,/ปิดการเสนอ/);
+});
+test('Special Duel uses server-selected skills, spends charges and rejects a second uncharged ultimate',async t=>{
+ const s=await service(t),a=await s.peer();a.send({type:'create',settings:{rule:'special',charges:1}});const room=await a.wait(m=>m.type==='session');
+ const b=await s.peer();b.send({type:'join',code:room.code});let state=await a.wait(m=>m.type==='state'&&m.connected.b);
+ a.send({type:'skills',skills:{n:'alternate'},settingsRevision:state.settingsRevision});state=await b.wait(m=>m.type==='state'&&m.teams.w.n==='alternate');
+ a.send({type:'ready',ready:true,settingsRevision:state.settingsRevision});b.send({type:'ready',ready:true,settingsRevision:state.settingsRevision});state=await a.wait(m=>m.type==='state'&&m.started);
+ a.send({type:'move',from:'b1',to:'d3',ultimate:true,revision:state.revision});state=await b.wait(m=>m.type==='state'&&m.history.length===1);assert.match(state.history[0],/^U:/);assert.equal(state.resources.remaining.w,0);assert.equal(state.latest.ultimate,true);assert.equal(state.latest.beforeResources.remaining.w,1);
+ b.send({type:'move',from:'e7',to:'e5',revision:state.revision});state=await a.wait(m=>m.type==='state'&&m.history.length===2);
+ a.send({type:'move',from:'d3',to:'f5',ultimate:true,revision:state.revision});assert.match((await a.wait(m=>m.type==='error')).message,/กติกา/);
+ const replay=readReplay({version:1,settings:state.settings,teams:state.teams,cosmetics:state.cosmetics,moves:state.history});assert.ok(replay);assert.equal(replayGame(replay).fen(),state.fen);assert.equal(replayGame(decodeReplay(encodeReplay(replay))).remaining.w,0);
+});
+test('best-of-three tracks people through swapped colors and locks rules between rounds',async t=>{
+ const s=await service(t),a=await s.peer();a.send({type:'create',settings:{bestOf:3},cosmetics:{skin:'ember',loadout:{b1:'frost'}}});const room=await a.wait(m=>m.type==='session');const b=await s.peer();b.send({type:'join',code:room.code});await b.wait(m=>m.type==='session');
+ a.send({type:'ready',ready:true});b.send({type:'ready',ready:true});await b.wait(m=>m.type==='state'&&m.started);b.send({type:'resign'});let state=await a.wait(m=>m.type==='state'&&m.result);assert.deepEqual(state.series.score,{A:1,B:0});assert.equal(state.series.winner,null);
+ a.send({type:'rematch',ready:true});b.send({type:'rematch',ready:true});const swapped=await a.wait(m=>m.type==='session'&&m.color==='b');assert.equal(swapped.token,room.token);state=await a.wait(m=>m.type==='state'&&!m.started&&m.series.round===2);
+ assert.equal(state.host,'b');assert.equal(state.seats.b,'A');assert.equal(state.cosmetics.b.loadout.b8,'frost');assert.equal(state.series.locked,true);
+ a.send({type:'configure',settings:{baseMs:60000},settingsRevision:state.settingsRevision});assert.match((await a.wait(m=>m.type==='error')).message,/ซีรีส์/);
+ a.send({type:'ready',ready:true,settingsRevision:state.settingsRevision});b.send({type:'ready',ready:true,settingsRevision:state.settingsRevision});await a.wait(m=>m.type==='state'&&m.started);b.send({type:'resign'});state=await a.wait(m=>m.type==='state'&&m.result&&m.series.winner);assert.deepEqual(state.series.score,{A:2,B:0});assert.equal(state.series.winner,'A');
+});
+test('signals are predefined, attributed by server and throttled independently per player',async t=>{
+ const s=await service(t),a=await s.peer();a.send({type:'create'});const room=await a.wait(m=>m.type==='session');const b=await s.peer();b.send({type:'join',code:room.code});await b.wait(m=>m.type==='session');a.send({type:'ready',ready:true});b.send({type:'ready',ready:true});await a.wait(m=>m.type==='state'&&m.started);
+ a.send({type:'signal',signal:'niceMove',color:'b'});const state=await b.wait(m=>m.type==='state'&&m.signals.length);assert.equal(state.signals[0].color,'w');
+ a.send({type:'signal',signal:'niceMove'});assert.match((await a.wait(m=>m.type==='error')).message,/5 วินาที/);
+ b.send({type:'signal',signal:'<script>'});assert.match((await b.wait(m=>m.type==='error')).message,/ไม่ถูกต้อง/);
+});
+test('shared replay validates legal moves and strips session credentials',()=>{
+ const record=readReplay({version:1,settings:{rule:'standard'},moves:['e4','d5','exd5'],token:'secret',cosmetics:{w:{skin:'ember'},b:{skin:'frost'}}});assert.ok(record);
+ const link=new URL(replayLink('https://example.com/?room=123456&token=secret',record));assert.equal(link.search,'');assert.equal(JSON.stringify(decodeReplay(link.hash.slice(8))).includes('secret'),false);
+ assert.equal(readReplay({...record,moves:['e5']}),null);assert.equal(decodeReplay('!'.repeat(40000)),null);
 });
