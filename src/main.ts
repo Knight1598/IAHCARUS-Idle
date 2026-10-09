@@ -8,6 +8,8 @@ import {
 } from "chess.js";
 import { ChessScene, type GraphicsQuality } from "./scene";
 import { TitleScreen, type LaunchSettings } from "./title";
+import { economicDefinition, isEconomicMode, enterContract, settleContract, contractAmount, claimCredits, dailyCredits, rollSkin, forgeSkin, type Contract } from "../shared/economy.js";
+import type { EconomyAction } from "./economy-ui";
 import { arenas, arenaOptions, isArena, type ArenaId } from "./arenas";
 import { SpaceAudio, type MusicState, type SoundPhase } from "./sound";
 import { readAudioPreferences, installAudioControls } from "./audio-controls";
@@ -115,9 +117,11 @@ let humanColor: Color = "w";
 let initialFen = new Chess().fen();
 let specialDuel = false;
 let activeVariant: ModeSession | null = null;
+let activeContract: Contract | null = null;
 let player: PlayerManager | undefined;
 let rushStamp = performance.now();
 $("#stage").insertAdjacentHTML("beforeend", `<section id="variant-hud" hidden aria-label="กติกาโหมดปัจจุบัน"><div><small id="variant-title"></small><strong id="variant-progress"></strong></div><p id="variant-forecast"></p><button id="variant-next" hidden>โจทย์ถัดไป</button></section>`);
+$("#stage").insertAdjacentHTML("beforeend", '<section id="economy-hud" class="economy-hud" hidden aria-label="สัญญาและเครดิต"></section>');
 let ultimateTarget: Square | null = null;
 let game = new Chess(),
   mode: Mode = OFFLINE ? "bot" : "local",
@@ -215,6 +219,58 @@ function syncMusic() {
 }
 let profile = readProfile(storage.get("special-chess-profile"));
 function saveProfile() { storage.set("special-chess-profile", JSON.stringify(profile)); }
+function changeEconomy(action: EconomyAction) {
+  try {
+    const unlocked = (Object.keys(skins) as SkinId[]).filter(skin => isSkinUnlocked(profile, skin));
+    let message = "";
+    if (action.type === "pull") {
+      const random = () => { const bytes = new Uint32Array(1); crypto.getRandomValues(bytes); return bytes[0] / 4294967296; };
+      const reward = rollSkin(profile.economy, unlocked, random);
+      profile = { ...profile, economy: reward.wallet };
+      message = `${skins[reward.skin].name} · ${reward.duplicate ? `สกินซ้ำ +${reward.shards} เศษพลังงาน` : "สกินใหม่ · สวมให้หมากได้ในคลังแสง"}${reward.guaranteed ? " · รางวัลการันตี" : ""}`;
+    } else if (action.type === "daily") {
+      const reward = dailyCredits(profile.economy, utcDay()); profile = { ...profile, economy: reward.wallet };
+      message = reward.added ? "รับเสบียง +100 เครดิตแล้ว" : "รับเสบียงวันนี้แล้ว";
+    } else {
+      profile = { ...profile, economy: forgeSkin(profile.economy, action.skin, unlocked) };
+      message = `หลอม ${skins[action.skin].name} สำเร็จ · สวมได้ในคลังแสง`;
+    }
+    saveProfile(); title.refresh(profile);
+    if (action.type !== "daily") { try { soundEngine()?.playEvent("promotion"); } catch { /* The completed transaction does not depend on audio. */ } }
+    return message;
+  } catch (error) { return error instanceof Error ? error.message : "ทำรายการไม่สำเร็จ"; }
+}
+function reserveContract(id: string) {
+  if (!activeContract) return true;
+  try {
+    const payment = enterContract(profile.economy, id, activeContract.mode);
+    profile = { ...profile, economy: payment.wallet }; activeContract = { ...activeContract, id }; saveProfile(); return true;
+  } catch (error) { notice(error instanceof Error ? error.message : "เครดิตไม่พอ"); return false; }
+}
+function contractMetrics() {
+  const values: Record<PieceSymbol, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+  const capturedValue = game.history({ verbose: true }).filter(move => move.color === humanColor).reduce((sum, move) => sum + (move.captured ? values[move.captured] : 0), 0);
+  const scores = game instanceof VariantChess ? game.progress().scores : { w: 0, b: 0 };
+  const spent = activeVariant?.options.draft?.reduce((sum, piece) => sum + values[piece], 0) ?? 24;
+  return { won: true, draw: false, capturedValue, controlScore: scores[humanColor], unusedBudget: 24 - spent,
+    solved: (activeVariant?.rushSolved || 0) + Number(activeContract?.mode === "payday" && localResult?.winner === humanColor) };
+}
+function checkContractReward() {
+  if (!activeContract) return;
+  if (!profile.economy.claimed.includes(`entry:${activeContract.mode}:${activeContract.id}`)) { activeContract = null; return; }
+  const definition = economicDefinition(activeContract.mode)!;
+  let result = localResult;
+  if (activeContract.mode === "payday") {
+    if (!activeVariant || !rushSessionFinished()) return;
+  } else if (!result && game.isGameOver()) result = { winner: game.isCheckmate() ? game.turn() === "w" ? "b" : "w" : null, reason: "game" };
+  if (!result) return;
+  const reward = settleContract(profile.economy, activeContract.id, activeContract.mode, { ...contractMetrics(), won: result.winner === humanColor, draw: result.winner === null });
+  if (!reward.added) return;
+  profile = { ...profile, economy: reward.wallet }; saveProfile();
+  const message = `${definition.name} · รับ ${reward.amount} เครดิต`;
+  matchReward = { amount: matchReward?.amount || 0, message: `${matchReward?.message ? matchReward.message + " · " : ""}${message}` };
+  saveLocal();
+}
 function selectSkin(skin: SkinId) {
   if (!isSkinUnlocked(profile, skin)) return;
   profile = equipArmy(profile, skin);
@@ -263,8 +319,12 @@ function grantReward(id: string, amount: number, win = false, match = false) {
   const reward = claimXP(profile, id, amount, win, match);
   if (!reward.added) return;
   profile = reward.profile;
+  if (!activeContract) {
+    const credits = claimCredits(profile.economy, `reward:${id}`, Math.min(250, amount), "รางวัลจากการเล่น");
+    profile = { ...profile, economy: credits.wallet };
+  }
   saveProfile();
-  matchReward = { amount, message: `+${amount} XP · เลเวล ${levelProgress(profile.xp).level}${reward.unlocked.length ? " · ปลดล็อก " + reward.unlocked.map((skin) => skins[skin].name).join(", ") : ""}` };
+  matchReward = { amount, message: `+${amount} XP${!activeContract ? ` · +${Math.min(250, amount)} เครดิต` : ""} · เลเวล ${levelProgress(profile.xp).level}${reward.unlocked.length ? " · ปลดล็อก " + reward.unlocked.map((skin) => skins[skin].name).join(", ") : ""}` };
   if (mode !== "online") saveLocal();
 }
 function checkRewards() {
@@ -308,6 +368,15 @@ function checkRewards() {
   } else if (mode === "online" && session && state?.result && game.history().length >= 4) {
     rewardVisible = true;
     grantReward("room:" + session.code, matchXP(state.result.winner, session.color, 2, stars(session.color)), state.result.winner === session.color, true);
+  }
+  checkContractReward();
+  if (activeContract) rewardVisible = !!matchReward;
+  const economyHUD = $("#economy-hud"); economyHUD.hidden = !activeContract;
+  if (activeContract) {
+    const definition = economicDefinition(activeContract.mode)!;
+    const metrics = contractMetrics(), potential = contractAmount(activeContract.mode, metrics);
+    const goal = activeContract.mode === "bounty" ? `ค่าหัว ${metrics.capturedValue} แต้ม` : activeContract.mode === "vault" ? `ยึดคลัง ${metrics.controlScore}/5` : activeContract.mode === "broker" ? `ประหยัด ${Math.max(0, Math.min(12, metrics.unusedBudget))} แต้ม` : activeContract.mode === "payday" ? `แก้ได้ ${metrics.solved} ข้อ` : `เดิมพัน ${definition.entry}`;
+    economyHUD.innerHTML = `<strong>${definition.name} · ${profile.economy.credits} เครดิต</strong><span>${profile.economy.claimed.includes(`contract:${activeContract.id}`) ? "ปิดสัญญาและรับเงินแล้ว" : `${goal} · ${activeContract.mode === "payday" ? "จบรอบรับ" : "ชนะรับ"} ${potential}`}</span>`;
   }
   $("#player-level").textContent = `Lv.${levelProgress(profile.xp).level}`;
   $("#xp-reward").hidden = !matchReward || !rewardVisible;
@@ -449,13 +518,15 @@ function updateUI() {
   $("#undo").hidden = mode === "online";
   $("#resign").hidden = mode !== "online" || !state?.started || !!state.result;
   $("#difficulty").hidden = mode !== "bot" || !!activeTrial;
-  $("#side-control").hidden = mode !== "bot" || !!activeTrial || activeVariant?.id === "mirror";
+  $("#side-control").hidden = mode !== "bot" || !!activeTrial || !!activeContract || activeVariant?.id === "mirror";
   $("#reset").textContent = activeTrial ? "เริ่มบทใหม่" : "เกมใหม่";
   $<HTMLSelectElement>("#human-side").value = humanColor;
-  $<HTMLButtonElement>("#undo").disabled =
+  const contractSettled = !!activeContract && profile.economy.claimed.includes(`contract:${activeContract.id}`);
+  $<HTMLButtonElement>("#undo").disabled = contractSettled || (
     mode === "bot"
       ? !game.history({ verbose: true }).some((move) => move.color === humanColor)
-      : !game.history().length;
+      : !game.history().length);
+  $("#undo").title = contractSettled ? "สัญญารับเงินแล้ว · เริ่มรอบใหม่" : "ย้อนตา";
   const { captured, balance } = matchMaterial(game);
   for (const color of ["w", "b"] as const) {
     const label = color === "w" ? "white" : "black";
@@ -508,7 +579,7 @@ function updatePresentation() {
   const titleText = activeVariant?.id === "rush" ? activeVariant.rushRemaining <= 0 ? "Puzzle Rush จบแล้ว" : winner === humanColor ? "อ่านเกมได้เฉียบคม" : "ลองโจทย์ถัดไป" : activeDaily ? winner === humanColor ? "พิชิตศึกประจำวัน" : "ราชันรอการแก้มือ" : trainingWon ? "ฝึกสำเร็จ" : activeTrial ? winner === humanColor ? "ภารกิจสำเร็จ" : "ลองวางแผนใหม่" : winner === null ? "ศึกเสมอ" : owner ? winner === owner ? "ชัยชนะของกองทัพคุณ" : "ราชันรอการกลับมา" : `ชัยชนะฝ่าย${winner === "w" ? "ขาว" : "ดำ"}`;
   presentation.showResult({
     title: titleText,
-    subtitle: activeVariant ? variantResultSubtitle(winner) : activeDaily ? `${dailyChallenge(activeDaily).title} · ต่อเนื่อง ${dailyProgress(profile.claimed, activeDaily).streak} วัน` : activeTrial ? activeTrialDefinition().name : result ? resultText(result) : game.isCheckmate() ? "รุกฆาต · ราชันคู่แข่งพ่ายแพ้" : trainingWon ? "ลองท่าอื่นในสนามฝึก หรือเข้าสู่ศึกจริง" : "ทุกตาสร้างเรื่องราวของกองทัพ",
+    subtitle: activeContract && profile.economy.claimed.includes(`contract:${activeContract.id}`) ? matchReward?.message || "ปิดสัญญาแล้ว" : activeVariant ? variantResultSubtitle(winner) : activeDaily ? `${dailyChallenge(activeDaily).title} · ต่อเนื่อง ${dailyProgress(profile.claimed, activeDaily).streak} วัน` : activeTrial ? activeTrialDefinition().name : result ? resultText(result) : game.isCheckmate() ? "รุกฆาต · ราชันคู่แข่งพ่ายแพ้" : trainingWon ? "ลองท่าอื่นในสนามฝึก หรือเข้าสู่ศึกจริง" : "ทุกตาสร้างเรื่องราวของกองทัพ",
     xp: matchReward?.amount || 0,
     mvp: mvp ? `${avatarNames[mvpSkin][mvp.piece]} · ${mvp.origin.toUpperCase()} · สังหาร ${mvp.kills} ตัว` : undefined,
     unlocks: matchReward?.message.includes("ปลดล็อก") ? [matchReward.message.split("ปลดล็อก ")[1]] : [],
@@ -640,9 +711,11 @@ function updateVariantHUD() {
 }
 function startVariantBoard(preserveSession = false) {
   if (!activeVariant) return;
+  const nextId = newMatchId();
+  if (!preserveSession && !reserveContract(nextId)) return;
   if (!preserveSession) activeVariant = newModeSession(activeVariant.id, activeVariant.options, humanColor);
   resetPresentation(); stopBot(); scene?.cancel(); clearBattleToast(); scene?.resetPacing();
-  matchId = newMatchId(); matchReward = null; activeTraining = null; activeTrial = null; activeDaily = null; specialDuel = false;
+  matchId = nextId; matchReward = null; activeTraining = null; activeTrial = null; activeDaily = null; specialDuel = false;
   localResult = null; lastMove = undefined; clearSelection();
   if (activeVariant.id === "rush") {
     const puzzle = rushPuzzle(activeVariant.options.seed, activeVariant.rushIndex);
@@ -997,14 +1070,15 @@ function saveLocal() {
   if (mode !== "online") {
     storage.set(
       saveKey,
-      JSON.stringify({ mode, specialDuel, activeVariant, humanColor, initialFen, history: game.history(), matchId, activeTraining, activeTrial, activeDaily, matchReward }),
+      JSON.stringify({ mode, specialDuel, activeVariant, activeContract, humanColor, initialFen, history: game.history(), matchId, activeTraining, activeTrial, activeDaily, matchReward }),
     );
     hasSavedLocalGame = true;
   }
 }
 function newLocal() {
   if (activeVariant) { startVariantBoard(); return; }
-  matchId = newMatchId();
+  const nextId = newMatchId(); if (!reserveContract(nextId)) return;
+  matchId = nextId;
   activeTraining = null;
   activeTrial = null; activeDaily = null;
   resetPresentation();
@@ -1047,7 +1121,7 @@ function disconnect() {
 function setMode(next: Mode) {
   if (OFFLINE && next === "online") return;
   if (mode === next && !specialDuel && !activeVariant) return;
-  specialDuel = false; activeVariant = null;
+  specialDuel = false; activeVariant = null; activeContract = null;
   disconnect();
   mode = next;
   matchPaused = !hud.drawer.hidden && next !== "online";
@@ -1140,7 +1214,7 @@ function receiveState(next: State) {
   serverStamp = Date.now();
   if (changed) {
     initialFen = new Chess().fen();
-    activeTraining = null; activeVariant = null; specialDuel = false;
+    activeTraining = null; activeVariant = null; activeContract = null; specialDuel = false;
     activeTrial = null; activeDaily = null;
     resetPresentation();
     matchReward = null;
@@ -1199,6 +1273,7 @@ $("#reset").onclick = () => {
 };
 $("#undo").onclick = () => {
   if (mode === "online") return;
+  if (activeContract && profile.economy.claimed.includes(`contract:${activeContract.id}`)) { notice("สัญญานี้รับเงินแล้ว · เริ่มรอบใหม่เพื่อเล่นต่อ"); return; }
   resetPresentation();
   clearBattleToast();
   scene?.resetPacing();
@@ -1289,7 +1364,7 @@ $("#training-select").onchange = () => {
   scene?.resetPacing();
   if (mode !== "local") setMode("local");
   stopBot();
-  specialDuel = false; activeVariant = null; game = new Chess(t.fen);
+  specialDuel = false; activeVariant = null; activeContract = null; game = new Chess(t.fen);
   initialFen = t.fen;
   activeTraining = key;
   activeTrial = null; activeDaily = null;
@@ -1360,6 +1435,10 @@ try {
     mode = saved.mode;
     humanColor = saved.humanColor === "b" ? "b" : "w";
     if (typeof saved.matchId === "string" && saved.matchId.length <= 100) matchId = saved.matchId;
+    if (saved.activeContract && isEconomicMode(saved.activeContract.mode) && typeof saved.activeContract.id === "string" && saved.activeContract.id.length <= 100 && profile.economy.claimed.includes(`entry:${saved.activeContract.mode}:${saved.activeContract.id}`)) {
+      const base = economicDefinition(saved.activeContract.mode)!.base;
+      if ((base === "bot" && mode === "bot" && !activeVariant && initialFen === new Chess().fen()) || (base !== "bot" && activeVariant?.id === base && (base === "rush" || mode === "bot"))) activeContract = { id: saved.activeContract.id, mode: saved.activeContract.mode };
+    }
     const scenario = Object.entries(training).find(([, value]) => value.fen === initialFen)?.[0];
     activeTraining = !activeVariant ? (scenario as keyof typeof training) || null : null;
     if (activeTraining) {
@@ -1376,7 +1455,7 @@ try {
     hasSavedLocalGame = true;
   }
 } catch {
-  specialDuel = false; activeVariant = null; game = new Chess();
+  specialDuel = false; activeVariant = null; activeContract = null; game = new Chess();
   initialFen = game.fen(); activeTraining = null; activeTrial = null; activeDaily = null;
 }
 const invite = OFFLINE
@@ -1421,6 +1500,7 @@ $<HTMLSelectElement>("#difficulty").onchange = () => {
   updateUI();
 };
 $<HTMLSelectElement>("#human-side").onchange = () => {
+  if (activeContract) { $<HTMLSelectElement>("#human-side").value = humanColor; notice("เลือกฝ่ายก่อนเปิดสัญญาใหม่ · สัญญาปัจจุบันใช้ฝ่ายเดิม"); return; }
   humanColor = $<HTMLSelectElement>("#human-side").value === "b" ? "b" : "w";
   newLocal();
 };
@@ -1489,6 +1569,7 @@ renderGameBoard();
 scene?.resetView((mode === "bot" || (specialDuel || !!activeVariant) && mode === "local") && humanColor === "b");
 updateUI();
 const title = new TitleScreen($("#app"), OFFLINE, {
+  economy: changeEconomy,
   showcase: openShowcase,
   settings: (host) => hud.attachSettings(host),
   help: () => $<HTMLDialogElement>("#help-dialog").showModal(),
@@ -1530,6 +1611,7 @@ presentation = new BattlePresentation($("#stage"), {
   home: openTitle,
   replay: replayLastCapture,
   rematch: () => {
+    if (activeContract && profile.economy.credits < economicDefinition(activeContract.mode)!.entry) { notice("เครดิตไม่พอสำหรับสัญญารอบใหม่"); return; }
     humanColor = humanColor === "w" ? "b" : "w";
     $<HTMLSelectElement>("#human-side").value = humanColor;
     newLocal();
@@ -1682,7 +1764,7 @@ function launchTrial(key: keyof typeof trials, day: string | null = null) {
   const trial = daily?.trial || trials[key];
   resetPresentation(); stopBot(); scene?.cancel(); clearBattleToast();
   matchId = newMatchId(); matchReward = null; activeTraining = null; activeTrial = key; activeDaily = day;
-  specialDuel = false; activeVariant = null; game = new Chess(trial.fen); initialFen = trial.fen; mode = "bot"; humanColor = trial.side;
+  specialDuel = false; activeVariant = null; activeContract = null; game = new Chess(trial.fen); initialFen = trial.fen; mode = "bot"; humanColor = trial.side;
   $<HTMLSelectElement>("#difficulty").value = "2";
   localResult = null; lastMove = undefined; clearSelection();
   renderGameBoard(); scene?.resetView(humanColor === "b");
@@ -1702,6 +1784,9 @@ function enterBoard() {
   scrollTo(0, 0);
 }
 function launchGame(settings: LaunchSettings) {
+  const contract = economicDefinition(settings.mode);
+  if (contract && profile.economy.credits < contract.entry) { notice("เครดิตไม่พอ · รับเสบียงหรือเล่นโหมดฟรีเพื่อสะสมเครดิต"); return; }
+  activeContract = contract ? { mode: contract.id, id: "pending" } : null;
   if (profile.skin !== settings.skin) selectSkin(settings.skin);
   stopBot();
   disconnect();
@@ -1710,9 +1795,9 @@ function launchGame(settings: LaunchSettings) {
   storage.set(difficultyKey, settings.depth);
   scene?.setSkin(profile.skin);
   specialDuel = settings.mode === "special";
-  const variantId = modeDefinitions.find(definition => definition.id === settings.mode)?.id;
+  const variantId = modeDefinitions.find(definition => definition.id === (contract?.base || settings.mode))?.id;
   activeVariant = variantId ? newModeSession(variantId, settings.variant || { seed: Date.now() >>> 0 }, humanColor) : null;
-  mode = variantId ? variantId === "rush" ? "local" : settings.opponent || "bot" : settings.mode === "special" ? settings.opponent || "bot" : settings.mode === "training" ? "local" : (settings.mode === "campaign" || settings.mode === "daily") ? "bot" : settings.mode as Mode;
+  mode = contract ? contract.base === "rush" ? "local" : "bot" : variantId ? variantId === "rush" ? "local" : settings.opponent || "bot" : settings.mode === "special" ? settings.opponent || "bot" : settings.mode === "training" ? "local" : (settings.mode === "campaign" || settings.mode === "daily") ? "bot" : settings.mode as Mode;
   enterBoard();
   if (settings.mode === "daily") {
     const daily = dailyChallenge(settings.day || utcDay()); launchTrial(daily.base, daily.day); return;
@@ -1751,7 +1836,7 @@ function openTitle() {
   $("#game-shell").hidden = true;
   title.show(profile, {
     view: "menu",
-    mode: activeVariant?.id || (mode === "online" && !OFFLINE ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : mode),
+    mode: activeContract?.mode || activeVariant?.id || (mode === "online" && !OFFLINE ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : mode),
     variant: activeVariant?.options, opponent: mode === "local" ? "local" : "bot",
     side: humanColor,
     depth: $<HTMLSelectElement>("#difficulty").value,
@@ -1775,7 +1860,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) { stopBot(); scene?.setPaused(true, true); }
   else { scene?.setPaused(menuOpen || matchPaused); if (!showcaseActive) syncMusic(); scheduleBot(); }
 });
-title.show(profile, { variant: activeVariant?.options, opponent: mode === "local" ? "local" : "bot", mode: activeVariant?.id || (mode === "online" && !OFFLINE ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot"), side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn", trial: activeTrial || "rescue" });
+title.show(profile, { variant: activeVariant?.options, opponent: mode === "local" ? "local" : "bot", mode: activeContract?.mode || activeVariant?.id || (mode === "online" && !OFFLINE ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot"), side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn", trial: activeTrial || "rescue" });
 
 installDesign();
 player = installPlayer({ offline: OFFLINE,

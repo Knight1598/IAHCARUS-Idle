@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createHash, randomBytes, randomUUID, scrypt, scryptSync, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
+import { readEconomy } from "../shared/economy.js";
 
 const derive = promisify(scrypt);
 const SESSION_COOKIE = "iahcarus_session";
@@ -64,7 +65,8 @@ export function cosmeticProgression(value) {
     }
   }
   if (value.claimed.some((id) => typeof id !== "string" || id.length > 100)) invalid("ข้อมูลรางวัลไม่ถูกต้อง");
-  return { version: 1, xp, matches, wins, skin: value.skin, arena: value.arena, loadouts, claimed: [...new Set(value.claimed)] };
+  return { version: 1, xp, matches, wins, skin: value.skin, arena: value.arena, loadouts, claimed: [...new Set(value.claimed)],
+    ...(record(value.economy) ? { economy: readEconomy(value.economy) } : {}) };
 }
 
 async function jsonBody(req) {

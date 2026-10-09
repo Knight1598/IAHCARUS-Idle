@@ -60,6 +60,7 @@ The server serves the built game on port **3000**. Open that port's address in y
 - **อีเวนท์และภารกิจระหว่างเล่น** adds first blood, immediate recapture, capture streaks, queen loss, material comebacks and the transition to endgame. Counterattacks get crossing slashes, queen-loss energy is purple and comeback energy gold. Three optional match missions award stars for checking, taking a major piece and castling. Event history and stars resume with the game and roll back on undo. These are visual/story objectives; legal chess moves and victory conditions stay standard.
 - Every enabled capture bypasses the camera cooldown. Non-capture key-moment cuts still wait four plies unless mate, promotion, royal rescue, queen loss or a comeback; All-specials mode keeps every special-event cutscene available. Cinematic and reduced-effects controls remain available.
 - **ห้องทดลองการต่อสู้** in the main menu selects any attacker/defender class, both skins and an arena without changing the match or XP. Its Audio tab offers controlled A/B skin auditions, fourteen actions, twenty-two events and nine soundtrack states. The preview reuses the same renderer and audio context.
+- **คลังสมบัติและสุ่มสกิน** adds saved play credits, duplicate shards, a chosen-skin forge and daily provisions. Capsules cost 150 credits; the next pull's odds and an eight-pull Golden Sovereign guarantee are visible. Collected skins equip on individual pieces immediately; existing XP unlocks persist. Five economic modes offer capture bounties, control-point rewards, draft savings, higher stakes against bots and free Puzzle Payday. Entry and result settlement persist without duplicate payment. See [rules, prices and save behavior](docs/ECONOMY.md).
 - **สนามฝึกท่าสเปเชียล** provides eleven scenarios to try every attack, royal rescue, blocking check, double check, a knight fork and promotion immediately.
 - Local games and settings resume from browser storage. Online sessions reconnect from the same browser using a private reconnect token. A shared invite link never includes that token.
 
@@ -143,6 +144,7 @@ npm run test:hud
 npm run test:army
 npm run test:audio
 npm run test:showcase
+npm run test:economy
 ```
 
 The browser suite exercises the production build. If system Chromium exists at `/usr/bin/chromium`, it uses that; otherwise it uses Playwright's installed Chromium. Set `CHROMIUM_PATH` to override. Screenshots go into ignored `test-results/`. GitHub Actions runs build, rules/events/server tests and browser smoke tests.

@@ -22,6 +22,7 @@
     "test:army": "node tests/army-browser.mjs",
     "test:audio": "node tests/audio-browser.mjs",
     "test:showcase": "node tests/showcase-browser.mjs",
+    "test:economy": "node tests/economy-browser.mjs",
     "test:daily": "node tests/daily-browser.mjs",
     "test:tactics": "node tests/tactics-browser.mjs",
     "test:special": "node tests/special-browser.mjs",

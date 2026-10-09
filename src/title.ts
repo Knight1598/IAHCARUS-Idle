@@ -8,11 +8,13 @@ import { dailyChallenge, dailyProgress, utcDay } from "./daily";
 import { ultimates } from "./special";
 import { icon, geometricPiece, logo } from "./design";
 import { modeDefinitions, draftBudget, draftCosts, defaultDraft, validateDraft, variantInitialFen, encodeChallenge, decodeChallenge, type VariantId } from "./variants";
+import { economicModes, economicDefinition, isEconomicMode, type EconomicMode } from "../shared/economy.js";
+import { treasuryHTML, type EconomyAction } from "./economy-ui";
 import "./lobby.css";
 import "./special.css";
 import "./royal-ui.css";
 
-export type TitleMode = "bot" | "local" | "training" | "campaign" | "online" | "daily" | "special" | VariantId;
+export type TitleMode = "bot" | "local" | "training" | "campaign" | "online" | "daily" | "special" | VariantId | EconomicMode;
 export interface LaunchSettings { mode: TitleMode; side: "w" | "b"; depth: string; skin: SkinId; training: string; trial?: string; day?: string; opponent?: "bot" | "local"; variant?: { seed: number; draft?: PieceSymbol[]; round?: number } }
 interface TitleCallbacks {
   start: (settings: LaunchSettings) => void;
@@ -25,14 +27,19 @@ interface TitleCallbacks {
   settings?: (host: HTMLElement | null) => void;
   help?: () => void;
   showcase?: () => void;
+  economy?: (action: EconomyAction) => string;
 }
-type MenuView = "title" | "menu" | "mode" | "setup" | "army" | "arena" | "armory" | "settings";
+type MenuView = "title" | "menu" | "mode" | "setup" | "army" | "arena" | "armory" | "settings" | "treasury";
 const journey: MenuView[] = ["mode", "setup", "army", "arena"];
 const glyphs = Object.fromEntries((["p", "n", "b", "r", "q", "k"] as PieceSymbol[]).map((piece) => [piece, geometricPiece(piece, "w")])) as Record<PieceSymbol, string>;
-type ModeCategory = "duel" | "arena" | "tactics";
+type ModeCategory = "duel" | "arena" | "tactics" | "economy";
 const variantIds: VariantId[] = ["draft", "score", "control", "mirror", "rush", "chaos"];
 const isVariant = (mode: TitleMode): mode is VariantId => variantIds.includes(mode as VariantId);
-const categoryFor = (mode: TitleMode): ModeCategory => ["daily", "campaign", "training", "rush"].includes(mode) ? "tactics" : isVariant(mode) ? "arena" : "duel";
+const variantFor = (mode: TitleMode): VariantId | undefined => {
+  const base = economicDefinition(mode)?.base || mode;
+  return variantIds.includes(base as VariantId) ? base as VariantId : undefined;
+};
+const categoryFor = (mode: TitleMode): ModeCategory => isEconomicMode(mode) ? "economy" : ["daily", "campaign", "training", "rush"].includes(mode) ? "tactics" : isVariant(mode) ? "arena" : "duel";
 const rivalCards = Object.entries(rivals).map(([depth, rival]) => ({ ...rival, depth, icon: geometricPiece((["n", "r", "q"] as PieceSymbol[])[Number(depth) - 1], "b") }));
 
 export class TitleScreen {
@@ -48,6 +55,8 @@ export class TitleScreen {
   private armoryReturn: MenuView = "menu";
   private previewKey = "";
   private dailyDay = utcDay();
+  private economyMessage = "เลือกเปิดผนึกหรือหลอมสกินที่ต้องการ";
+  private economyBusyUntil = 0;
   private category: ModeCategory = "duel";
   private seed = this.freshSeed();
   private draft: PieceSymbol[] = [...defaultDraft];
@@ -139,7 +148,7 @@ export class TitleScreen {
     });
     this.get<HTMLButtonElement>("#preview-attack").onclick = () => callbacks.audition?.(this.piece, this.previewSkin());
     this.get<HTMLButtonElement>("#launch-start").onclick = () => {
-      if (this.selected === "draft" && !validateDraft(this.draft).valid) { this.go("setup"); this.renderVariant(); return; }
+      if (variantFor(this.selected) === "draft" && !validateDraft(this.draft).valid) { this.go("setup"); this.renderVariant(); return; }
       callbacks.start({
         mode: this.selected, skin: this.skin,
         side: this.get<HTMLSelectElement>("#launch-side").value as "w" | "b",
@@ -148,7 +157,7 @@ export class TitleScreen {
         trial: this.get<HTMLSelectElement>("#launch-trial").value,
         day: this.selected === "daily" ? this.dailyDay : undefined,
         opponent: this.get<HTMLSelectElement>("#special-opponent").value as "bot" | "local",
-        variant: isVariant(this.selected) ? { seed: this.seed, ...(this.selected === "draft" ? { draft: [...this.draft] } : {}) } : undefined,
+        variant: variantFor(this.selected) ? { seed: this.seed, ...(variantFor(this.selected) === "draft" ? { draft: [...this.draft] } : {}) } : undefined,
       });
     };
     this.get<HTMLButtonElement>("#launch-resume").onclick = () => callbacks.resume(this.skin);
@@ -199,7 +208,7 @@ export class TitleScreen {
     };
     this.get<HTMLButtonElement>("#flow-back").onclick = () => this.back();
     this.get<HTMLButtonElement>("#flow-next").onclick = () => {
-      if (this.view === "setup" && this.selected === "draft" && !validateDraft(this.draft).valid) return;
+      if (this.view === "setup" && variantFor(this.selected) === "draft" && !validateDraft(this.draft).valid) return;
       if (this.view === "mode") this.chooseMode(this.selected);
       else this.go(journey[Math.min(3, journey.indexOf(this.view) + 1)]);
     };
@@ -240,6 +249,14 @@ export class TitleScreen {
       <section class="menu-page" data-menu-view="armory" hidden><small>THE ARMORY</small><h1>สร้างเอกลักษณ์</h1><div id="armory-slot-content"></div></section>
       <section class="menu-page" data-menu-view="settings" hidden><small>YOUR EXPERIENCE</small><h1>ภาพและเสียง</h1><div id="title-settings-slot"></div></section></main>
       <div class="menu-avatar-slot"></div><footer class="game-menu-bottom"><nav class="journey-steps" aria-label="ขั้นตอนเตรียมศึก">${["โหมด", "เตรียมศึก", "กองทัพ", "สนาม"].map((label, index) => `<button data-journey-step="${index}"><i>${index + 1}</i>${label}</button>`).join("")}</nav><div class="menu-continue"><button id="flow-next" class="primary">ต่อไป ${icon("arrow-right")}</button></div></footer>`;
+    const treasuryButton = document.createElement("button"); treasuryButton.dataset.menuGo = "treasury";
+    treasuryButton.innerHTML = `คลังสมบัติและสุ่มสกิน <span>${icon("astral")}</span>`;
+    this.get(".main-game-menu").append(treasuryButton);
+    const treasury = document.createElement("section"); treasury.className = "menu-page"; treasury.dataset.menuView = "treasury"; treasury.hidden = true;
+    treasury.innerHTML = '<small>THE ASTRAL TREASURY</small><h1>สร้างคลังของคุณ</h1><div id="treasury-content"></div>';
+    this.get(".game-menu-content").append(treasury);
+    const economicTab = document.createElement("button"); economicTab.dataset.modeCategory = "economy"; economicTab.setAttribute("aria-pressed", "false");
+    economicTab.innerHTML = `${icon("citadel")} เศรษฐกิจ`; this.get("#mode-categories").append(economicTab);
     this.get(".menu-world").append(preview); this.get(".menu-avatar-slot").append(avatar);
     this.get(".menu-commander").append(commander); this.get("#mode-slot").append(modes);
     this.get("#setup-slot").append(bot, choices, trainingChoice, campaign, note);
@@ -267,6 +284,12 @@ export class TitleScreen {
       const button = document.createElement("button"); button.dataset.titleMode = mode.id;
       button.innerHTML = `<strong>${mode.name}</strong><small>${mode.description}</small>`; modes.append(button);
     }
+    for (const mode of economicModes) {
+      const button = document.createElement("button"); button.dataset.titleMode = mode.id;
+      button.innerHTML = `<strong>${mode.name}</strong><small>${mode.description} · ค่าเข้า ${mode.entry}</small>`; modes.append(button);
+    }
+    const contractBrief = document.createElement("section"); contractBrief.id = "contract-brief"; contractBrief.className = "contract-brief"; contractBrief.hidden = true;
+    this.get("#setup-slot").prepend(contractBrief);
     modes.querySelectorAll<HTMLButtonElement>("button").forEach((button) => {
       const mode = button.dataset.titleMode as TitleMode; button.dataset.modeGroup = categoryFor(mode);
       const mark = document.createElement("span"); mark.className = "mode-emblem";
@@ -306,25 +329,26 @@ export class TitleScreen {
     if (force || document.activeElement !== field) field.value = encodeChallenge({ mode: this.selected, seed: this.seed, ...(this.selected === "draft" ? { draft: [...this.draft] } : {}), ...(this.profile ? { arena: this.profile.arena } : {}) });
   }
   private renderVariant() {
-    if (!isVariant(this.selected)) { this.get<HTMLButtonElement>("#flow-next").disabled = false; return; }
-    const definition = modeDefinitions.find((mode) => mode.id === this.selected)!;
-    this.get("#variant-emblem").innerHTML = icon(this.selected === "rush" ? "puzzle" : this.selected);
+    const mode = variantFor(this.selected);
+    if (!mode) { this.get<HTMLButtonElement>("#flow-next").disabled = false; return; }
+    const definition = modeDefinitions.find((definition) => definition.id === mode)!;
+    this.get("#variant-emblem").innerHTML = icon(mode === "rush" ? "puzzle" : mode);
     this.get("#variant-label").textContent = definition.label;
     this.get("#variant-name").textContent = definition.name;
     this.get("#variant-description").textContent = definition.description;
     this.get("#variant-rules").innerHTML = definition.rules.map((rule, index) => `<div><span>${String(index + 1).padStart(2, "0")}</span><p>${rule}</p></div>`).join("");
-    const boardPreview = this.get("#variant-position-preview"), showPreview = this.selected === "mirror" || this.selected === "draft" && validateDraft(this.draft).valid;
+    const boardPreview = this.get("#variant-position-preview"), showPreview = mode === "mirror" || mode === "draft" && validateDraft(this.draft).valid;
     boardPreview.hidden = !showPreview;
     if (showPreview) {
       const color = this.get<HTMLSelectElement>("#launch-side").value as Color;
-      const board = new Chess(variantInitialFen(this.selected, { seed: this.seed, draft: this.selected === "draft" ? [...this.draft] : undefined, draftColor: color })).board();
-      boardPreview.innerHTML = `<div class="variant-board-label"><strong>กองทัพที่จะลงสนาม</strong><small>${this.selected === "mirror" ? "รอบสองใช้ตำแหน่งเดิมและสลับสี" : `ทีมของคุณ: ฝ่าย${color === "w" ? "ขาว" : "ดำ"} · คู่แข่งจัดทีมด้วยงบเดียวกัน`}</small></div><div class="variant-mini-board" role="img" aria-label="ตำแหน่งหมากก่อนเริ่มเกม">${board.flatMap((row, rank) => row.map((piece, file) => `<span class="variant-mini-cell ${(rank + file) % 2 ? "dark" : "light"}" title="${"abcdefgh"[file]}${8 - rank}${piece ? ` ${pieceNames[piece.type]} ฝ่าย${piece.color === "w" ? "ขาว" : "ดำ"}` : ""}">${piece ? geometricPiece(piece.type, piece.color) : ""}</span>`)).join("")}</div>`;
+      const board = new Chess(variantInitialFen(mode, { seed: this.seed, draft: mode === "draft" ? [...this.draft] : undefined, draftColor: color })).board();
+      boardPreview.innerHTML = `<div class="variant-board-label"><strong>กองทัพที่จะลงสนาม</strong><small>${mode === "mirror" ? "รอบสองใช้ตำแหน่งเดิมและสลับสี" : `ทีมของคุณ: ฝ่าย${color === "w" ? "ขาว" : "ดำ"} · คู่แข่งจัดทีมด้วยงบเดียวกัน`}</small></div><div class="variant-mini-board" role="img" aria-label="ตำแหน่งหมากก่อนเริ่มเกม">${board.flatMap((row, rank) => row.map((piece, file) => `<span class="variant-mini-cell ${(rank + file) % 2 ? "dark" : "light"}" title="${"abcdefgh"[file]}${8 - rank}${piece ? ` ${pieceNames[piece.type]} ฝ่าย${piece.color === "w" ? "ขาว" : "ดำ"}` : ""}">${piece ? geometricPiece(piece.type, piece.color) : ""}</span>`)).join("")}</div>`;
     }
-    this.get("#draft-builder").hidden = this.selected !== "draft";
-    this.get<HTMLButtonElement>("#variant-copy").disabled = this.selected === "draft" && !validateDraft(this.draft).valid;
+    this.get("#draft-builder").hidden = mode !== "draft";
+    this.get<HTMLButtonElement>("#variant-copy").disabled = mode === "draft" && !validateDraft(this.draft).valid;
     const seedField = this.get<HTMLInputElement>("#variant-seed");
     if (document.activeElement !== seedField) seedField.value = String(this.seed);
-    if (this.selected === "draft") {
+    if (mode === "draft") {
       const validation = validateDraft(this.draft);
       this.get("#draft-budget").textContent = `${validation.cost} / ${draftBudget} แต้ม`;
       this.get<HTMLProgressElement>("#draft-budget-bar").value = validation.cost;
@@ -341,6 +365,7 @@ export class TitleScreen {
       this.root.querySelectorAll<HTMLButtonElement>("[data-draft-add]").forEach((button) => { const next = [...this.draft, button.dataset.draftAdd as PieceSymbol]; button.disabled = next.length >= 3 && !validateDraft(next).valid; });
       this.get<HTMLButtonElement>("#flow-next").disabled = this.view === "setup" && !validation.valid;
     } else this.get<HTMLButtonElement>("#flow-next").disabled = false;
+    for (const selector of [".variant-code-label", ".variant-share-actions", "#variant-status"]) this.get(selector).hidden = isEconomicMode(this.selected);
     this.updateChallengeCode();
   }
   private openArmory() { this.armoryReturn = this.view; this.go("armory"); }
@@ -355,7 +380,7 @@ export class TitleScreen {
   }
   private back() {
     const index = journey.indexOf(this.view);
-    this.go(this.view === "armory" ? this.armoryReturn : this.view === "settings" ? "menu" :
+    this.go(this.view === "armory" ? this.armoryReturn : this.view === "settings" || this.view === "treasury" ? "menu" :
       index > 0 ? journey[index - 1] : index === 0 ? "menu" : "title");
   }
   private go(view: MenuView) {
@@ -377,17 +402,24 @@ export class TitleScreen {
     });
     if (!this.armory) { this.color = this.get<HTMLSelectElement>("#launch-side").value as Color; this.origin = this.color === "w" ? "b1" : "b8"; this.piece = "n"; }
     this.renderSkins(); this.updateBrief(); this.renderVariant(); this.preview();
+    this.renderTreasury();
     const current = this.get<HTMLElement>(`[data-menu-view="${view}"]`);
     current.classList.remove("menu-enter"); void current.offsetWidth; current.classList.add("menu-enter");
     [...current.querySelectorAll<HTMLElement>("button:not(:disabled), select")].find((el) => el.getClientRects().length)?.focus({ preventScroll: true });
   }
   private updateBrief() {
     if (!this.profile) return;
-    const modeNames = { ...Object.fromEntries(modeDefinitions.map((mode) => [mode.id, mode.name])), bot: "ศึกแม่ทัพ", local: "ศึกสองกองทัพ", training: "สนามฝึก", campaign: "โจทย์ยุทธวิธี", online: "ดวลออนไลน์", daily: "ศึกประจำวัน", special: "Special Duel" } as Record<TitleMode, string>;
+    const modeNames = { ...Object.fromEntries([...modeDefinitions, ...economicModes].map((mode) => [mode.id, mode.name])), bot: "ศึกแม่ทัพ", local: "ศึกสองกองทัพ", training: "สนามฝึก", campaign: "โจทย์ยุทธวิธี", online: "ดวลออนไลน์", daily: "ศึกประจำวัน", special: "Special Duel" } as Record<TitleMode, string>;
     this.get("#setup-heading").textContent = modeNames[this.selected];
     const opponent = isVariant(this.selected) ? `${modeNames[this.selected]} · ${this.selected === "rush" ? "เล่นคนเดียว" : this.get<HTMLSelectElement>("#special-opponent").value === "bot" ? "บอต " + ["ง่าย", "ปานกลาง", "ยาก"][Number(this.get<HTMLSelectElement>("#launch-depth").value) - 1] : "สองคน"}` : this.selected === "daily" ? dailyChallenge(this.dailyDay).title : this.selected === "bot" ? rivals[Number(this.get<HTMLSelectElement>("#launch-depth").value) as 1 | 2 | 3].name : modeNames[this.selected];
     this.get("#battle-brief").textContent = `${opponent} · ${skins[this.skin].name} · ${arenas[this.profile.arena].name}`;
     this.updateChallengeCode();
+    const contract = economicDefinition(this.selected), brief = this.get("#contract-brief");
+    brief.hidden = !contract;
+    if (contract) {
+      brief.innerHTML = `<div class="contract-fee"><strong>${contract.label} · ค่าเข้า ${contract.entry}</strong><span>เครดิตของคุณ ${this.profile.economy.credits}</span></div><p>${contract.rules}</p><small>หักเมื่อเข้าสนาม · แพ้/ออกไม่คืนค่าเข้า · เริ่มใหม่คิดค่าเข้าใหม่ · รับเงินครั้งเดียวเมื่อจบรอบ · หลังรับเงินย้อนตาไม่ได้</small>`;
+      if (this.view === "arena") this.get<HTMLButtonElement>("#launch-start").disabled = this.profile.economy.credits < contract.entry;
+    }
   }
   private get<T extends HTMLElement = HTMLElement>(selector: string) { return this.root.querySelector<T>(selector)!; }
   private previewSkin() { return this.profile && this.armory ? pieceSkin(this.profile, this.color, this.origin) : this.skin; }
@@ -412,12 +444,13 @@ export class TitleScreen {
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
     });
+    const contract = economicDefinition(mode), economyBot = !!contract && contract.base !== "rush";
     const flexible = mode === "special" || isVariant(mode) && mode !== "rush";
-    this.get("#launch-bot").hidden = mode !== "bot" && !(flexible && this.get<HTMLSelectElement>("#special-opponent").value === "bot");
+    this.get("#launch-bot").hidden = mode !== "bot" && !economyBot && !(flexible && this.get<HTMLSelectElement>("#special-opponent").value === "bot");
     this.get("#opponent-choice").hidden = !flexible;
-    this.get("#launch-choices").hidden = mode !== "bot" && !flexible;
-    this.get("#launch-depth-choice").hidden = mode !== "bot" && !(flexible && this.get<HTMLSelectElement>("#special-opponent").value === "bot");
-    this.get("#variant-brief").hidden = !isVariant(mode);
+    this.get("#launch-choices").hidden = mode !== "bot" && !flexible && !economyBot;
+    this.get("#launch-depth-choice").hidden = mode !== "bot" && !economyBot && !(flexible && this.get<HTMLSelectElement>("#special-opponent").value === "bot");
+    this.get("#variant-brief").hidden = !variantFor(mode);
     this.renderVariant();
     this.get("#special-brief").hidden = mode !== "special";
     this.get("#launch-training").hidden = mode !== "training";
@@ -430,6 +463,7 @@ export class TitleScreen {
     if (mode === "special") this.get("#title-mode-note").textContent = "เลือกหมาก กดอัลติ ดูเป้าการเดิน แล้วยืนยัน · กดยกเลิกได้ก่อนใช้จริง";
     if (mode === "daily") this.get("#title-mode-note").textContent = dailyChallenge(this.dailyDay).trial.hint;
     if (isVariant(mode)) this.get("#title-mode-note").textContent = mode === "rush" ? "แก้โจทย์ต่อเนื่องก่อนหมดเวลา · เล่นชุดเดิมเพื่อเทียบสถิติได้" : "ตั้งกติกา เลือกกองทัพและสนาม แล้วเริ่มดวล · สกินเปลี่ยนภาพเท่านั้น";
+    if (contract) this.get("#title-mode-note").textContent = `${contract.description} · ${contract.base === "rush" ? "เล่นคนเดียว" : "ดวลกับบอต 3 ระดับ"}`;
     this.updateBrief();
   }
   private refreshDaily() {
@@ -501,13 +535,27 @@ export class TitleScreen {
     const progress = levelProgress(profile.xp);
     this.get("#commander-level").textContent = "TACTICAL CHESS";
     this.get("#commander-rank").textContent = "พร้อมดวลบนกระดาน";
-    this.get("#commander-record").textContent = `${profile.wins} ชนะ · ${profile.matches} ศึก`;
+    this.get("#commander-record").textContent = `${profile.wins} ชนะ · ${profile.matches} ศึก · ${profile.economy.credits} เครดิต`;
     this.get("#title-xp").textContent = `${progress.current} / ${progress.next} XP`;
     this.get<HTMLProgressElement>("#title-xp-bar").value = progress.current;
     this.renderSkins();
     this.refreshDaily();
     this.updateBrief();
+    this.renderTreasury();
     if (!this.root.hidden) this.preview();
+  }
+  private renderTreasury() {
+    if (!this.profile || this.view !== "treasury") return;
+    const host = this.get("#treasury-content"), busy = performance.now() < this.economyBusyUntil;
+    host.innerHTML = treasuryHTML(this.profile, this.economyMessage, busy);
+    host.querySelectorAll<HTMLButtonElement>("[data-economy-action]").forEach(button => button.onclick = () => {
+      if (performance.now() < this.economyBusyUntil) return;
+      const action = button.dataset.economyAction === "forge" ? { type: "forge" as const, skin: button.dataset.forgeSkin as SkinId } : { type: button.dataset.economyAction as "pull" | "daily" };
+      this.economyBusyUntil = performance.now() + 500;
+      this.economyMessage = this.callbacks.economy?.(action) || "ยังไม่พร้อมใช้งาน";
+      this.renderTreasury();
+      setTimeout(() => { this.renderTreasury(); this.get<HTMLButtonElement>(`[data-economy-action="${action.type}"]`)?.focus({ preventScroll: true }); }, 510);
+    });
   }
   show(profile: Profile, settings: { mode: TitleMode; side: string; depth: string; resume: boolean; training?: string; trial?: string; view?: "title" | "menu"; variant?: { seed: number; draft?: PieceSymbol[]; round?: number }; opponent?: "bot" | "local" }) {
     this.get<HTMLSelectElement>("#launch-side").value = settings.side;

@@ -96,8 +96,8 @@ try {
   await page.locator('#player-name').waitFor({ state: 'hidden' });
   await verifyViewport('title');
   await enterMenu(page); await page.locator('#lobby-battle-tab').click();
-  assert.equal(await page.locator('[data-mode-category]').count(), 3);
-  for (const group of ['duel', 'arena', 'tactics']) {
+  assert.equal(await page.locator('[data-mode-category]').count(), 4);
+  for (const group of ['duel', 'arena', 'tactics', 'economy']) {
     await page.locator(`[data-mode-category="${group}"]`).click();
     const cards = page.locator('[data-title-mode]:visible');
     assert.ok(await cards.count() >= 3);
