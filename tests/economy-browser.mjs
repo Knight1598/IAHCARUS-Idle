@@ -82,7 +82,7 @@ try {
     assert.equal((await wallet(page)).credits, before - mode.entry, "resume never charges twice");
     await enterGame(page); await returnToMenu(page);
   }
-  console.log("PASS: all five economic modes launch real boards, enforce fees, show rules and resume without charging twice");
+  console.log("PASS: all six economic modes launch real boards, enforce fees, show rules and resume without charging twice");
   await context.close();
   }
   for (const definition of economicModes) {
@@ -94,7 +94,7 @@ try {
     if (definition.base === "rush") { variant.rushSolved = 4; variant.rushRemaining = 0; }
     const save = { mode:definition.base === "rush" ? "local" : "bot", activeVariant:variant, activeContract:{id,mode:definition.id}, humanColor:definition.base === "bot" ? "b" : "w", initialFen, history, matchId:id };
     const { page, context } = await fixture(profile, save);
-    const amount = { bounty:160,vault:200,broker:380,stakes:450,payday:100 }[definition.id];
+    const amount = { bounty:160,vault:200,broker:380,stakes:450,payday:100,open:500 }[definition.id];
     const expected = 750 - definition.entry + amount;
     assert.equal((await wallet(page)).credits, expected, `${definition.id} must pay from the actual completed match`);
     await page.reload(); await enterMenu(page);
@@ -107,7 +107,7 @@ try {
     assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("special-chess-offline-game")).history.length), history.length);
     await context.close();
   }
-  console.log("PASS: five real outcome settlements, Puzzle run payout, post-settlement undo guard and reload dedup");
+  console.log("PASS: six real outcome settlements, Puzzle run payout, post-settlement undo guard and reload dedup");
   const poor = readProfile(null); poor.economy.credits = 0;
   const last = await fixture(poor); await chooseMode(last.page, "stakes");
   while (await last.page.locator("#title-screen").getAttribute("data-menu-view") !== "arena") await last.page.locator("#flow-next").click();

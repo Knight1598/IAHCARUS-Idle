@@ -8,7 +8,7 @@ import {
 } from "chess.js";
 import { ChessScene, type GraphicsQuality } from "./scene";
 import { TitleScreen, type LaunchSettings } from "./title";
-import { economicDefinition, isEconomicMode, enterContract, settleContract, contractAmount, claimCredits, dailyCredits, rollSkin, forgeSkin, type Contract } from "../shared/economy.js";
+import { economicDefinition, isEconomicMode, enterContract, settleContract, contractAmount, claimCredits, dailyCredits, rollSkin, forgeSkin, buyShopItem, trialPremium, shopCatalog, type Contract } from "../shared/economy.js";
 import type { EconomyAction } from "./economy-ui";
 import { arenas, arenaOptions, isArena, type ArenaId } from "./arenas";
 import { SpaceAudio, type MusicState, type SoundPhase } from "./sound";
@@ -137,6 +137,7 @@ let presentation: BattlePresentation | undefined;
 let resultPresentationKey = "";
 let visualReplay = false;
 let armoryAudition = false;
+let shopTrialSkin: SkinId | null = null;
 let auditionTimer: ReturnType<typeof setTimeout> | undefined;
 let matchReward: { amount: number; message: string } | null = null;
 let humanColor: Color = "w";
@@ -290,6 +291,11 @@ function changeEconomy(action: EconomyAction) {
     } else if (action.type === "daily") {
       const reward = dailyCredits(profile.economy, utcDay()); profile = { ...profile, economy: reward.wallet };
       message = reward.added ? "รับเสบียง +100 เครดิตแล้ว" : "รับเสบียงวันนี้แล้ว";
+    } else if(action.type === "premium-demo") {
+      const reward=trialPremium(profile.economy);profile={...profile,economy:reward.wallet};message=reward.added?"รับพรีเมียมทดลอง +300 แล้ว · ไม่มีการจ่ายเงินจริง":"รับพรีเมียมทดลองไปแล้ว";
+    } else if(action.type === "buy") {
+      profile={...profile,economy:buyShopItem(profile.economy,action.product,unlocked)};
+      const item=shopCatalog.find(item=>item.id===action.product)!;message=`ซื้อ ${item.skin?skins[item.skin].name:item.label} สำเร็จ${item.skin?' · สวมได้ในคลังแสง':''}`;
     } else {
       profile = { ...profile, economy: forgeSkin(profile.economy, action.skin, unlocked) };
       message = `หลอม ${skins[action.skin].name} สำเร็จ · สวมได้ในคลังแสง`;
@@ -311,7 +317,7 @@ function contractMetrics() {
   const capturedValue = game.history({ verbose: true }).filter(move => move.color === humanColor).reduce((sum, move) => sum + (move.captured ? values[move.captured] : 0), 0);
   const scores = game instanceof VariantChess ? game.progress().scores : { w: 0, b: 0 };
   const spent = activeVariant?.options.draft?.reduce((sum, piece) => sum + values[piece], 0) ?? 24;
-  return { won: true, draw: false, capturedValue, controlScore: scores[humanColor], unusedBudget: 24 - spent,
+  return { won: true, draw: false, plies: game.history().length, capturedValue, controlScore: scores[humanColor], unusedBudget: 24 - spent,
     solved: (activeVariant?.rushSolved || 0) + Number(activeContract?.mode === "payday" && localResult?.winner === humanColor) };
 }
 function checkContractReward() {
@@ -436,7 +442,7 @@ function checkRewards() {
   if (activeContract) {
     const definition = economicDefinition(activeContract.mode)!;
     const metrics = contractMetrics(), potential = contractAmount(activeContract.mode, metrics);
-    const goal = activeContract.mode === "bounty" ? `ค่าหัว ${metrics.capturedValue} แต้ม` : activeContract.mode === "vault" ? `ยึดคลัง ${metrics.controlScore}/5` : activeContract.mode === "broker" ? `ประหยัด ${Math.max(0, Math.min(12, metrics.unusedBudget))} แต้ม` : activeContract.mode === "payday" ? `แก้ได้ ${metrics.solved} ข้อ` : `เดิมพัน ${definition.entry}`;
+    const goal = activeContract.mode === "bounty" ? `ค่าหัว ${metrics.capturedValue} แต้ม` : activeContract.mode === "vault" ? `ยึดคลัง ${metrics.controlScore}/5` : activeContract.mode === "broker" ? `ประหยัด ${Math.max(0, Math.min(12, metrics.unusedBudget))} แต้ม` : activeContract.mode === "payday" ? `แก้ได้ ${metrics.solved} ข้อ` : activeContract.mode === "open" ? "เข้าฟรี · ชนะ 500 · เงินธรรมดา" : `เดิมพัน ${definition.entry}`;
     economyHUD.innerHTML = `<strong>${definition.name} · ${profile.economy.credits} เครดิต</strong><span>${profile.economy.claimed.includes(`contract:${activeContract.id}`) ? "ปิดสัญญาและรับเงินแล้ว" : `${goal} · ${activeContract.mode === "payday" ? "จบรอบรับ" : "ชนะรับ"} ${potential}`}</span>`;
   }
   $("#player-level").textContent = `Lv.${levelProgress(profile.xp).level}`;
@@ -583,7 +589,7 @@ function updateUI() {
   $("#online-panel").hidden = mode !== "online";
   $("#local-actions").hidden = mode === "online";
   $("#undo").hidden = mode === "online";
-  $("#resign").hidden = mode !== "online" || !state?.started || !!state.result;
+  $("#resign").hidden = mode === "online" ? !state?.started || !!state.result : activeContract?.mode !== "open" || !!localResult || game.isGameOver();
   $("#difficulty").hidden = mode !== "bot" || !!activeTrial;
   $("#side-control").hidden = mode !== "bot" || !!activeTrial || !!activeContract || activeVariant?.id === "mirror";
   $("#reset").textContent = activeTrial ? "เริ่มบทใหม่" : "เกมใหม่";
@@ -1461,7 +1467,12 @@ $("#leave").onclick = () => {
   mode = "local";
   newLocal();
 };
-$("#resign").onclick = () => send({ type: "resign" });
+$("#resign").onclick = () => {
+  if(mode === "online"){send({type:"resign"});return;}
+  if(replayActive||activeContract?.mode !== "open"||localResult||game.isGameOver())return;
+  stopBot();scene?.cancel();clearSelection();resetPresentation();
+  localResult={winner:humanColor==='w'?'b':'w',reason:'resign'};saveLocal();updateUI();
+};
 $("#copy-code").onclick = async () => {
   if (!session) return;
   try {
@@ -1706,6 +1717,7 @@ const title = new TitleScreen($("#app"), OFFLINE, {
   selectPiece: (color, origin, skin) => { selectPiece(color, origin, skin); title.refresh(profile); },
   selectArena: (id) => { selectArena(id); title.refresh(profile); },
   preview: previewArmy,
+  shopPreview: previewShop,
   audition: auditionSkill,
   start: launchGame,
   resume: (skin) => {
@@ -1760,6 +1772,7 @@ let previewColor: Color = "w";
 let previewOrigin: Square | undefined;
 function previewArmy(host: HTMLElement | null, color: Color, origin?: Square) {
   clearTimeout(auditionTimer);
+  shopTrialSkin = null;
   armoryAudition = false;
   stopSounds();
   scene?.cancel();
@@ -1767,11 +1780,16 @@ function previewArmy(host: HTMLElement | null, color: Color, origin?: Square) {
   scene?.setShowcase(host);
   if (host) restorePreview();
 }
+function previewShop(host:HTMLElement|null,skin?:SkinId,piece:PieceSymbol='n') {
+  const origin=({p:'e2',n:'b1',b:'c1',r:'a1',q:'d1',k:'e1'} as const)[piece];
+  previewArmy(host,'w',origin);shopTrialSkin=host&&skin?skin:null;
+  if(host)restorePreview();
+}
 function restorePreview() {
   if (!previewHost) return;
   const army = new Chess();
-  scene?.setSkin(profile.skin);
-  scene?.setAppearances(appearanceMap(army.fen(), [], profile));
+  scene?.setSkin(shopTrialSkin || profile.skin);
+  scene?.setAppearances(appearanceMap(army.fen(), [], shopTrialSkin ? {...profile,skin:shopTrialSkin,loadouts:{w:{},b:{}}} : profile));
   scene?.renderBoard(army);
   scene?.resetView(previewColor === "b");
   scene?.showcasePiece(previewOrigin || null);
@@ -1852,7 +1870,7 @@ function closeShowcase() {
   syncMusic(); document.querySelector<HTMLButtonElement>("#open-showcase")?.focus();
 }
 function auditionSkill(piece: PieceSymbol, skin: SkinId) {
-  if (!scene || !previewHost || !isSkinUnlocked(profile, skin)) return;
+  if (!scene || !previewHost || !(isSkinUnlocked(profile, skin) || menuOpen && shopTrialSkin === skin)) return;
   clearTimeout(auditionTimer);
   scene.cancel();
   const key = ({ p: "pawn", n: "knight", b: "bishop", r: "rook", q: "queen", k: "king" } as const)[piece];

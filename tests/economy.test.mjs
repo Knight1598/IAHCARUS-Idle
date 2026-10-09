@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readEconomy, enterContract, settleContract, rollSkin, forgeSkin, dailyCredits, economicModes } from "../shared/economy.js";
+import { readEconomy, enterContract, settleContract, rollSkin, forgeSkin, dailyCredits, economicModes, buyShopItem, trialPremium, shopCatalog } from "../shared/economy.js";
 import { readProfile, isSkinUnlocked, equipPiece, pieceSkin } from "../src/profile.ts";
 import { cosmeticProgression } from "../server/accounts.mjs";
 
@@ -25,11 +25,11 @@ test("entry fees and outcomes are atomic and survive reload without duplicate ch
   assert.throws(() => enterContract({ ...wallet, credits: 100 }, "poor", "stakes"), /เครดิตไม่พอ/);
   assert.equal(wallet.credits, 1050, "failed entry never mutates the original");
 });
-test("all five contracts settle wins, draws and losses according to published caps", () => {
+test("all contracts settle wins, draws and losses according to published caps", () => {
   for (const mode of economicModes) {
     const paid = enterContract(readEconomy(), mode.id, mode.id).wallet;
     const win = settleContract(paid, mode.id, mode.id, { won: true, solved: 99, capturedValue: 99, controlScore: 99, unusedBudget: 99 });
-    assert.equal(win.amount, { bounty: 360, vault: 300, broker: 380, stakes: 450, payday: 500 }[mode.id]);
+    assert.equal(win.amount, { bounty: 360, vault: 300, broker: 380, stakes: 450, payday: 500, open:500 }[mode.id]);
     assert.equal(settleContract(paid, mode.id, mode.id, { won: false }).amount, 0);
     assert.equal(settleContract(paid, mode.id, mode.id, { draw: true }).amount, mode.id === "payday" ? 0 : mode.entry);
   }
@@ -83,4 +83,23 @@ test("account cosmetic backups retain credits, guarantee progress, inventory and
   assert.equal(isSkinUnlocked(restored, "astral"), true);
   assert.equal(pieceSkin(restored, "w", "b1"), "prism");
   assert.equal(isSkinUnlocked(restored, "void"), true);
+});
+
+test("premium migration preserves empty and legacy wallets without refilling balances",()=>{
+ const old=readEconomy({credits:73,shards:9,owned:['void'],claimed:['old']});assert.equal(old.premium,0);assert.equal(old.credits,73);
+ const granted=trialPremium(old);assert.equal(granted.wallet.premium,300);assert.equal(granted.wallet.credits,73);
+ const bought=buyShopItem(granted.wallet,'skin-prism');assert.equal(bought.premium,0);assert.equal(bought.credits,73);
+ const restored=readEconomy(JSON.parse(JSON.stringify(bought)));assert.equal(restored.premium,0);assert.equal(trialPremium(restored).added,false);assert.deepEqual(restored.owned,['void','prism']);
+ assert.equal(readEconomy({premium:Infinity,credits:0}).premium,0);
+});
+test("shop prices debit only their currency; bundles and supplies deliver exactly once per skin",()=>{
+ const base={...readEconomy(),premium:1000,credits:5000};
+ for(const item of shopCatalog){const next=buyShopItem(base,item.id);assert.equal(next.premium,1000-(item.currency==='premium'?item.price:0));assert.equal(next.credits,5000-(item.currency==='credits'?item.price:0)+item.credits);assert.equal(next.shards,item.shards);if(item.skin){assert.ok(next.owned.includes(item.skin));assert.throws(()=>buyShopItem(next,item.id),/แล้ว/);assert.throws(()=>buyShopItem(base,item.id,[item.skin]),/แล้ว/);}}
+ assert.throws(()=>buyShopItem({...base,premium:0},'skin-royal'),/พรีเมียมไม่พอ/);assert.throws(()=>buyShopItem({...base,credits:0},'skin-ember'),/เครดิตไม่พอ/);assert.throws(()=>buyShopItem(base,'invalid'));assert.equal(base.credits,5000);assert.equal(base.premium,1000);
+ const backed=cosmeticProgression({...readProfile(null),economy:trialPremium(base).wallet});assert.equal(backed.economy.premium,1300);assert.equal(trialPremium(readEconomy(backed.economy)).added,false);
+});
+test("Open is free, earns only credits, requires play for consolation and cannot double settle",()=>{
+ const base={...readEconomy(),credits:0,premium:12};const paid=enterContract(base,'open-win','open');assert.equal(paid.wallet.credits,0);
+ const win=settleContract(paid.wallet,'open-win','open',{won:true,draw:false,plies:4});assert.equal(win.amount,500);assert.equal(win.wallet.premium,12);assert.equal(settleContract(readEconomy(win.wallet),'open-win','open',{won:true}).added,false);
+ for(const [draw,plies,amount] of [[true,0,0],[true,24,180],[false,23,0],[false,24,80]]){const id=`case-${draw}-${plies}`,entry=enterContract(base,id,'open').wallet;assert.equal(settleContract(entry,id,'open',{won:false,draw,plies}).amount,amount);}
 });

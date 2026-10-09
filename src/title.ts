@@ -9,8 +9,8 @@ import { skillBudget, skillCosts, skillSpend, skillPieces, botDraft, botBan, ene
 import { ultimates, alternateUltimates, readSpecialConfig, type SpecialConfig } from "./special";
 import { icon, geometricPiece, logo } from "./design";
 import { modeDefinitions, draftBudget, draftCosts, defaultDraft, validateDraft, variantInitialFen, encodeChallenge, decodeChallenge, type VariantId } from "./variants";
-import { economicModes, economicDefinition, isEconomicMode, type EconomicMode } from "../shared/economy.js";
-import { treasuryHTML, type EconomyAction } from "./economy-ui";
+import { economicModes, economicDefinition, isEconomicMode, type EconomicMode, shopCatalog, type ShopItem } from "../shared/economy.js";
+import { treasuryHTML, shopName, type EconomyAction } from "./economy-ui";
 import "./lobby.css";
 import "./special.css";
 import "./royal-ui.css";
@@ -24,6 +24,7 @@ interface TitleCallbacks {
   selectArena?: (arena: ArenaId) => void;
   selectPiece?: (color: Color, origin: Square, skin: SkinId) => void;
   preview?: (host: HTMLElement | null, color: Color, origin?: Square) => void;
+  shopPreview?: (host: HTMLElement | null, skin?: SkinId, piece?: PieceSymbol) => void;
   audition?: (piece: PieceSymbol, skin: SkinId) => void;
   settings?: (host: HTMLElement | null) => void;
   help?: () => void;
@@ -56,7 +57,8 @@ export class TitleScreen {
   private armoryReturn: MenuView = "menu";
   private previewKey = "";
   private dailyDay = utcDay();
-  private economyMessage = "เลือกเปิดผนึกหรือหลอมสกินที่ต้องการ";
+  private economyMessage = "ทดลองสกินก่อนซื้อ · เลือกสินค้าที่ต้องการ";
+  private shopFilter = "all";
   private economyBusyUntil = 0;
   private category: ModeCategory = "duel";
   private seed = this.freshSeed();
@@ -273,10 +275,10 @@ export class TitleScreen {
       <section class="menu-page" data-menu-view="settings" hidden><small>YOUR EXPERIENCE</small><h1>ภาพและเสียง</h1><div id="title-settings-slot"></div></section></main>
       <div class="menu-avatar-slot"></div><footer class="game-menu-bottom"><nav class="journey-steps" aria-label="ขั้นตอนเตรียมศึก">${["โหมด", "กติกา", "สกิล", "สกิน", "สนาม"].map((label, index) => `<button data-journey-step="${index}"><i>${index + 1}</i>${label}</button>`).join("")}</nav><div class="menu-continue"><button id="flow-next" class="primary">ต่อไป ${icon("arrow-right")}</button></div></footer>`;
     const treasuryButton = document.createElement("button"); treasuryButton.dataset.menuGo = "treasury";
-    treasuryButton.innerHTML = `คลังสมบัติและสุ่มสกิน <span>${icon("astral")}</span>`;
+    treasuryButton.innerHTML = `ร้านค้าทดลองและคลังสมบัติ <span>${icon("astral")}</span>`;
     this.get(".main-game-menu").append(treasuryButton);
     const treasury = document.createElement("section"); treasury.className = "menu-page"; treasury.dataset.menuView = "treasury"; treasury.hidden = true;
-    treasury.innerHTML = '<small>THE ASTRAL TREASURY</small><h1>สร้างคลังของคุณ</h1><div id="treasury-content"></div>';
+    treasury.innerHTML = '<small>IAHCARUS / ARMY EXCHANGE</small><h1>ร้านค้าทดลอง</h1><div id="treasury-content"></div>';
     this.get(".game-menu-content").append(treasury);
     const economicTab = document.createElement("button"); economicTab.dataset.modeCategory = "economy"; economicTab.setAttribute("aria-pressed", "false");
     economicTab.innerHTML = `${icon("citadel")} เศรษฐกิจ`; this.get("#mode-categories").append(economicTab);
@@ -498,7 +500,7 @@ export class TitleScreen {
     const contract = economicDefinition(this.selected), brief = this.get("#contract-brief");
     brief.hidden = !contract;
     if (contract) {
-      brief.innerHTML = `<div class="contract-fee"><strong>${contract.label} · ค่าเข้า ${contract.entry}</strong><span>เครดิตของคุณ ${this.profile.economy.credits}</span></div><p>${contract.rules}</p><small>หักเมื่อเข้าสนาม · แพ้/ออกไม่คืนค่าเข้า · เริ่มใหม่คิดค่าเข้าใหม่ · รับเงินครั้งเดียวเมื่อจบรอบ · หลังรับเงินย้อนตาไม่ได้</small>`;
+      brief.innerHTML = `<div class="contract-fee"><strong>${contract.label} · ค่าเข้า ${contract.entry}</strong><span>เครดิตของคุณ ${this.profile.economy.credits}</span></div><p>${contract.rules}</p><small>${contract.id === "open" ? "เข้าฟรีทุกครั้ง · เลือกระดับบอตได้ · เงินรางวัลเป็นเครดิตเท่านั้น" : "หักเมื่อเข้าสนาม · แพ้/ออกไม่คืนค่าเข้า · เริ่มใหม่คิดค่าเข้าใหม่"} · รับเงินครั้งเดียวเมื่อจบรอบ · หลังรับเงินย้อนตาไม่ได้</small>`;
       if (this.view === "arena") this.get<HTMLButtonElement>("#launch-start").disabled = this.profile.economy.credits < contract.entry;
     }
   }
@@ -632,15 +634,28 @@ export class TitleScreen {
   private renderTreasury() {
     if (!this.profile || this.view !== "treasury") return;
     const host = this.get("#treasury-content"), busy = performance.now() < this.economyBusyUntil;
-    host.innerHTML = treasuryHTML(this.profile, this.economyMessage, busy);
+    host.innerHTML = treasuryHTML(this.profile, this.economyMessage, busy, this.shopFilter);
+    host.querySelector<HTMLSelectElement>('#shop-filter')!.onchange=event=>{this.shopFilter=(event.target as HTMLSelectElement).value;this.renderTreasury();};
+    host.querySelector<HTMLButtonElement>('#shop-open-arena')!.onclick=()=>this.chooseMode('open');
+    for(const kind of ['buy','preview'])host.querySelectorAll<HTMLButtonElement>(`[data-shop-${kind}]`).forEach(button=>button.onclick=()=>{const item=shopCatalog.find(item=>item.id===button.dataset[kind==='buy'?'shopBuy':'shopPreview']);if(item)this.openShopItem(item,kind==='preview');});
     host.querySelectorAll<HTMLButtonElement>("[data-economy-action]").forEach(button => button.onclick = () => {
       if (performance.now() < this.economyBusyUntil) return;
-      const action = button.dataset.economyAction === "forge" ? { type: "forge" as const, skin: button.dataset.forgeSkin as SkinId } : { type: button.dataset.economyAction as "pull" | "daily" };
+      const action = button.dataset.economyAction === "forge" ? { type: "forge" as const, skin: button.dataset.forgeSkin as SkinId } : { type: button.dataset.economyAction as "pull" | "daily" | "premium-demo" };
       this.economyBusyUntil = performance.now() + 500;
       this.economyMessage = this.callbacks.economy?.(action) || "ยังไม่พร้อมใช้งาน";
       this.renderTreasury();
       setTimeout(() => { this.renderTreasury(); this.get<HTMLButtonElement>(`[data-economy-action="${action.type}"]`)?.focus({ preventScroll: true }); }, 510);
     });
+  }
+  private openShopItem(item:ShopItem,trial:boolean) {
+    if(!this.profile)return;
+    let dialog=this.root.querySelector<HTMLDialogElement>('#shop-item-dialog');
+    if(!dialog){dialog=document.createElement('dialog');dialog.id='shop-item-dialog';this.root.append(dialog);dialog.addEventListener('close',()=>{this.callbacks.shopPreview?.(null);this.previewKey='';this.preview();});}
+    const wallet=this.profile.economy,owned=!!item.skin&&isSkinUnlocked(this.profile,item.skin);
+    dialog.innerHTML=`<small>${trial?'TRY BEFORE YOU BUY':'CONFIRM PURCHASE'} / TRIAL SHOP</small><h2>${shopName(item)}</h2>${item.skin?`<div id="shop-preview-stage" aria-label="พรีวิวสกิน 3D"></div><label>ทดลองหมาก<select id="shop-preview-piece">${(['p','n','b','r','q','k'] as PieceSymbol[]).map(p=>`<option value="${p}" ${p==='n'?'selected':''}>${pieceNames[p]}</option>`).join('')}</select></label><button id="shop-preview-attack">ทดลองท่าโจมตีและเสียง</button>`:''}<p>ราคา ${item.price} ${item.currency==='premium'?'พรีเมียม':'เครดิต'}${item.shards?` · พร้อม ${item.shards} เศษพลังงาน`:''}</p><p>ยอดคงเหลือ ${wallet[item.currency]} → ${wallet[item.currency]>=item.price?wallet[item.currency]-item.price:"เงินไม่พอ"} ${item.currency==='premium'?'พรีเมียม':'เครดิต'}</p><p class="economy-note">ทดลองไม่หักเงินหรือเปลี่ยนสกินที่สวม · สกินไม่เพิ่มความสามารถหมาก · ร้านนี้ไม่มีการชำระเงินจริง</p><div class="shop-dialog-actions"><button id="shop-confirm-buy" ${owned||wallet[item.currency]<item.price?'disabled':''}>${owned?'มีสกินแล้ว':'ยืนยันซื้อ'}</button><button id="shop-dialog-close">${trial?'ปิดพรีวิว':'ยกเลิก'}</button></div>`;
+    dialog.querySelector<HTMLButtonElement>('#shop-confirm-buy')!.onclick=()=>{if(performance.now()<this.economyBusyUntil)return;this.economyBusyUntil=performance.now()+500;this.economyMessage=this.callbacks.economy?.({type:'buy',product:item.id})||'ยังไม่พร้อมใช้งาน';dialog!.close();this.renderTreasury();setTimeout(()=>this.renderTreasury(),510);};
+    dialog.querySelector<HTMLButtonElement>('#shop-dialog-close')!.onclick=()=>dialog!.close();dialog.showModal();
+    if(item.skin){const piece=dialog.querySelector<HTMLSelectElement>('#shop-preview-piece')!;const preview=()=>this.callbacks.shopPreview?.(dialog!.querySelector('#shop-preview-stage')!,item.skin,piece.value as PieceSymbol);piece.onchange=preview;preview();dialog.querySelector<HTMLButtonElement>('#shop-preview-attack')!.onclick=()=>this.callbacks.audition?.(piece.value as PieceSymbol,item.skin!);}
   }
   show(profile: Profile, settings: { mode: TitleMode; side: string; depth: string; resume: boolean; training?: string; trial?: string; view?: "title" | "menu"; special?: SpecialConfig; variant?: { seed: number; draft?: PieceSymbol[]; round?: number }; opponent?: "bot" | "local" }) {
     this.get<HTMLSelectElement>("#launch-side").value = settings.side;

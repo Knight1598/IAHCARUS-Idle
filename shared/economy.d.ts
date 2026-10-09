@@ -1,8 +1,8 @@
 import type { SkinId } from "../src/profile.ts";
-export type EconomicMode = "bounty" | "vault" | "broker" | "stakes" | "payday";
-export interface Economy { version: 1; credits: number; shards: number; pulls: number; pity: number; owned: SkinId[]; claimed: string[]; log: { id: string; label: string; delta: number }[] }
+export type EconomicMode = "open" | "bounty" | "vault" | "broker" | "stakes" | "payday";
+export interface Economy { version: 2; premium: number; credits: number; shards: number; pulls: number; pity: number; owned: SkinId[]; claimed: string[]; log: { id: string; label: string; delta: number; currency?: "premium" }[] }
 export interface Contract { id: string; mode: EconomicMode }
-export interface ContractResult { won: boolean; draw: boolean; solved?: number; capturedValue?: number; controlScore?: number; unusedBudget?: number }
+export interface ContractResult { won: boolean; draw: boolean; plies?: number; solved?: number; capturedValue?: number; controlScore?: number; unusedBudget?: number }
 export const economicModes: { id: EconomicMode; name: string; label: string; base: "bot" | "score" | "control" | "draft" | "rush"; entry: number; prize: number; description: string; rules: string }[];
 export const skinPool: { skin: SkinId; chance: number; shards: number }[];
 export const pullCost: number;
@@ -18,3 +18,8 @@ export function settleContract(wallet: Economy, id: string, mode: EconomicMode, 
 export function contractAmount(mode: EconomicMode, result: ContractResult): number;
 export function rollSkin(wallet: Economy, unlocked?: SkinId[], random?: () => number): { wallet: Economy; skin: SkinId; duplicate: boolean; shards: number; guaranteed: boolean };
 export function forgeSkin(wallet: Economy, skin: SkinId, unlocked?: SkinId[]): Economy;
+
+export interface ShopItem {id:string;kind:"skin"|"bundle"|"supplies";skin?:SkinId;label?:string;price:number;currency:"credits"|"premium";shards:number;credits:number;}
+export const shopCatalog: ShopItem[];
+export function trialPremium(wallet:Economy):ReturnType<typeof claimCredits>;
+export function buyShopItem(wallet:Economy,id:string,unlocked?:SkinId[]):Economy;
