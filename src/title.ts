@@ -5,6 +5,7 @@ import { training } from "./training";
 import { trials, rivals } from "./progression";
 import { arenas, arenaIds, type ArenaId } from "./arenas";
 import { dailyChallenge, dailyProgress, utcDay } from "./daily";
+import { skillBudget, skillCosts, skillSpend, skillPieces, botDraft, botBan, enemyOf, type SkillChoice, type SkillBan } from './duel-draft';
 import { ultimates, alternateUltimates, readSpecialConfig, type SpecialConfig } from "./special";
 import { icon, geometricPiece, logo } from "./design";
 import { modeDefinitions, draftBudget, draftCosts, defaultDraft, validateDraft, variantInitialFen, encodeChallenge, decodeChallenge, type VariantId } from "./variants";
@@ -60,6 +61,8 @@ export class TitleScreen {
   private category: ModeCategory = "duel";
   private seed = this.freshSeed();
   private special = readSpecialConfig();
+  private draftSide:Color="w";
+  private draftPhase:"ban"|"loadout"|"reveal"="ban";
   private draft: PieceSymbol[] = [...defaultDraft];
 
   constructor(host: HTMLElement, offline: boolean, private callbacks: TitleCallbacks) {
@@ -144,6 +147,7 @@ export class TitleScreen {
         this.color = this.get<HTMLSelectElement>("#launch-side").value as Color;
         this.origin = this.color === "w" ? "b1" : "b8";
         this.piece = "n";
+        this.draftSide=this.color; this.draftPhase="ban"; this.renderSpecial();
         this.renderSkins();
         this.renderVariant();
         this.preview();
@@ -155,6 +159,7 @@ export class TitleScreen {
     });
     this.get<HTMLButtonElement>("#preview-attack").onclick = () => callbacks.audition?.(this.piece, this.previewSkin());
     this.get<HTMLButtonElement>("#launch-start").onclick = () => {
+      if(this.selected==="special"&&this.special.drafted&&this.draftPhase!=="reveal") {this.go("skills");return;}
       if (variantFor(this.selected) === "draft" && !validateDraft(this.draft).valid) { this.go("setup"); this.renderVariant(); return; }
       callbacks.start({
         mode: this.selected, skin: this.skin,
@@ -215,16 +220,16 @@ export class TitleScreen {
       this.chooseMode(challenge.mode); this.get("#variant-status").textContent = "โหลดรหัสแล้ว · เลือกคู่แข่งและเริ่มได้เลย";
     };
     this.root.querySelectorAll<HTMLButtonElement>("[data-rule-skill]").forEach(button => button.onclick = () => {
-      this.special = { ...this.special, skills: { ...this.special.skills, [button.dataset.rulePiece!]: button.dataset.ruleSkill } };
-      this.renderSpecial(); this.updateBrief();
+      this.pickDraftSkill(button.dataset.rulePiece as PieceSymbol,button.dataset.ruleSkill as SkillChoice);
     });
-    for (const id of ["formation", "charges", "reusable", "seed"]) this.get<HTMLSelectElement>(`#special-${id}`).onchange = () => {
+    for (const id of ["formation", "charges", "reusable", "seed", "format", "events"]) this.get<HTMLSelectElement>(`#special-${id}`).onchange = () => {
       this.special = readSpecialConfig({ ...this.special, formation: this.get<HTMLSelectElement>("#special-formation").value,
-        charges: Number(this.get<HTMLSelectElement>("#special-charges").value), reusable: this.get<HTMLSelectElement>("#special-reusable").value === "repeat", seed: Number(this.get<HTMLInputElement>("#special-seed").value) });
-      this.renderSpecial(); this.updateBrief();
+        drafted:this.get<HTMLSelectElement>("#special-format").value==="draft", fieldEvents:this.get<HTMLSelectElement>("#special-events").value==="live", charges: Number(this.get<HTMLSelectElement>("#special-charges").value), reusable: this.get<HTMLSelectElement>("#special-reusable").value === "repeat", seed: Number(this.get<HTMLInputElement>("#special-seed").value) });
+      this.draftPhase="ban"; this.renderSpecial(); this.updateBrief();
     };
     this.get<HTMLButtonElement>("#flow-back").onclick = () => this.back();
     this.get<HTMLButtonElement>("#flow-next").onclick = () => {
+      if(this.view==="skills"&&this.special.drafted&&this.draftPhase!=="reveal")return;
       if (this.view === "setup" && variantFor(this.selected) === "draft" && !validateDraft(this.draft).valid) return;
       if (this.view === "mode") this.chooseMode(this.selected);
       else this.go(this.view === "setup" && this.selected !== "special" ? "army" : journey[Math.min(journey.length - 1, journey.indexOf(this.view) + 1)]);
@@ -289,9 +294,19 @@ export class TitleScreen {
     dailyMode.innerHTML = '<strong>ศึกประจำวัน</strong><small>โจทย์หมากรุกหมุนเวียน · ท้าฝีมือวันละกระดาน</small>';
     modes.prepend(dailyMode);
     const specialBrief = document.createElement("section"); specialBrief.id = "special-brief"; specialBrief.hidden = true;
-    specialBrief.innerHTML = `<div class="special-heading"><span>${icon("ultimate")}</span><div><small>FREESTYLE SPECIAL DUEL</small><h2>สร้างกติกาศึกของคุณ</h2></div></div><p>เลือกกระดาน พลัง และการใช้ซ้ำ ก่อนจัดชุดสกิลในขั้นตอนถัดไป</p><div class="special-rule-controls"><label>กระดานเริ่มต้น<select id="special-formation"><option value="standard">เต็มกระดาน · 32 หมาก</option><option value="skirmish">ศึกย่อย · ทีมเล็กสุ่มเท่ากัน</option><option value="draft">ทีมผสม · ควีน เรือ ม้า บิชอป</option></select></label><label>ชาร์จต่อฝ่าย<select id="special-charges">${[0,1,3,5,9].map(n => `<option value="${n}" ${n === 3 ? "selected" : ""}>${n === 0 ? "ปิดอัลติ" : `${n} ครั้ง`}</option>`).join("")}</select></label><label>ข้อจำกัดต่อหมาก<select id="special-reusable"><option value="once">ตัวละ 1 ครั้ง · วางแผนทรัพยากร</option><option value="repeat">ใช้ซ้ำได้ · จนชาร์จฝ่ายนี้หมด</option></select></label><label>รหัสกระดานทีมเล็ก<input id="special-seed" type="number" min="0" max="4294967295" step="1" value="1"></label></div><small>ทุกการใช้กินหนึ่งตา · คิงต้องปลอดภัย · สกินและความหายากไม่เพิ่มสิทธิ์เดิน · ค่าเข้าฟรี</small>`;
+    specialBrief.innerHTML = `<div class="special-heading"><span>${icon("ultimate")}</span><div><small>FREESTYLE SPECIAL DUEL</small><h2>สร้างกติกาศึกของคุณ</h2></div></div><p>เลือกกระดาน พลัง และการใช้ซ้ำ ก่อนจัดชุดสกิลในขั้นตอนถัดไป</p><div class="special-rule-controls"><label>ชุดสกิล<select id="special-format"><option value="shared">Freestyle · ชุดร่วมทั้งสองฝ่าย</option><option value="draft">Duel Draft · เลือก–แบนแยกฝ่าย</option></select></label><label>อีเวนท์สนาม<select id="special-events"><option value="quiet">สนามสงบ</option><option value="live">สนามมีชีวิต · พยากรณ์ 2 รอบ</option></select></label><label>กระดานเริ่มต้น<select id="special-formation"><option value="standard">เต็มกระดาน · 32 หมาก</option><option value="skirmish">ศึกย่อย · ทีมเล็กสุ่มเท่ากัน</option><option value="draft">ทีมผสม · ควีน เรือ ม้า บิชอป</option></select></label><label>ชาร์จต่อฝ่าย<select id="special-charges">${[0,1,3,5,9].map(n => `<option value="${n}" ${n === 3 ? "selected" : ""}>${n === 0 ? "ปิดอัลติ" : `${n} ครั้ง`}</option>`).join("")}</select></label><label>ข้อจำกัดต่อหมาก<select id="special-reusable"><option value="once">ตัวละ 1 ครั้ง · วางแผนทรัพยากร</option><option value="repeat">ใช้ซ้ำได้ · จนชาร์จฝ่ายนี้หมด</option></select></label><label>รหัสกระดานทีมเล็ก<input id="special-seed" type="number" min="0" max="4294967295" step="1" value="1"></label></div><small>ทุกการใช้กินหนึ่งตา · คิงต้องปลอดภัย · สกินและความหายากไม่เพิ่มสิทธิ์เดิน · ค่าเข้าฟรี</small>`;
     this.get("#setup-slot").prepend(specialBrief);
-    this.get("#skills-slot").innerHTML = `<div class="skill-loadout-grid">${Object.entries(ultimates).map(([piece, skill]) => `<article class="skill-loadout-card" style="--skill-color:#${skill.color.toString(16)}"><header>${glyphs[piece as PieceSymbol]}<strong>${pieceNames[piece as PieceSymbol]}</strong></header>${(["signature", "alternate"] as const).map(choice => { const item = choice === "signature" ? skill : alternateUltimates[piece as PieceSymbol]; return `<button data-rule-piece="${piece}" data-rule-skill="${choice}" aria-pressed="${choice === "signature"}"><small>${item.name}</small><strong>${item.label}</strong><span>${item.description}</span></button>`; }).join("")}</article>`).join("")}</div><p id="skill-summary" class="battle-brief"></p>`;
+    this.get("#skills-slot").innerHTML = `<div class="skill-loadout-grid">${Object.entries(ultimates).map(([piece, skill]) => `<article class="skill-loadout-card" style="--skill-color:#${skill.color.toString(16)}"><header>${glyphs[piece as PieceSymbol]}<strong>${pieceNames[piece as PieceSymbol]}</strong></header>${(["signature", "alternate"] as const).map(choice => { const item = choice === "signature" ? skill : alternateUltimates[piece as PieceSymbol]; return `<button data-rule-piece="${piece}" data-rule-skill="${choice}" aria-pressed="${choice === "signature"}"><small>${item.name}</small><strong>${item.label}</strong><span>${item.description}</span></button>`; }).join("")}<button data-rule-off="${piece}" hidden><strong>ไม่ติดตั้งอัลติ</strong><span>0 แต้ม · ใช้การเดินปกติ</span></button></article>`).join("")}</div><p id="skill-summary" class="battle-brief"></p>`;
+    const draftPanel=document.createElement("section");draftPanel.id="duel-draft-panel";draftPanel.hidden=true;
+    draftPanel.innerHTML=`<small>PICK / BAN / REVEAL</small><h2 id="draft-phase-label"></h2><div class="draft-team-tabs"><button data-draft-side="w">ฝ่ายขาว</button><button data-draft-side="b">ฝ่ายดำ</button></div><label id="draft-ban-label">แบนสกิลฝ่ายตรงข้าม<select id="draft-ban"><option value="">เลือกหนึ่งสกิล</option>${skillPieces.flatMap(p=>['signature','alternate'].map(choice=>`<option value="${p}:${choice}">${pieceNames[p]} · ${(choice==='signature'?ultimates:alternateUltimates)[p].label}</option>`)).join('')}</select></label><p id="draft-team-budget"></p><div id="draft-reveal"></div><button id="draft-phase-confirm" class="primary">ยืนยันการแบน</button><p>ฝ่ายละ 12 แต้ม · แบนฝ่ายตรงข้ามหนึ่งสกิล · ปิดอัลติบางชนิดเพื่อประหยัดงบได้ · ทุกชุดเปิดเผยก่อนเริ่มศึก</p>`;
+    this.get("#skills-slot").prepend(draftPanel);
+    this.root.querySelectorAll<HTMLButtonElement>('[data-draft-side]').forEach(button=>button.onclick=()=>{this.draftSide=button.dataset.draftSide as Color;this.renderSpecial();});
+    this.get<HTMLSelectElement>('#draft-ban').onchange=()=>{
+      const ban=this.get<HTMLSelectElement>('#draft-ban').value as SkillBan;
+      this.special=readSpecialConfig({...this.special,bans:{...this.special.bans,[this.draftSide]:ban}});this.draftPhase='ban';this.renderSpecial();
+    };
+    this.get<HTMLButtonElement>('#draft-phase-confirm').onclick=()=>{this.draftPhase=this.draftPhase==='ban'?'loadout':this.draftPhase==='loadout'?'reveal':'loadout';this.renderSpecial();this.updateBrief();};
+    this.root.querySelectorAll<HTMLButtonElement>('[data-rule-off]').forEach(button=>button.onclick=()=>this.pickDraftSkill(button.dataset.ruleOff as PieceSymbol,'off'));
     const dailyCard = document.createElement("button");
     dailyCard.id = "daily-enter";
     dailyCard.innerHTML = `<span class="daily-emblem" aria-hidden="true">${icon("challenge")}</span><span><small>DAILY TACTICS</small><strong id="daily-name"></strong><span id="daily-reward"></span></span><b aria-hidden="true">${icon("arrow-right")}</b>`;
@@ -330,17 +345,49 @@ export class TitleScreen {
     this.root.prepend(facets);
     this.root.dataset.menuView = "title";
   }
+  private pickDraftSkill(piece:PieceSymbol,choice:SkillChoice) {
+    if(this.special.drafted) {
+      if(this.draftPhase!=='loadout'||this.draftReadOnly())return;
+      const team={...this.special.teams![this.draftSide],[piece]:choice};
+      if(this.special.bans?.[enemyOf(this.draftSide)]===`${piece}:${choice}`||skillSpend(team)>skillBudget)return;
+      this.special=readSpecialConfig({...this.special,teams:{...this.special.teams!,[this.draftSide]:team}});
+    } else if(choice!=='off') this.special={...this.special,skills:{...this.special.skills,[piece]:choice}};
+    this.renderSpecial();this.updateBrief();
+  }
+  private draftReadOnly() {return this.get<HTMLSelectElement>('#special-opponent').value==='bot'&&this.draftSide!==this.get<HTMLSelectElement>('#launch-side').value;}
   private renderSpecial() {
-    this.get<HTMLSelectElement>("#special-formation").value = this.special.formation;
-    this.get<HTMLSelectElement>("#special-charges").value = String(this.special.charges);
-    this.get<HTMLSelectElement>("#special-reusable").value = this.special.reusable ? "repeat" : "once";
-    this.get<HTMLInputElement>("#special-seed").value = String(this.special.seed);
-    this.root.querySelectorAll<HTMLButtonElement>("[data-rule-skill]").forEach(button => {
-      const selected = this.special.skills[button.dataset.rulePiece as PieceSymbol] === button.dataset.ruleSkill;
-      button.setAttribute("aria-pressed", String(selected)); button.classList.toggle("active", selected);
-      button.disabled = this.special.charges === 0;
+    const owner=this.get<HTMLSelectElement>('#launch-side').value as Color, enemy=enemyOf(owner);
+    if(this.special.drafted&&this.get<HTMLSelectElement>('#special-opponent').value==='bot') {
+      const bans={...this.special.bans,[enemy]:botBan(this.special.seed^17)};
+      this.special=readSpecialConfig({...this.special,bans,teams:{...this.special.teams!,[enemy]:botDraft(this.special.seed,bans[owner])}});
+    }
+    this.get<HTMLSelectElement>('#special-format').value=this.special.drafted?'draft':'shared';
+    this.get<HTMLSelectElement>('#special-events').value=this.special.fieldEvents?'live':'quiet';
+    this.get<HTMLSelectElement>('#special-formation').value=this.special.formation;
+    this.get<HTMLSelectElement>('#special-charges').value=String(this.special.charges);
+    this.get<HTMLSelectElement>('#special-reusable').value=this.special.reusable?'repeat':'once';
+    this.get<HTMLInputElement>('#special-seed').value=String(this.special.seed);
+    const team=this.special.teams![this.draftSide],ban=this.special.bans?.[enemyOf(this.draftSide)];
+    this.root.querySelectorAll<HTMLButtonElement>('[data-rule-skill],[data-rule-off]').forEach(button=>{
+      const piece=(button.dataset.rulePiece||button.dataset.ruleOff) as PieceSymbol,choice=(button.dataset.ruleSkill||'off') as SkillChoice;
+      const selected=(this.special.drafted?team[piece]:this.special.skills[piece])===choice;
+      button.hidden=choice==='off'&&!this.special.drafted;button.classList.toggle('active',selected);button.setAttribute('aria-pressed',String(selected));
+      button.disabled=this.special.charges===0||!!this.special.drafted&&(this.draftPhase!=='loadout'||this.draftReadOnly()||ban===`${piece}:${choice}`||skillSpend({...team,[piece]:choice})>skillBudget);
+      if(choice!=='off')button.querySelector('small')!.textContent=`${(choice==='signature'?ultimates:alternateUltimates)[piece].name}${this.special.drafted?` · ${skillCosts[piece][choice]} แต้ม${ban===`${piece}:${choice}`?' · ถูกแบน':''}`:''}`;
     });
-    this.get("#skill-summary").textContent = this.special.charges === 0 ? "ปิดอัลติ · แมตช์นี้ใช้การเดินปกติ" : `ฝ่ายละ ${this.special.charges} ชาร์จ · ${this.special.reusable ? "ใช้ซ้ำได้" : "ตัวละหนึ่งครั้ง"} · สกิลเปลี่ยนการเดินเฉพาะตาที่ใช้`;
+    this.get('.skill-loadout-grid').hidden=!!this.special.drafted&&this.draftPhase!=='loadout';
+    this.get('#duel-draft-panel').hidden=!this.special.drafted;
+    this.get('#draft-phase-label').textContent=this.draftPhase==='ban'?'01 · เลือกสกิลที่คู่แข่งใช้ไม่ได้':this.draftPhase==='loadout'?'02 · จัดชุดสกิลภายในงบ':'03 · เปิดเผยสองกองทัพ';
+    this.get<HTMLSelectElement>('#draft-ban').value=this.special.bans?.[this.draftSide]||'';
+    this.get<HTMLSelectElement>('#draft-ban').disabled=this.draftPhase!=='ban'||this.draftReadOnly();
+    this.get('#draft-team-budget').textContent=`${this.draftSide==='w'?'ฝ่ายขาว':'ฝ่ายดำ'} · ${skillSpend(team)} / ${skillBudget} แต้ม${this.draftReadOnly()?' · บอตจัดชุดเอง':''}`;
+    this.root.querySelectorAll<HTMLButtonElement>('[data-draft-side]').forEach(b=>{b.classList.toggle('active',b.dataset.draftSide===this.draftSide);b.setAttribute('aria-pressed',String(b.dataset.draftSide===this.draftSide));});
+    const confirm=this.get<HTMLButtonElement>('#draft-phase-confirm');confirm.disabled=this.draftPhase==='ban'&&(!this.special.bans?.w||!this.special.bans?.b);
+    confirm.textContent=this.draftPhase==='ban'?'ยืนยันการแบน → จัดชุด':this.draftPhase==='loadout'?'เปิดเผยสองกองทัพ':'กลับไปแก้ชุดสกิล';
+    const reveal=this.get('#draft-reveal');reveal.hidden=this.draftPhase!=='reveal';
+    reveal.innerHTML=(['w','b'] as Color[]).map(color=>`<article><strong>${color==='w'?'ฝ่ายขาว':'ฝ่ายดำ'} · ${skillSpend(this.special.teams![color])}/12</strong>${skillPieces.map(p=>`<span>${pieceNames[p]} · ${this.special.teams![color][p]==='off'?'ไม่ติดตั้ง':(this.special.teams![color][p]==='alternate'?alternateUltimates:ultimates)[p].label}</span>`).join('')}</article>`).join('');
+    this.get('#skill-summary').textContent=this.special.charges===0?'ปิดอัลติ · ใช้การเดินปกติ':`ฝ่ายละ ${this.special.charges} ชาร์จ · ${this.special.reusable?'ใช้ซ้ำได้':'ตัวละหนึ่งครั้ง'} · ${this.special.drafted?'ชุดสกิลแยกฝ่าย':'ชุดสกิลร่วม'}`;
+    if(this.view==='skills')this.get<HTMLButtonElement>('#flow-next').disabled=!!this.special.drafted&&this.draftPhase!=='reveal';
   }
   private freshSeed() { const bytes = new Uint32Array(1); crypto.getRandomValues(bytes); return bytes[0] || 1; }
   private renderCategories() {
@@ -361,7 +408,7 @@ export class TitleScreen {
   }
   private renderVariant() {
     const mode = variantFor(this.selected);
-    if (!mode) { this.get<HTMLButtonElement>("#flow-next").disabled = false; return; }
+    if (!mode) { this.get<HTMLButtonElement>("#flow-next").disabled = this.view==="skills"&&!!this.special.drafted&&this.draftPhase!=="reveal"; return; }
     const definition = modeDefinitions.find((definition) => definition.id === mode)!;
     this.get("#variant-emblem").innerHTML = icon(mode === "rush" ? "puzzle" : mode);
     this.get("#variant-label").textContent = definition.label;
@@ -446,7 +493,7 @@ export class TitleScreen {
     const modeNames = { ...Object.fromEntries([...modeDefinitions, ...economicModes].map((mode) => [mode.id, mode.name])), bot: "ศึกแม่ทัพ", local: "ศึกสองกองทัพ", training: "สนามฝึก", campaign: "โจทย์ยุทธวิธี", online: "ดวลออนไลน์", daily: "ศึกประจำวัน", special: "Special Duel" } as Record<TitleMode, string>;
     this.get("#setup-heading").textContent = modeNames[this.selected];
     const opponent = (isVariant(this.selected) || this.selected === "special") ? `${modeNames[this.selected]} · ${this.selected === "rush" ? "เล่นคนเดียว" : this.get<HTMLSelectElement>("#special-opponent").value === "bot" ? "บอต " + ["ง่าย", "ปานกลาง", "ยาก"][Number(this.get<HTMLSelectElement>("#launch-depth").value) - 1] : "สองคน"}` : this.selected === "daily" ? dailyChallenge(this.dailyDay).title : this.selected === "bot" ? rivals[Number(this.get<HTMLSelectElement>("#launch-depth").value) as 1 | 2 | 3].name : modeNames[this.selected];
-    this.get("#battle-brief").textContent = `${opponent} · ${skins[this.skin].name} · ${arenas[this.profile.arena].name}${this.selected === "special" ? ` · ${this.special.charges} ชาร์จ · ${Object.values(this.special.skills).filter(s => s === "alternate").length} สกิลทางเลือก · ${({standard:"เต็มกระดาน",skirmish:"ศึกย่อย",draft:"ทีมผสม"})[this.special.formation]}` : ""}`;
+    this.get("#battle-brief").textContent = `${opponent} · ${skins[this.skin].name} · ${arenas[this.profile.arena].name}${this.selected === "special" ? ` · ${this.special.charges} ชาร์จ · ${this.special.drafted ? `DRAFT ขาว ${skillSpend(this.special.teams!.w)}/12 · ดำ ${skillSpend(this.special.teams!.b)}/12` : `${Object.values(this.special.skills).filter(s => s === "alternate").length} สกิลทางเลือก`}${this.special.fieldEvents ? " · อีเวนท์สนาม" : ""} · ${({standard:"เต็มกระดาน",skirmish:"ศึกย่อย",draft:"ทีมผสม"})[this.special.formation]}` : ""}`;
     this.updateChallengeCode();
     const contract = economicDefinition(this.selected), brief = this.get("#contract-brief");
     brief.hidden = !contract;
@@ -498,7 +545,7 @@ export class TitleScreen {
     if (mode === "daily") this.get("#title-mode-note").textContent = dailyChallenge(this.dailyDay).trial.hint;
     if (isVariant(mode)) this.get("#title-mode-note").textContent = mode === "rush" ? "แก้โจทย์ต่อเนื่องก่อนหมดเวลา · เล่นชุดเดิมเพื่อเทียบสถิติได้" : "ตั้งกติกา เลือกกองทัพและสนาม แล้วเริ่มดวล · สกินเปลี่ยนภาพเท่านั้น";
     if (contract) this.get("#title-mode-note").textContent = `${contract.description} · ${contract.base === "rush" ? "เล่นคนเดียว" : "ดวลกับบอต 3 ระดับ"}`;
-    this.updateBrief();
+    this.renderSpecial(); this.updateBrief();
   }
   private refreshDaily() {
     const daily = dailyChallenge(this.dailyDay), progress = dailyProgress(this.profile?.claimed || [], this.dailyDay);
@@ -611,7 +658,7 @@ export class TitleScreen {
     this.color = settings.side === "b" ? "b" : "w";
     this.origin = this.color === "w" ? "b1" : "b8";
     this.piece = "n";
-    this.special = readSpecialConfig(settings.special); this.renderSpecial();
+    this.special = readSpecialConfig(settings.special); this.draftPhase="ban";this.draftSide=this.color; this.renderSpecial();
     this.refresh(profile);
     this.renderRivals();
     this.root.hidden = false;

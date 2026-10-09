@@ -12,6 +12,8 @@ import { createAvatar, animateAvatar, animateDefender, createAvatarAura, animate
 import { ArenaEnvironment } from "./arena";
 import { arenas, type ArenaId } from "./arenas";
 import { frameCombat } from "./framing";
+import { ExecutionVFX } from "./execution-vfx";
+import { executionFrame } from "./skin-execution";
 import { CombatVFX } from "./vfx";
 import { previewMove, type MovePreview } from "./tactics";
 import { SpecialChess, ultimates, type UltimateMove } from "./special";
@@ -259,6 +261,8 @@ interface Animation {
   guard?: THREE.Mesh;
   victimOrigin?: THREE.Vector3;
   victimRotation?: THREE.Euler;
+  execution?:ExecutionVFX;
+  quieted?:boolean;
   vfx?: CombatVFX;
   dramatic: boolean;
   launched: boolean;
@@ -448,6 +452,7 @@ export class ChessScene {
   onDash: (move: Move, event: MoveEvent) => void = () => {};
   onDeath: (move: Move, event: MoveEvent) => void = () => {};
   onCancel: () => void = () => {};
+  onAnticipation:()=>void=()=>{};
   onCombatCue: (move: Move, event: MoveEvent, cue: CombatCue, actor: "attacker" | "defender", skin: SkinId) => void = () => {};
   private overlay: BattleOverlay;
   private sparks: {
@@ -752,8 +757,16 @@ export class ChessScene {
       });
       zones.userData.role = "control-zones"; this.groundAuras.add(zones);
     }
+    if (game instanceof SpecialChess && game.field) {
+      const field=game.field,event=field.active||field.forecast;
+      const geometry=new THREE.RingGeometry(.32,.44,event.kind==='portal'?32:6);geometry.rotateX(-Math.PI/2);
+      const zones=new THREE.InstancedMesh(geometry,new THREE.MeshBasicMaterial({color:event.kind==='portal'?0xc89aff:0x70f3d8,transparent:true,opacity:field.active?.85:.35,side:THREE.DoubleSide,depthWrite:false}),2);
+      event.squares.forEach((square,i)=>{const at=coords(square);zones.setMatrixAt(i,new THREE.Matrix4().makeTranslation(at.x,.05,at.z));});
+      zones.userData.role='field-zones';this.groundAuras.add(zones);
+      this.stage.dataset.fieldState=field.active?'active':'warning';this.stage.dataset.fieldKind=event.kind;
+    } else {delete this.stage.dataset.fieldState;delete this.stage.dataset.fieldKind;}
     if (game instanceof SpecialChess) {
-      const ready = game.board().flat().filter(p => p && game.remaining[p.color] > 0 && !game.spent(p.square));
+      const ready = game.board().flat().filter(p => p && game.choice(p.type,p.color)!=="off" && game.remaining[p.color] > 0 && !game.spent(p.square));
       if (ready.length) {
         const badges = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.055), new THREE.MeshBasicMaterial({ color: 0xd7b5ff }), ready.length);
         ready.forEach((p, i) => { const at = coords(p!.square); badges.setMatrixAt(i, new THREE.Matrix4().makeTranslation(at.x + 0.34, 0.1, at.z + 0.34)); });
@@ -1011,6 +1024,7 @@ export class ChessScene {
     delete this.stage.dataset.movePhase;
     delete this.stage.dataset.attackStyle;
     delete this.stage.dataset.executionPhase;
+    delete this.stage.dataset.skinExecution;
     delete this.stage.dataset.defenderStatus;
     delete this.stage.dataset.combatPhase;
     delete this.stage.dataset.defenseReaction;
@@ -1136,6 +1150,7 @@ export class ChessScene {
         crown.rotation.x = Math.PI / 2; crown.position.y = 1.4;
       }
       this.fx.add(visual.group);
+      if(victim&&["storm","void","prism"].includes(skin)){this.animation.execution=new ExecutionVFX(skin);this.fx.add(this.animation.execution.group);}
       this.animation.cracks = this.groundCracks(this.animation);
       this.animation.avatar = createAvatar(move.piece, move.color, skin);
       this.animation.avatarAura = createAvatarAura(move.piece, move.color, skin);
@@ -1228,6 +1243,9 @@ export class ChessScene {
   }
   private animateExecution(a: Animation, t: number) {
     const frame = captureFrame(t);
+    const execution=executionFrame(a.skin,t);
+    this.stage.dataset.skinExecution=`${a.skin}:${execution.phase}`;
+    if(execution.quiet&&!a.quieted){a.quieted=true;this.onAnticipation();}
     const direction = a.to.clone().sub(a.from).normalize();
     const side = new THREE.Vector3(-direction.z, 0, direction.x);
     const defenderPosition = a.victimOrigin?.clone().addScaledVector(direction, 0.28 + frame.defeat * 0.35);
@@ -1266,13 +1284,15 @@ export class ChessScene {
       // Face the opponent's current location throughout lateral dodges/counters.
       const incoming = (a.avatar?.position || a.stop).clone().sub(defender.position); incoming.y = 0;
       defender.rotation.y = Math.atan2(-incoming.x, -incoming.z);
-      defender.scale.setScalar(1.06 - frame.defeat * 0.25);
+      defender.scale.setScalar((1.06 - frame.defeat * 0.25)*(1-execution.collapse*.85));
+      if(a.skin==="void")defender.position.y-=execution.collapse*.5;
       const hit = a.impacted ? Math.min(1, Math.max(0, (t - CAPTURE_CONTACT) / 0.09)) : 0;
       animateDefender(defender, defender.userData.piece, hit, fade, seconds,
         { ...context, profile: a.defenderProfile, skin: a.defenderProfile?.skin, reaction: a.reaction,
           contactTarget: a.avatar ? [a.avatar.position.x, a.avatar.position.y + 1.4, a.avatar.position.z] : undefined });
       if (a.defenderAura) animateAvatarAura(a.defenderAura, defender, 0.25 + reaction * 0.6, fade, seconds);
     }
+    if(a.execution)a.execution.update(t,a.avatar?.position||a.from,a.defenderAvatar?.position||a.to);
     if (a.guard) {
       if (a.defenderAvatar) a.guard.position.copy(a.defenderAvatar.position).add(new THREE.Vector3(0, 1.15, 0));
       a.guard.rotation.y = Math.atan2(facing.x, facing.z);
@@ -1440,6 +1460,7 @@ export class ChessScene {
       if (aura) box.union(new THREE.Box3().setFromObject(aura));
       return box.expandByScalar(0.05);
     });
+    if(a.execution?.skin==="prism"&&a.avatar)bounds.push(new THREE.Box3().setFromCenterAndSize(a.avatar.position.clone().add(new THREE.Vector3(0,1.5,0)),new THREE.Vector3(3.8,3.1,3.8)));
     if (!a.move.captured) bounds.push(new THREE.Box3().setFromCenterAndSize(a.to.clone().add(new THREE.Vector3(0, 0.6, 0)), new THREE.Vector3(1.2, 1.2, 1.2)));
     if (!a.move.captured && ["check", "mate", "double-check", "discovered-check"].includes(a.event.kind)) {
       const king = kingSquare(a.after, a.after.turn());

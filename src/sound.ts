@@ -304,6 +304,12 @@ export class SpaceAudio {
     try { voice.source.stop(now + fade); } catch {}
   }
   private stopVoices(predicate: (voice: Voice) => boolean) { for (const voice of this.sources.values()) if (predicate(voice)) this.stopVoice(voice); }
+  anticipateImpact() {
+    if(this.disposed||this.paused||this.muted)return;
+    // Make a short space before contact; following impact restores normal cue gain.
+    this.stopVoices(v=>v.bus==="cinematic"||v.bus==="sfx");
+    this.duckMusic(18,.15);
+  }
   cancelCinematic() {
     this.stopVoices((voice) => voice.bus === "cinematic");
     this.restoreDuck();

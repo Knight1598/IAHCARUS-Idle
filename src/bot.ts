@@ -65,7 +65,9 @@ self.onmessage = (e: MessageEvent<{ fen: string; depth: number; special?: Return
   const max = g.turn() === "w";
   const depth = Math.max(1, Math.min(3, Math.floor(e.data.depth) || 1));
   const deadline = performance.now() + [0, 150, 700, 1800][depth];
-  const moves = (g instanceof SpecialChess || g instanceof VariantChess ? g.legalActions() : g.moves({ verbose: true })).sort(() => Math.random() - 0.5);
+  const moves = (g instanceof SpecialChess || g instanceof VariantChess ? g.legalActions() : g.moves({ verbose: true }))
+    // If a slow device exhausts the deadline before depth one, keep a useful legal capture.
+    .sort((a,b)=>value[b.captured||"k"]-value[a.captured||"k"]||Math.random()-.5);
   let chosen = moves[0];
   // Keep the last completed depth if a phone cannot finish the deeper search.
   for (let level = 1; level <= depth; level++) {
@@ -93,5 +95,5 @@ self.onmessage = (e: MessageEvent<{ fen: string; depth: number; special?: Return
       break;
     }
   }
-  self.postMessage({ from: chosen.from, to: chosen.to, promotion: chosen.promotion || "q", ultimate: !!(chosen as { ultimate?: boolean }).ultimate, chaos: !!(chosen as { chaos?: boolean }).chaos });
+  self.postMessage({ from: chosen.from, to: chosen.to, promotion: chosen.promotion || "q", ultimate: !!(chosen as { ultimate?: boolean }).ultimate, portal: !!(chosen as { portal?:boolean }).portal, chaos: !!(chosen as { chaos?: boolean }).chaos });
 };

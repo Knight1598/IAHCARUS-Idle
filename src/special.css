@@ -62,3 +62,31 @@
 /* Up to nine freestyle charges stay readable inside the compact HUD. */
 .ultimate-meter > div > span { display:grid; grid-template-columns:auto 1fr; align-items:start; gap:3px; min-width:0; }
 .ultimate-meter b { display:grid; grid-template-columns:repeat(3, minmax(7px, 1fr)); gap:2px; margin-left:2px; }
+/* Public draft: ban, build, then reveal. */
+#duel-draft-panel { padding:16px; margin-bottom:14px; border:1px solid #aa86e85c; border-radius:12px; background:radial-gradient(ellipse at top right,#6c45a338,transparent 70%),#101d32; }
+#duel-draft-panel h3 { font-size:15px; letter-spacing:1px; color:#d9c2ff; margin:0 0 12px; }
+#duel-draft-panel label { display:block; font-size:11px; margin:12px 0; color:#bdcde4; }
+#duel-draft-panel select { display:block; width:100%; margin-top:8px; }
+#duel-draft-panel > small { display:block; font-size:10px; line-height:1.7; color:#a0b3d0; margin-top:12px; }
+#duel-draft-panel [data-draft-side] { padding:10px 16px; border:1px solid #526285; border-radius:8px; margin-right:6px; }
+#duel-draft-panel [data-draft-side].active { border-color:#bc9df8; background:#63449550; }
+#draft-team-budget { color:#81efd7; font-size:12px; }
+#draft-phase-confirm { width:100%; margin-top:14px; background:linear-gradient(110deg,#b795f0,#8bc9e6); color:#142038; padding:12px; border-radius:9px; }
+#draft-reveal { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+#draft-reveal article { min-width:0; padding:12px; border:1px solid #8099c840; border-radius:9px; background:#172740; }
+#draft-reveal strong { font-size:12px; color:#d2bdff; }
+#draft-reveal p { font-size:10px; line-height:1.8; color:#bac8dd; overflow-wrap:anywhere; }
+#field-hud { position:absolute; z-index:7; top:106px; right:16px; width:min(210px,40%); border:1px solid #72e6d558; border-radius:11px; padding:10px; background:linear-gradient(130deg,#163a3deb,#12243bed); color:#c3edeb; pointer-events:auto; }
+#field-hud[data-kind="portal"] { border-color:#b791e985; background:linear-gradient(130deg,#322245eb,#13243bed); }
+#field-hud small { display:block; letter-spacing:1px; font-size:8px; color:#9fb9cc; }
+#field-hud strong { display:block; font-size:12px; margin:6px 0; }
+#field-hud span,#field-hud summary { font-size:10px; }
+#field-hud details { margin-top:7px; }
+#field-hud p { font-size:10px; line-height:1.6; }
+#stage.cinematic #field-hud,#stage:has(#arena-drawer:not([hidden])) #field-hud { visibility:hidden; }
+#flat-board .field-square { box-shadow:inset 0 0 0 2px #77e5d5; }
+#flat-board .field-portal { box-shadow:inset 0 0 0 2px #b995f5; }
+#flat-board .field-warning { box-shadow:inset 0 0 0 1px #a4ccd766; }
+@media(max-width:600px){#field-hud{top:117px;right:10px;padding:7px;width:40%;}#field-hud strong{font-size:10px;}#field-hud small{font-size:6px;}#field-hud span,#field-hud summary{font-size:8px;}#draft-reveal{grid-template-columns:1fr;}#duel-draft-panel{padding:12px;}}
+@media(max-height:550px) and (min-width:601px){#field-hud{top:90px;width:190px;padding:8px;}}
+#draft-reveal span { display:block; font-size:10px; line-height:1.7; color:#bac8dd; margin-top:6px; overflow-wrap:anywhere; }

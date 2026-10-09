@@ -29,7 +29,9 @@
     "test:special": "node tests/special-browser.mjs",
     "test:modes": "node tests/modes-browser.mjs",
     "test:player": "node tests/player-browser.mjs",
-    "test:deploy": "node scripts/test-deploy.mjs"
+    "test:deploy": "node scripts/test-deploy.mjs",
+    "test:duel-draft": "node tests/duel-draft-browser.mjs",
+    "test:execution": "node tests/execution-browser.mjs"
   },
   "dependencies": {
     "chess.js": "^1.4.0",

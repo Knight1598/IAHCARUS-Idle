@@ -58,3 +58,12 @@ for (const depth of [1,2,3]) test(`freestyle bot depth ${depth} respects selecte
   assert.ok(reply);assert.equal(reply.ultimate,true);
   const move=game.move(reply);assert.equal(move.to,'e5');assert.equal(move.captured,'q');assert.equal(game.remaining.w,4);
 });
+
+for (const depth of [1,2,3]) test(`draft and field bot depth ${depth} uses portal capture and respects banned knight skill`,()=>{
+  const base=new SpecialChess('7k/8/6q1/8/8/1N6/7P/K7 w - - 0 1',undefined,{fieldEvents:true,drafted:true,seed:2,bans:{b:'n:signature'}});
+  const snapshot=base.snapshot();snapshot.plies=12;
+  const game=new SpecialChess(base.fen(),snapshot);
+  reply=null;self.onmessage({data:{fen:game.fen(),depth,special:game.snapshot()}});
+  assert.ok(reply);assert.equal(reply.portal,true);assert.equal(reply.ultimate,false);
+  const move=game.move(reply);assert.equal(move.to,'g6');assert.equal(move.captured,'q');assert.equal(game.remaining.w,3);
+});

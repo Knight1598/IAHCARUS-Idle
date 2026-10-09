@@ -146,7 +146,7 @@ let worker: Worker | undefined;
 let botTimer: ReturnType<typeof setTimeout> | undefined;
 let botJobFen: string | undefined;
 let botReply:
-  | { fen: string; move: { from: Square; to: Square; promotion?: PieceSymbol; ultimate?: boolean } }
+  | { fen: string; move: { from: Square; to: Square; promotion?: PieceSymbol; ultimate?: boolean; portal?: boolean } }
   | undefined;
 let noticeTimer: ReturnType<typeof setTimeout>;
 let battleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -575,7 +575,7 @@ function updatePresentation() {
   resultPresentationKey = key;
   const owner = mode === "online" ? session?.color : mode === "bot" || activeTrial || activeVariant?.id === "rush" ? humanColor : undefined;
   const winner = result?.winner ?? (game.isCheckmate() ? game.turn() === "w" ? "b" : "w" : null);
-  const mvp = battleMVP(initialFen, game.history({ verbose: true }), owner, activeVariant && game instanceof VariantChess ? () => createVariant(activeVariant!.id, activeVariant!.options, initialFen) : undefined);
+  const mvp = battleMVP(initialFen, game.history({ verbose: true }), owner, activeVariant && game instanceof VariantChess ? () => createVariant(activeVariant!.id, activeVariant!.options, initialFen) : game instanceof SpecialChess ? () => new SpecialChess(initialFen,undefined,specialConfig) : undefined);
   const mvpSkin = mvp ? armyAppearances([])[mvp.origin] || profile.skin : profile.skin;
   const titleText = activeVariant?.id === "rush" ? activeVariant.rushRemaining <= 0 ? "Puzzle Rush จบแล้ว" : winner === humanColor ? "อ่านเกมได้เฉียบคม" : "ลองโจทย์ถัดไป" : activeDaily ? winner === humanColor ? "พิชิตศึกประจำวัน" : "ราชันรอการแก้มือ" : trainingWon ? "ฝึกสำเร็จ" : activeTrial ? winner === humanColor ? "ภารกิจสำเร็จ" : "ลองวางแผนใหม่" : winner === null ? "ศึกเสมอ" : owner ? winner === owner ? "ชัยชนะของกองทัพคุณ" : "ราชันรอการกลับมา" : `ชัยชนะฝ่าย${winner === "w" ? "ขาว" : "ดำ"}`;
   presentation.showResult({
@@ -631,6 +631,8 @@ function updateFlatBoard() {
       : undefined;
   const moves = selected ? game.moves({ square: selected, verbose: true }) : [];
   const legal = moves.map(m => m.to);
+  const field=game instanceof SpecialChess?game.field:null;
+  const fieldEvent=field?.active||field?.forecast;
   const captures = moves.filter(m => m.captured).map(m => m.to);
   const checkedKing = game.isCheck() ? kingSquare(game, game.turn()) : null;
   const flipped = scene?.flipped ?? ((mode === "bot" || !!activeVariant || specialDuel) && humanColor === "b");
@@ -643,7 +645,7 @@ function updateFlatBoard() {
     for (const file of files) {
       const s = (file + rank) as Square,
         p = game.get(s);
-      html += `<button data-square="${s}" class="square ${(file.charCodeAt(0) + rank) % 2 ? "dark" : "light"} ${selected === s ? "selected" : ""} ${legal.includes(s) ? "legal" : ""} ${captures.includes(s) ? "capture" : ""} ${activeVariant?.id === "control" && ["d4", "e4", "d5", "e5"].includes(s) ? "control-square" : ""} ${s === lastMove?.from || s === lastMove?.to ? "last" : ""} ${s === checkedKing ? "checked" : ""} ${p?.color === "w" ? "white-piece" : "black-piece"}" aria-label="${s}${p ? " " + (p.color === "w" ? "ขาว" : "ดำ") + " " + names[p.type] : ""}${legal.includes(s) ? captures.includes(s) ? " กินหมากได้" : " เดินได้" : ""}"><span>${p ? geometricPiece(p.type, p.color) : ""}</span><small>${s}</small></button>`;
+      html += `<button data-square="${s}" class="square ${(file.charCodeAt(0) + rank) % 2 ? "dark" : "light"} ${fieldEvent?.squares.includes(s) ? `field-square field-${fieldEvent.kind} ${field?.active?"field-active":"field-warning"}` : ""} ${selected === s ? "selected" : ""} ${legal.includes(s) ? "legal" : ""} ${captures.includes(s) ? "capture" : ""} ${activeVariant?.id === "control" && ["d4", "e4", "d5", "e5"].includes(s) ? "control-square" : ""} ${s === lastMove?.from || s === lastMove?.to ? "last" : ""} ${s === checkedKing ? "checked" : ""} ${p?.color === "w" ? "white-piece" : "black-piece"}" aria-label="${s}${p ? " " + (p.color === "w" ? "ขาว" : "ดำ") + " " + names[p.type] : ""}${legal.includes(s) ? captures.includes(s) ? " กินหมากได้" : " เดินได้" : ""}"><span>${p ? geometricPiece(p.type, p.color) : ""}</span><small>${s}</small></button>`;
     }
   $("#flat-board").innerHTML = html;
   if (focused)
@@ -751,6 +753,12 @@ function advanceVariant() {
 }
 $("#variant-next").onclick = advanceVariant;
 function updateSpecialHUD() {
+  let fieldPanel=document.querySelector<HTMLElement>("#field-hud");
+  if(!fieldPanel){fieldPanel=document.createElement("div");fieldPanel.id="field-hud";fieldPanel.setAttribute("role","status");$("#stage").append(fieldPanel);}
+  const field=game instanceof SpecialChess?game.field:null;fieldPanel.hidden=!field;
+  if(field){fieldPanel.dataset.kind=(field.active||field.forecast).kind;fieldPanel.dataset.state=field.active?"active":"warning";
+    const event=field.active||field.forecast;
+    fieldPanel.innerHTML=`<small>${field.active?"FIELD ACTIVE":"FIELD FORECAST"} · รอบ ${field.round+1}</small><strong>${event.label}</strong><span>${event.squares.join(" ↔ ").toUpperCase()} · ${field.active?`เหลือ ${field.endsIn} รอบ`:`เริ่มใน ${field.startsIn} รอบ`}</span><details><summary>กติกาสนาม</summary><p>${event.description}</p>${field.active?`<p>ถัดไป ${field.forecast.label} · ${field.forecast.squares.join(" / ").toUpperCase()} · อีก ${field.startsIn} รอบ</p>`:""}</details>`;}
   const panel = $("#ultimate-hud");
   panel.hidden = !(game instanceof SpecialChess);
   $("#stage").classList.toggle("special-duel", game instanceof SpecialChess);
@@ -767,9 +775,9 @@ function updateSpecialHUD() {
   arm.setAttribute("aria-pressed", String(!!game.armed));
   arm.classList.toggle("armed", !!game.armed);
   if (piece) {
-    arm.style.setProperty("--ultimate-color", `#${game.skill(piece.type).color.toString(16)}`);
-    arm.querySelector("strong")!.textContent = game.armed ? "ยกเลิกอัลติ" : game.skill(piece.type).label;
-    arm.querySelector("small")!.textContent = !ready ? reserves[piece.color] === 0 ? "พลังฝ่ายนี้หมดแล้ว" : "หมากตัวนี้ใช้อัลติแล้ว" : arm.disabled ? "ยังไม่มีช่องอัลติที่เดินได้" : game.skill(piece.type).description;
+    arm.style.setProperty("--ultimate-color", `#${game.skill(piece.type,piece.color).color.toString(16)}`);
+    arm.querySelector("strong")!.textContent = game.armed ? "ยกเลิกอัลติ" : game.skill(piece.type,piece.color).label;
+    arm.querySelector("small")!.textContent = !ready ? reserves[piece.color] === 0 ? "พลังฝ่ายนี้หมดแล้ว" : game.choice(piece.type,piece.color)==="off" ? "ไม่ได้ติดตั้งสกิลในชุดนี้" : "หมากตัวนี้ใช้อัลติแล้ว" : arm.disabled ? "ยังไม่มีช่องอัลติที่เดินได้" : game.skill(piece.type,piece.color).description;
   } else {
     arm.querySelector("strong")!.textContent = "เลือกหมากเพื่อใช้อัลติ";
     arm.querySelector("small")!.textContent = `ฝ่ายละ ${game.config.charges} ครั้ง · ${game.config.reusable ? "หมากใช้ซ้ำได้" : "ตัวละ 1 ครั้ง"}`;
@@ -936,8 +944,8 @@ function deathSound(move: Move, _event: MoveEvent) {
 function attackEvent(before: Chess, after: Chess, move: Move, skin?: SkinId) {
   const event = analyzeMove(before, after, move);
   if ((move as UltimateMove).ultimate) {
-    event.title = (game instanceof SpecialChess ? game.skill(move.piece) : { name: "ULTIMATE", label: "อัลติ" }).name;
-    event.subtitle = `${(game instanceof SpecialChess ? game.skill(move.piece) : { name: "ULTIMATE", label: "อัลติ" }).label} · ${event.kind === "mate" ? "รุกฆาต" : event.kind.includes("check") ? "รุกคิง" : "ULTIMATE RELEASE"}`;
+    event.title = (game instanceof SpecialChess ? game.skill(move.piece,move.color) : { name: "ULTIMATE", label: "อัลติ" }).name;
+    event.subtitle = `${(game instanceof SpecialChess ? game.skill(move.piece,move.color) : { name: "ULTIMATE", label: "อัลติ" }).label} · ${event.kind === "mate" ? "รุกฆาต" : event.kind.includes("check") ? "รุกคิง" : "ULTIMATE RELEASE"}`;
   } else if ((move as Move & { chaos?: boolean }).chaos) {
     event.title = "WIND BREAK"; event.subtitle = "เปลี่ยนแนวเดิน · พลิกแผนด้วยลมสนาม";
   } else if (event.kind === "capture") {
@@ -1001,6 +1009,7 @@ if (scene) {
   scene.onDeath = deathSound;
   scene.onDash = dashSound;
   scene.onCancel = stopSounds;
+  scene.onAnticipation=()=>soundEngine()?.anticipateImpact();
   scene.onCombatCue = (move, _event, cue, actor, skin) => {
     const piece = actor === "defender" ? move.captured || move.piece : move.piece;
     const speed = (scene!.animation?.duration || 2600) / 2600;
@@ -1017,11 +1026,11 @@ function submitMove(from: Square, to: Square, promotion: PieceSymbol = "q") {
   }
   commitMove(from, to, promotion);
 }
-function commitMove(from: Square, to: Square, promotion: PieceSymbol = "q", ultimate = false) {
-  const before = game instanceof VariantChess ? game.clone() : new Chess(game.fen());
+function commitMove(from: Square, to: Square, promotion: PieceSymbol = "q", ultimate = false, portal = false) {
+  const before = game instanceof VariantChess || game instanceof SpecialChess ? game.clone() : new Chess(game.fen());
   let move;
   try {
-    move = game.move({ from, to, promotion, ...(ultimate ? { ultimate: true } : {}) });
+    move = game.move({ from, to, promotion, ...(ultimate ? { ultimate: true } : {}), ...(portal ? { portal:true } : {}) });
   } catch {
     notice("เดินผิดกติกา");
     return;
@@ -1034,7 +1043,7 @@ function applyBotReply() {
   const reply = botReply;
   botReply = undefined;
   if (mode === "bot" && game.turn() !== humanColor && game.fen() === reply.fen)
-    commitMove(reply.move.from, reply.move.to, reply.move.promotion, reply.move.ultimate);
+    commitMove(reply.move.from, reply.move.to, reply.move.promotion, reply.move.ultimate, reply.move.portal);
 }
 function scheduleBot() {
   if (menuOpen || matchPaused || mode !== "bot" || game.turn() === humanColor || game.isGameOver() || localResult) {
