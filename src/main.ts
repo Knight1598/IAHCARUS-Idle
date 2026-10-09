@@ -7,6 +7,7 @@ import {
   type Color,
 } from "chess.js";
 import { ChessScene, type GraphicsQuality } from "./scene";
+import { Battleground } from "./battleground";
 import { TitleScreen, type LaunchSettings } from "./title";
 import { economicDefinition, isEconomicMode, enterContract, settleContract, contractAmount, claimCredits, dailyCredits, rollSkin, forgeSkin, buyShopItem, trialPremium, shopCatalog, type Contract } from "../shared/economy.js";
 import type { EconomyAction } from "./economy-ui";
@@ -1708,7 +1709,10 @@ scene?.setSkin(profile.skin);
 renderGameBoard();
 scene?.resetView((mode === "bot" || (specialDuel || !!activeVariant) && mode === "local") && humanColor === "b");
 updateUI();
+let battlegroundUI: Battleground | undefined;
+function openBattleground(invite?:string){battlegroundUI ||=new Battleground($("#app"),()=>profile,p=>{profile=p;saveProfile();title.refresh(profile);},open=>{stopBot();stopSounds();scene?.setPaused(open||menuOpen);if(!open&&menuOpen)restorePreview();},(piece,skin)=>{if($<HTMLInputElement>("#sound").checked)soundEngine()?.auditionCombatCue(piece as PieceSymbol,skin,"finisher",0);});battlegroundUI.open(invite);}
 const title = new TitleScreen($("#app"), OFFLINE, {
+  battleground: ()=>openBattleground(),
   economy: changeEconomy,
   showcase: openShowcase,
   settings: (host) => hud.attachSettings(host),
@@ -2068,3 +2072,6 @@ function closeMatchReplay(){
 }
 const sharedReplay=location.hash.startsWith('#replay=')?decodeReplay(location.hash.slice(8)):null;
 if(sharedReplay)replayStudio?.open(sharedReplay);
+
+const bgInvitation=new URLSearchParams(location.search).get('bg');
+if(bgInvitation&&/^[A-Fa-f0-9]{6}$/.test(bgInvitation))openBattleground(bgInvitation.toUpperCase());

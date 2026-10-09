@@ -17,7 +17,7 @@ export const pityLimit = 8;
 export const forgeCosts = { ember: 60, frost: 60, astral: 120, royal: 240, storm: 60, void: 240, prism: 360 };
 export const isEconomicMode = id => economicModes.some(mode => mode.id === id);
 export const economicDefinition = id => economicModes.find(mode => mode.id === id);
-const skinIds = ["classic", ...skinPool.map(item => item.skin)];
+const skinIds = ["classic", "nova", "phantom", "dragon", ...skinPool.map(item => item.skin)];
 const integer = (value, fallback = 0) => Number.isSafeInteger(value) && value >= 0 ? Math.min(10000000, value) : fallback;
 const validId = id => typeof id === "string" && id.length > 0 && id.length <= 120;
 export function readEconomy(raw) {
@@ -92,6 +92,8 @@ export function forgeSkin(wallet, skin, unlocked = []) {
 
 // Trial shop: balances are local saves, not real-money entitlements.
 export const shopCatalog = [
+  ...[["nova",1200,"credits"],["phantom",220,"premium"],["dragon",280,"premium"]].map(([skin,price,currency])=>({id:`skin-${skin}`,kind:"skin",skin,price,currency,shards:0,credits:0})),
+  ...[["nova",1500,"credits",70],["phantom",270,"premium",100],["dragon",350,"premium",120]].map(([skin,price,currency,shards])=>({id:`bundle-${skin}`,kind:"bundle",skin,price,currency,shards,credits:0})),
   ...[ ["ember",350,"credits"], ["frost",350,"credits"], ["storm",500,"credits"], ["astral",900,"credits"], ["royal",180,"premium"], ["void",220,"premium"], ["prism",300,"premium"] ].map(([skin,price,currency])=>({id:`skin-${skin}`,kind:"skin",skin,price,currency,shards:0,credits:0})),
   ...[ ["ember",500,"credits",30], ["frost",500,"credits",30], ["storm",700,"credits",40], ["astral",1200,"credits",60], ["royal",230,"premium",100], ["void",270,"premium",100], ["prism",350,"premium",120] ].map(([skin,price,currency,shards])=>({id:`bundle-${skin}`,kind:"bundle",skin,price,currency,shards,credits:0})),
   {id:"shards-small",kind:"supplies",label:"เศษพลังงาน 30",price:250,currency:"credits",shards:30,credits:0},

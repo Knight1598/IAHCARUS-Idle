@@ -8,6 +8,7 @@ import { SpecialChess } from "../src/special.ts";
 import { normalizeTeam } from "../src/duel-draft.ts";
 import { roomSettings, duelOutcome } from "../shared/duel-room.js";
 import { normalizeCosmetics } from "../shared/cosmetics.js";
+import { battlegroundService } from "./battleground.mjs";
 import { createAccountAPI } from "./accounts.mjs";
 
 const root = resolve("dist");
@@ -70,6 +71,8 @@ const peers = new WeakMap();
 const send = (ws, data) => {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data));
 };
+const battleground = battlegroundService(send);
+server.on("close",()=>battleground.close());
 const clocks = (room) => {
   const c = { ...room.clocks };
   if (room.started && !room.result)
@@ -181,6 +184,8 @@ wss.on("connection", (ws, req) => {
     }
     try {
       const m = JSON.parse(raw.toString());
+      if(typeof m.type === "string"&&m.type.startsWith("bg:")){if(peers.has(ws))throw Error("ออกจากห้องดวลก่อน");battleground.handle(ws,m);return;}
+      if(battleground.has(ws))throw Error("ออกจากห้อง Battleground ก่อน");
       if (m.type === "create" || m.type === "join" || m.type === "resume") {
         if (peers.has(ws)) throw Error("ออกจากห้องก่อนสร้างหรือเข้าห้องใหม่");
         let room, color, token;
@@ -399,7 +404,7 @@ wss.on("connection", (ws, req) => {
       });
     }
   });
-  ws.on("close", () => detach(ws));
+  ws.on("close", () => {detach(ws);battleground.detach(ws);});
   ws.on("error", () => {});
 });
 setInterval(() => {

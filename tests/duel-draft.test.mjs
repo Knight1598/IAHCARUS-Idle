@@ -60,7 +60,7 @@ test('three premium executions retain contact clock and different visual signatu
 test('premium execution effects have bounded batches and releasable independent resources',async()=>{
   const THREE=await import('three'),{ExecutionVFX}=await import('../src/execution-vfx.ts');
   const from=new THREE.Vector3(-1,0,0),target=new THREE.Vector3(1,0,0);
-  for(const skin of ['storm','void','prism']){
+  for(const skin of ['storm','void','prism','nova','phantom','dragon']){
     const fx=new ExecutionVFX(skin);assert.ok(fx.group.children.length<=3);
     fx.update(1.75/2.6,from,target);assert.equal(fx.group.visible,true);
     assert.ok(fx.group.children.every(p=>Number.isFinite(p.position.x+p.position.y+p.position.z)));

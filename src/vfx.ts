@@ -51,7 +51,7 @@ export const combatVFXStyles = {
 } as const satisfies Record<PieceSymbol, string>;
 
 const pieceIndex: Record<PieceSymbol, number> = { p: 0, n: 1, b: 2, r: 3, q: 4, k: 5 };
-const skinIndex: Record<SkinId, number> = { classic: 0, ember: 1, frost: 2, astral: 3, royal: 4, storm: 5, void: 6, prism: 7 };
+const skinIndex: Record<SkinId, number> = { classic: 0, ember: 1, frost: 2, astral: 3, royal: 4, storm: 5, void: 6, prism: 7, nova:5, phantom:6, dragon:1 };
 const reactionIndex: Record<DefenseReaction, number> = { parry: 0, shield: 1, barrier: 2, dodge: 3, brace: 4 };
 const clamp = (value: number) => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
 const smooth = (start: number, end: number, value: number) => {

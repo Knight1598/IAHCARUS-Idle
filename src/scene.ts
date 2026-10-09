@@ -1150,7 +1150,7 @@ export class ChessScene {
         crown.rotation.x = Math.PI / 2; crown.position.y = 1.4;
       }
       this.fx.add(visual.group);
-      if(victim&&["storm","void","prism"].includes(skin)){this.animation.execution=new ExecutionVFX(skin);this.fx.add(this.animation.execution.group);}
+      if(victim&&["storm","void","prism","nova","phantom","dragon"].includes(skin)){this.animation.execution=new ExecutionVFX(skin);this.fx.add(this.animation.execution.group);}
       this.animation.cracks = this.groundCracks(this.animation);
       this.animation.avatar = createAvatar(move.piece, move.color, skin);
       this.animation.avatarAura = createAvatarAura(move.piece, move.color, skin);

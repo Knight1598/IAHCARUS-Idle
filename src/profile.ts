@@ -11,6 +11,9 @@ export const skins = {
   storm: { name: "Storm Circuit", label: "วงจรสายฟ้า", level: 2, rarity: "หายาก", tier: 2, effect: "storm", description: "เกราะครีบตัวนำ ออร่าซิกแซกและคมสายฟ้าแตกแขนง", white: [0xe1fff3, 0x61ffc4], black: [0x162e36, 0x45efd5], glow: "#61ffc4" },
   void: { name: "Void Reaper", label: "ผู้เก็บเกี่ยวสุญญากาศ", level: 6, rarity: "ตำนาน", tier: 4, effect: "void", description: "วงแหวนคราส อาวุธวงแหวนนอกมิติและแรงยุบตัวเข้าศูนย์กลาง", white: [0xe3dcff, 0x9c76ff], black: [0x151021, 0xdd63cb], glow: "#9c76ff" },
   prism: { name: "Prism Ascendant", label: "ผู้ตื่นรู้แห่งปริซึม", level: 8, rarity: "มายาธิค", tier: 5, effect: "prism", description: "มงกุฎผลึกสามชั้น ออร่าหักเหแสงและคมปริซึมแยกแนว", white: [0xf2ffff, 0x9df5ff], black: [0x25253c, 0xffa2e9], glow: "#9df5ff" },
+  nova: {name:"Nova Vanguard",label:"กองทัพสุริยะ",level:3,rarity:"มหากาพย์",tier:3,effect:"storm",description:"ครีบสุริยะ ออร่าวงแหวนดาวและระเบิดโนวาตอนสังหาร",white:[0xfff3d0,0xffcc51],black:[0x372631,0xff794d],glow:"#ffcc51"},
+  phantom: {name:"Phantom Veil",label:"กองทัพม่านวิญญาณ",level:5,rarity:"ตำนาน",tier:4,effect:"void",description:"ม่านเรขาคณิต วงจันทร์เสี้ยวและประตูวิญญาณยุบเป้าหมาย",white:[0xe0fff3,0x78ffd7],black:[0x122d31,0x81e4cc],glow:"#78ffd7"},
+  dragon: {name:"Crimson Wyrm",label:"กองทัพมังกรชาด",level:7,rarity:"มายาธิค",tier:5,effect:"ember",description:"เขาและปีกมังกร เกราะเพลิงชาดและคมเขี้ยวสังหาร",white:[0xffe1d8,0xff6969],black:[0x351b2a,0xff557e],glow:"#ff6969"},
 } as const;
 export type SkinId = keyof typeof skins;
 export interface Profile {

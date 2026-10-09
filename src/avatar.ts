@@ -137,6 +137,9 @@ export function createAvatar(type: PieceSymbol, side: "w" | "b", skin: SkinId) {
   }
   if (type === "q") for (const direction of [-1, 1]) for (let i = 0; i < 3; i++)
     add("torso", new THREE.ConeGeometry(0.1, 0.8 - i * 0.12, 3), 1, direction * (0.4 + i * 0.18), 0.22, 0.18, 0, 0, direction * -0.9);
+  if(skin==='nova')for(let i=0;i<8;i++)add('torso',new THREE.ConeGeometry(.07,.5,3),1,Math.cos(i*Math.PI/4)*.65,.65+Math.sin(i*Math.PI/4)*.5,.3,0,0,i*Math.PI/4);
+  if(skin==='phantom'){add('torso',new THREE.TorusGeometry(.72,.035,4,32,Math.PI*1.5),1,0,.5,.32,.2,.3);for(const sign of [-1,1])box('mantle',.16,1.6,.04,sign*.4,-.1,.36,1,sign*.25);}
+  if(skin==='dragon')for(const sign of [-1,1]){add('head',new THREE.ConeGeometry(.1,.55,4),1,sign*.26,.38,.1,0,0,sign*-.45);for(let i=0;i<3;i++)box('torso',.11,.8-i*.12,.05,sign*(.7+i*.16),.3,.35,1,sign*-.9);}
   if (skin === "storm") for (const sign of [-1, 1]) {
     box("torso", .08, .75, .08, sign * (broad + .08), .5, 0, 1, sign * .45);
     box("head", .05, .36, .05, sign * .25, .38, 0, 1, sign * .4);
@@ -174,6 +177,7 @@ export function createAvatar(type: PieceSymbol, side: "w" | "b", skin: SkinId) {
   if (type === "n") {
     const edge = new THREE.TorusGeometry(0.54, 0.028, 4, 16, Math.PI * 0.72); edge.translate(-0.2, 0.18, 0); weaponParts.push(edge);
   }
+  if(['nova','phantom','dragon'].includes(skin)){const crest=new THREE.TorusGeometry(.28,.025,4,skin==='nova'?12:skin==='dragon'?3:32,skin==='phantom'?Math.PI*1.5:Math.PI*2);crest.translate(0,.55,0);weaponParts.push(crest);}
   if (skin === "storm") {
     for (const sign of [-1, 1]) { const fin = new THREE.BoxGeometry(.05, .4, .035); fin.rotateZ(sign * .55); fin.translate(sign * .12, .37, 0); weaponParts.push(fin); }
   } else if (skin === "void") {
@@ -389,6 +393,9 @@ export function createAvatarAura(type: PieceSymbol, side: "w" | "b", skin: SkinI
     add(2, new THREE.ConeGeometry(0.045, 0.8 - i * 0.12, 3), sign * (0.58 + i * 0.14), 1.35 - i * 0.12, 0.36, 0, sign * -0.65);
     add(2, new THREE.TorusGeometry(0.65 + i * 0.1, 0.013, 4, 24, Math.PI * 0.35), sign * 0.17, 1.1, 0.4, 0, sign * 0.45);
   }
+  if(skin==='nova')for(let i=0;i<3;i++)add(2,new THREE.TorusGeometry(.7+i*.12,.02,4,12),0,1.2+i*.12,.3,i*.4);
+  if(skin==='phantom')for(let i=0;i<2;i++)add(2,new THREE.TorusGeometry(.8+i*.2,.02,4,24,Math.PI*1.5),0,1.2,.35,i*.8);
+  if(skin==='dragon')for(const sign of [-1,1])for(let i=0;i<3;i++)add(2,new THREE.ConeGeometry(.09,.9-i*.12,3),sign*(.7+i*.15),1,.35,0,sign*-.8);
   if (skin === "storm") for (let i = 0; i < 6; i++) add(2, new THREE.BoxGeometry(.025, .7, .025), Math.cos(i * Math.PI / 3) * .75, .5, Math.sin(i * Math.PI / 3) * .75, 0, i % 2 ? .5 : -.5);
   if (skin === "void") for (let i = 0; i < 2; i++) add(2, new THREE.TorusGeometry(.8 + i * .16, .018, 4, 32), 0, 1.15, .35, i * .85);
   if (skin === "prism") for (let i = 0; i < 3; i++) add(2, new THREE.TorusGeometry(.75 + i * .15, .016, 4, 6), 0, 1.35, .4, i * .4);

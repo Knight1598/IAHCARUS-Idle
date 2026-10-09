@@ -15,9 +15,10 @@ import "./lobby.css";
 import "./special.css";
 import "./royal-ui.css";
 
-export type TitleMode = "bot" | "local" | "training" | "campaign" | "online" | "daily" | "special" | VariantId | EconomicMode;
+export type TitleMode = "battleground" | "bot" | "local" | "training" | "campaign" | "online" | "daily" | "special" | VariantId | EconomicMode;
 export interface LaunchSettings { mode: TitleMode; side: "w" | "b"; depth: string; skin: SkinId; training: string; trial?: string; day?: string; special?: SpecialConfig; opponent?: "bot" | "local"; variant?: { seed: number; draft?: PieceSymbol[]; round?: number } }
 interface TitleCallbacks {
+  battleground?: () => void;
   start: (settings: LaunchSettings) => void;
   resume: (skin: SkinId) => void;
   selectSkin: (skin: SkinId) => void;
@@ -100,7 +101,7 @@ export class TitleScreen {
     this.composeFlow();
     for (const [id, target] of [["army-skin-filter", ".skin-options"], ["piece-skin-filter", ".piece-skin-options"]]) {
       const label = document.createElement("label"); label.className = "skin-filter";
-      label.innerHTML = `ดูชุดสกิน<select id="${id}"><option value="all">ทุกชุด · 8 สกิน</option><option value="owned">ปลดล็อกแล้ว</option><option value="2">หายาก</option><option value="3">มหากาพย์</option><option value="4">ตำนาน</option><option value="5">มายาธิค</option></select>`;
+      label.innerHTML = `ดูชุดสกิน<select id="${id}"><option value="all">ทุกชุด · ${Object.keys(skins).length} สกิน</option><option value="owned">ปลดล็อกแล้ว</option><option value="2">หายาก</option><option value="3">มหากาพย์</option><option value="4">ตำนาน</option><option value="5">มายาธิค</option></select>`;
       this.get(target).before(label);
       label.querySelector("select")!.onchange = () => this.renderSkins();
     }
@@ -295,6 +296,8 @@ export class TitleScreen {
     dailyMode.dataset.titleMode = "daily";
     dailyMode.innerHTML = '<strong>ศึกประจำวัน</strong><small>โจทย์หมากรุกหมุนเวียน · ท้าฝีมือวันละกระดาน</small>';
     modes.prepend(dailyMode);
+    const bgMode=document.createElement('button');bgMode.dataset.titleMode='battleground';bgMode.innerHTML='<strong>Battleground · 4 คน</strong><small>วางหมากพร้อมกัน · ยึดเข้ามือ · ผู้รอดชีวิตชนะ</small>';modes.prepend(bgMode);
+    const bgMenu=document.createElement('button');bgMenu.innerHTML=`Battleground · ศึก 4 กองทัพ <span>${icon('control')}</span>`;bgMenu.dataset.menuBg='true';bgMenu.onclick=()=>this.callbacks.battleground?.();this.get('.main-game-menu').append(bgMenu);
     const specialBrief = document.createElement("section"); specialBrief.id = "special-brief"; specialBrief.hidden = true;
     specialBrief.innerHTML = `<div class="special-heading"><span>${icon("ultimate")}</span><div><small>FREESTYLE SPECIAL DUEL</small><h2>สร้างกติกาศึกของคุณ</h2></div></div><p>เลือกกระดาน พลัง และการใช้ซ้ำ ก่อนจัดชุดสกิลในขั้นตอนถัดไป</p><div class="special-rule-controls"><label>ชุดสกิล<select id="special-format"><option value="shared">Freestyle · ชุดร่วมทั้งสองฝ่าย</option><option value="draft">Duel Draft · เลือก–แบนแยกฝ่าย</option></select></label><label>อีเวนท์สนาม<select id="special-events"><option value="quiet">สนามสงบ</option><option value="live">สนามมีชีวิต · พยากรณ์ 2 รอบ</option></select></label><label>กระดานเริ่มต้น<select id="special-formation"><option value="standard">เต็มกระดาน · 32 หมาก</option><option value="skirmish">ศึกย่อย · ทีมเล็กสุ่มเท่ากัน</option><option value="draft">ทีมผสม · ควีน เรือ ม้า บิชอป</option></select></label><label>ชาร์จต่อฝ่าย<select id="special-charges">${[0,1,3,5,9].map(n => `<option value="${n}" ${n === 3 ? "selected" : ""}>${n === 0 ? "ปิดอัลติ" : `${n} ครั้ง`}</option>`).join("")}</select></label><label>ข้อจำกัดต่อหมาก<select id="special-reusable"><option value="once">ตัวละ 1 ครั้ง · วางแผนทรัพยากร</option><option value="repeat">ใช้ซ้ำได้ · จนชาร์จฝ่ายนี้หมด</option></select></label><label>รหัสกระดานทีมเล็ก<input id="special-seed" type="number" min="0" max="4294967295" step="1" value="1"></label></div><small>ทุกการใช้กินหนึ่งตา · คิงต้องปลอดภัย · สกินและความหายากไม่เพิ่มสิทธิ์เดิน · ค่าเข้าฟรี</small>`;
     this.get("#setup-slot").prepend(specialBrief);
@@ -450,6 +453,7 @@ export class TitleScreen {
   }
   private openArmory() { this.armoryReturn = this.view; this.go("armory"); }
   private chooseMode(mode: TitleMode) {
+    if(mode === 'battleground'){this.callbacks.battleground?.();return;}
     if (mode === "daily") {
       this.dailyDay = utcDay();
       const daily = dailyChallenge(this.dailyDay);
