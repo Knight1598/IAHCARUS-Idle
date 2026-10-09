@@ -19,6 +19,12 @@
 #duel-ready { width:100%; padding:14px; border-radius:10px; color:#102136; background:linear-gradient(105deg,#81dced,#b6a2ff); font-weight:700; }
 #duel-ready[aria-pressed="true"] { background:linear-gradient(105deg,#90e5c9,#a5cdf0); }
 #duel-message { font-size:11px; color:#e7bcbe; line-height:1.6; }
+#duel-code-help { color:#aecbe0; font-size:12px; line-height:1.8; }
+#join-form { align-items:end; }
+#join-form label { flex:1; min-width:0; font-size:11px; color:#aecbe0; }
+#room-code { display:block; box-sizing:border-box; width:100%; min-width:0; margin-top:8px; font-size:17px; }
+#join { flex-shrink:0; min-height:43px; }
+#copy-code { background:linear-gradient(110deg,#81dced,#b6a2ff); color:#102136; font-weight:700; }
 #room-info { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
 #code { color:#b5eafd; letter-spacing:3px; font-size:22px; }
 #stage.online-duel [data-hud-panel="room"] > .tabs,#stage.online-duel [data-hud-panel="room"] > .match-head,#stage.online-duel [data-hud-panel="room"] > footer { display:none; }
