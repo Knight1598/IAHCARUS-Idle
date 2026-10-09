@@ -4,6 +4,7 @@ import { resolve, extname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { Chess } from "chess.js";
+import { roomSettings, duelOutcome } from "../shared/duel-room.js";
 import { normalizeCosmetics } from "../shared/cosmetics.js";
 import { createAccountAPI } from "./accounts.mjs";
 
@@ -87,7 +88,14 @@ function snapshot(room, ws, latest = null) {
     clocks: clocks(room),
     started: room.started,
     ready:{w:!!room.players.w?.ready,b:!!room.players.b?.ready},
-    rule:"standard",
+    protocol:2,
+    rule:room.settings.rule,
+    settings:room.settings,
+    settingsRevision:room.settingsRevision,
+    host:['w','b'].find(c=>room.players[c]?.token===room.hostToken)||null,
+    checks:room.checks,
+    drawOffer:room.drawOffer,
+    rematch:room.rematch,
     result: room.result,
     connected: {
       w: room.players.w?.ws?.readyState === 1,
@@ -162,6 +170,12 @@ wss.on("connection", (ws, req) => {
           room = {
             code,
             game: new Chess(),
+            settings:roomSettings(m.settings||{}, {rule:'standard',baseMs:clockMs,increment:0,arena:'citadel',allowDraw:true}),
+            settingsRevision:0,
+            hostToken:null,
+            checks:{w:0,b:0},
+            drawOffer:null,
+            rematch:{w:false,b:false},
             players: { w: null, b: null },
             clocks: { w: clockMs, b: clockMs },
             since: Date.now(),
@@ -170,8 +184,10 @@ wss.on("connection", (ws, req) => {
             revision: 0,
             touched: Date.now(),
           };
+          room.clocks={w:room.settings.baseMs,b:room.settings.baseMs};
+          if(m.side!==undefined&&!['w','b','random'].includes(m.side))throw Error('ฝ่ายที่เลือกไม่ถูกต้อง');
+          color=m.side==='random'?(randomBytes(1)[0]%2?'w':'b'):(m.side||'w');
           rooms.set(code, room);
-          color = "w";
         } else {
           room = rooms.get(String(m.code).toUpperCase());
           if (!room) throw Error("ไม่พบห้องนี้ หรือห้องหมดอายุแล้ว");
@@ -190,6 +206,7 @@ wss.on("connection", (ws, req) => {
           }
         }
         token ||= randomBytes(24).toString("hex");
+        room.hostToken ||= token;
         const cosmetics = m.type === "resume"
           ? room.players[color].cosmetics
           : normalizeCosmetics(m.armies?.[color] || m.cosmetics, color);
@@ -208,7 +225,13 @@ wss.on("connection", (ws, req) => {
       if (m.type === "leave") {
         settle(room);
         if(room.started&&!room.result){room.result={winner:peer.color==='w'?'b':'w',reason:'resign'};room.revision++;}
-        if(!room.started){room.players[peer.color]=null;peers.delete(ws);room.touched=Date.now();broadcast(room);if(!room.players.w&&!room.players.b)rooms.delete(room.code);}
+        if(!room.started){
+          const departing=room.players[peer.color];room.players[peer.color]=null;peers.delete(ws);
+          if(room.hostToken===departing.token)room.hostToken=room.players[peer.color==='w'?'b':'w']?.token||null;
+          for(const p of Object.values(room.players))if(p)p.ready=false;
+          room.settingsRevision++;room.revision++;room.touched=Date.now();broadcast(room);
+          if(!room.players.w&&!room.players.b)rooms.delete(room.code);
+        }
         else detach(ws);
         send(ws, { type: "left" });
         return;
@@ -219,13 +242,37 @@ wss.on("connection", (ws, req) => {
         snapshot(room, ws);
         return;
       }
+      if(m.type==='rematch') {
+        if(!room.result)throw Error('เกมยังไม่จบ');
+        if(typeof m.ready!=='boolean')throw Error('คำขอเล่นใหม่ไม่ถูกต้อง');
+        room.rematch[peer.color]=m.ready;
+        if(['w','b'].every(c=>room.rematch[c]&&room.players[c]?.ws?.readyState===WebSocket.OPEN)){
+          room.game=new Chess();room.clocks={w:room.settings.baseMs,b:room.settings.baseMs};room.since=Date.now();
+          room.started=false;room.result=null;room.checks={w:0,b:0};room.drawOffer=null;room.rematch={w:false,b:false};
+          for(const p of Object.values(room.players))if(p)p.ready=false;
+          room.settingsRevision++;room.revision++;
+        }
+        broadcast(room);return;
+      }
       if (room.result) {
         broadcast(room);
         throw Error("เกมจบแล้ว");
       }
+      if(m.type==='configure'||m.type==='equip') {
+        if(room.started)throw Error('แก้ไขได้เฉพาะก่อนเริ่มประลอง');
+        if(m.settingsRevision!==room.settingsRevision){snapshot(room,ws);throw Error('การตั้งค่าห้องเปลี่ยนแล้ว ลองใหม่อีกครั้ง');}
+        if(m.type==='configure') {
+          if(room.players[peer.color].token!==room.hostToken)throw Error('เฉพาะเจ้าของห้องเท่านั้นที่ตั้งกติกาได้');
+          room.settings=roomSettings(m.settings,room.settings);
+          room.clocks={w:room.settings.baseMs,b:room.settings.baseMs};
+        } else room.players[peer.color].cosmetics=normalizeCosmetics(m.cosmetics,peer.color);
+        for(const p of Object.values(room.players))if(p)p.ready=false;
+        room.settingsRevision++;room.revision++;broadcast(room);return;
+      }
       if(m.type==='ready') {
         if(room.started)throw Error('การประลองเริ่มแล้ว');
         if(typeof m.ready!=='boolean')throw Error('สถานะพร้อมไม่ถูกต้อง');
+        if(m.settingsRevision!==undefined&&m.settingsRevision!==room.settingsRevision){snapshot(room,ws);throw Error('กติกาหรือสกินเปลี่ยนแล้ว กรุณายืนยันพร้อมอีกครั้ง');}
         room.players[peer.color].ready=m.ready;
         if(['w','b'].every(c=>room.players[c]?.ready&&room.players[c]?.ws?.readyState===WebSocket.OPEN)){
           room.started=true;room.since=Date.now();room.revision++;
@@ -233,6 +280,21 @@ wss.on("connection", (ws, req) => {
         broadcast(room);return;
       }
       if (!room.started) throw Error("รอผู้เล่นอีกฝ่ายและยืนยันพร้อมทั้งคู่");
+      if(m.type==='draw') {
+        if(!room.settings.allowDraw)throw Error('ห้องนี้ปิดการเสนอเสมอ');
+        if(!['offer','accept','decline','cancel'].includes(m.action))throw Error('คำขอเสมอไม่ถูกต้อง');
+        if(m.action==='offer') {
+          if(room.drawOffer&&room.drawOffer!==peer.color)throw Error('อีกฝ่ายเสนอเสมออยู่แล้ว');
+          room.drawOffer=peer.color;
+        } else if(m.action==='accept') {
+          if(!room.drawOffer||room.drawOffer===peer.color)throw Error('ไม่มีข้อเสนอจากคู่แข่ง');
+          room.result={winner:null,reason:'agreement'};room.drawOffer=null;room.revision++;
+        } else {
+          if(!room.drawOffer || (m.action==='cancel')!==(room.drawOffer===peer.color))throw Error('ไม่มีข้อเสนอที่จัดการได้');
+          room.drawOffer=null;
+        }
+        broadcast(room);return;
+      }
       if (m.type === "resign") {
         room.result = {
           winner: peer.color === "w" ? "b" : "w",
@@ -265,12 +327,11 @@ wss.on("connection", (ws, req) => {
         } catch {
           throw Error("เดินผิดกติกา");
         }
+        room.clocks[peer.color]=Math.min(7200000,room.clocks[peer.color]+room.settings.increment*1000);
         room.since = Date.now();
+        room.drawOffer=null;
         room.revision++;
-        if (room.game.isCheckmate())
-          room.result = { winner: peer.color, reason: "checkmate" };
-        else if (room.game.isDraw())
-          room.result = { winner: null, reason: "draw" };
+        room.result=duelOutcome(room.game,room.settings.rule,move,room.checks);
         broadcast(room, {
           before,
           from: move.from,

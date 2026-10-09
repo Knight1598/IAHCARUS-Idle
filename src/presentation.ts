@@ -9,6 +9,7 @@ export interface ResultPresentation {
   replay?: boolean;
   continueLabel?: string;
   rematch?: boolean;
+  rematchLabel?: string;
 }
 export class BattlePresentation {
   readonly root: HTMLElement;
@@ -52,7 +53,7 @@ export class BattlePresentation {
     replay.hidden = !this.callbacks.replay || result.replay === false;
     replay.onclick = () => { this.clear(); this.callbacks.replay?.(); };
     if (result.rematch && this.callbacks.rematch) {
-      const rematch = document.createElement("button"); rematch.dataset.result = "rematch"; rematch.textContent = "รีแมตช์ · สลับสี";
+      const rematch = document.createElement("button"); rematch.dataset.result = "rematch"; rematch.textContent = result.rematchLabel || "รีแมตช์ · สลับสี";
       rematch.onclick = () => { this.clear(); this.callbacks.rematch?.(); };
       box.querySelector(".battle-result-actions")!.append(rematch);
     }

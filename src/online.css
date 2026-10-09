@@ -25,6 +25,26 @@
 #room-code { display:block; box-sizing:border-box; width:100%; min-width:0; margin-top:8px; font-size:17px; }
 #join { flex-shrink:0; min-height:43px; }
 #copy-code { background:linear-gradient(110deg,#81dced,#b6a2ff); color:#102136; font-weight:700; }
+.duel-settings,#duel-armory,#duel-match-actions { border:1px solid #84b5dc36; border-radius:12px; padding:14px; margin:14px 0; background:linear-gradient(140deg,#1b3049bd,#101f32e0); }
+.duel-section-heading { margin-bottom:14px; }
+.duel-section-heading small { color:#86dbea; font-size:9px; letter-spacing:2px; }
+.duel-section-heading h3 { margin:6px 0; color:#edf3ff; font-size:16px; }
+.duel-section-heading > span,.duel-note,#duel-rule-description,#duel-action-status { color:#a9c2d8; font-size:11px; line-height:1.8; }
+.duel-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.duel-options label,#duel-armory > label { display:block; min-width:0; color:#b9d0e1; font-size:11px; }
+.duel-options select,#duel-armory select { width:100%; min-width:0; box-sizing:border-box; margin-top:7px; }
+.duel-options .duel-toggle { display:flex; align-items:center; gap:8px; }
+.duel-toggle input { flex-shrink:0; }
+#duel-apply,#duel-equip-army,#duel-equip-piece { width:100%; padding:11px; margin-top:10px; }
+#duel-objective { color:#98e9d6; font-size:12px; }
+.duel-piece-slots { display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); gap:5px; margin:15px 0; }
+.duel-piece-slots button { padding:5px 2px; min-width:0; border:1px solid #85a9cc44; border-bottom:2px solid var(--slot-glow); }
+.duel-piece-slots svg { display:block; width:100%; height:28px; }
+.duel-piece-slots small { display:block; font-size:9px; }
+.duel-piece-slots [aria-pressed="true"] { background:#365574; box-shadow:0 0 12px #76c3df38; border-color:#b9eaff; }
+.duel-action-row { display:flex; flex-wrap:wrap; gap:8px; }
+.duel-action-row button { flex:1; min-width:90px; }
+@media(max-width:360px) { .duel-options { grid-template-columns:1fr; } .duel-piece-slots { grid-template-columns:repeat(4,minmax(0,1fr)); } }
 #room-info { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
 #code { color:#b5eafd; letter-spacing:3px; font-size:22px; }
 #stage.online-duel [data-hud-panel="room"] > .tabs,#stage.online-duel [data-hud-panel="room"] > .match-head,#stage.online-duel [data-hud-panel="room"] > footer { display:none; }
