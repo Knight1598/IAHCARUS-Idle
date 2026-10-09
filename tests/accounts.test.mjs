@@ -269,7 +269,7 @@ test("production account routes supply authenticated PvP names and preserve them
     await once(ws, "open");
     t.after(() => ws.close());
     return {
-      ws, send: (message) => ws.send(JSON.stringify(message)),
+      ws, send: (message) => {ws.send(JSON.stringify(message));if(["create","join"].includes(message.type))ws.send(JSON.stringify({type:"ready",ready:true}));},
       wait: (predicate) => {
         const value = messages.find(predicate);
         if (value) return Promise.resolve(value);

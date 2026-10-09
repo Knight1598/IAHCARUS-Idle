@@ -25,7 +25,7 @@ try {
   await page.locator("#title-screen").waitFor();
   assert.equal(await page.locator("#game-shell").isVisible(), false);
   assert.equal(await page.locator("#launch-resume").isVisible(), false);
-  assert.equal(await page.locator('[data-title-mode="online"]').count(), 0);
+  assert.equal(await page.locator('[data-title-mode="online"]').count(), 1);
   assert.equal(await page.locator('[data-skin-option="astral"]').isDisabled(), true);
   assert.equal(await page.locator('[data-skin-option="royal"]').isDisabled(), true);
   assert.equal(await page.locator('[data-arena-option]').count(), 8);

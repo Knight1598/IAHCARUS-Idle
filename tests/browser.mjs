@@ -236,6 +236,8 @@ try {
   await guest.waitForFunction(
     () => !document.querySelector("#room-info").hidden,
   );
+  await page.locator("#duel-ready").click();
+  await guest.locator("#duel-ready").click();
   await closePanel(page);
   await page.locator("#board-details summary").click();
   await closePanel(guest);

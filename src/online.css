@@ -1,0 +1,24 @@
+.duel-heading { border-bottom:1px solid #86bede35; margin-bottom:16px; padding-bottom:12px; }
+.duel-heading small { color:#8adef2; letter-spacing:2px; font-size:9px; }
+.duel-heading h2 { color:#e3efff; font-size:21px; margin:8px 0; }
+.duel-heading p,#duel-server-settings p { color:#9fbbd1; font-size:11px; line-height:1.7; }
+#online-panel > .muted { display:none; }
+#duel-connection { border:1px solid #82aad540; border-radius:9px; padding:12px; font-size:11px; color:#bbcfe2; background:#14233d; margin-bottom:12px; overflow-wrap:anywhere; }
+#duel-connection[data-state="connected"] { border-color:#70dfb570; color:#9ce7cf; }
+#duel-server-settings { margin-bottom:15px; font-size:11px; color:#a8c2db; }
+#duel-server-settings label { display:block; margin:12px 0; }
+#duel-server { display:block; width:100%; box-sizing:border-box; margin-top:7px; }
+#duel-connect { width:100%; padding:10px; border:1px solid #7caacf60; border-radius:8px; }
+#duel-seats { display:grid; gap:10px; margin:15px 0; }
+.duel-seat { display:flex; align-items:center; gap:14px; padding:12px; border:1px solid #8fbae34a; border-radius:11px; background:linear-gradient(130deg,#223957c0,#152437); }
+.duel-seat.black { border-color:#b69cdb55; }
+.duel-seat > span { width:40px; color:#b9e4ff; }
+.duel-seat svg { width:100%; height:40px; }
+.duel-seat strong { font-size:13px; color:#e4ecfa; }
+.duel-seat small { display:block; font-size:11px; color:#98caba; margin-top:5px; }
+#duel-ready { width:100%; padding:14px; border-radius:10px; color:#102136; background:linear-gradient(105deg,#81dced,#b6a2ff); font-weight:700; }
+#duel-ready[aria-pressed="true"] { background:linear-gradient(105deg,#90e5c9,#a5cdf0); }
+#duel-message { font-size:11px; color:#e7bcbe; line-height:1.6; }
+#room-info { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+#code { color:#b5eafd; letter-spacing:3px; font-size:22px; }
+#stage.online-duel [data-hud-panel="room"] > .tabs,#stage.online-duel [data-hud-panel="room"] > .match-head,#stage.online-duel [data-hud-panel="room"] > footer { display:none; }

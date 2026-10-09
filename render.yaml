@@ -1,0 +1,18 @@
+# Guest private-duel test service: no disk or account database required.
+services:
+  - type: web
+    name: iahcarus-duel
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    numInstances: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GUEST_DUEL_ONLY
+        value: "true"
+      - key: DUEL_ALLOWED_ORIGINS
+        value: https://knight1598.github.io
+      - key: CHESS_CLOCK_MS
+        value: "300000"

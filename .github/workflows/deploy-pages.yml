@@ -33,6 +33,7 @@ jobs:
           test -s offline/Special-Chess-Offline.html
           mkdir -p _site
           cp offline/Special-Chess-Offline.html _site/index.html
+          cp online-config.json _site/online-config.json
           touch _site/.nojekyll
           cmp offline/Special-Chess-Offline.html _site/index.html
 

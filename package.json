@@ -31,7 +31,9 @@
     "test:player": "node tests/player-browser.mjs",
     "test:deploy": "node scripts/test-deploy.mjs",
     "test:duel-draft": "node tests/duel-draft-browser.mjs",
-    "test:execution": "node tests/execution-browser.mjs"
+    "test:execution": "node tests/execution-browser.mjs",
+    "test:friend-duel": "node tests/friend-duel-browser.mjs",
+    "test:friend-deploy": "node scripts/test-friend-deploy.mjs"
   },
   "dependencies": {
     "chess.js": "^1.4.0",

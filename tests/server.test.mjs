@@ -49,7 +49,7 @@ async function start(t, clock = "300000") {
       t.after(() => ws.close());
       return {
         ws,
-        send: (m) => ws.send(JSON.stringify(m)),
+        send: (m) => { ws.send(JSON.stringify(m)); if(["create","join"].includes(m.type))ws.send(JSON.stringify({type:"ready",ready:true})); },
         wait: (predicate) => {
           const existing = messages.find(predicate);
           if (existing) return Promise.resolve(existing);

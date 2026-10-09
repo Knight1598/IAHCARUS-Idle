@@ -35,6 +35,8 @@ import { installDesign, geometricPiece } from "./design";
 import "./mode-ui.css";
 import "./design.css";
 import BotWorker from "./bot.ts?worker&inline";
+import { duelEndpoint, duelInvite, invitationCode } from "./online";
+import "./online.css";
 const OFFLINE = __OFFLINE__;
 const saveKey = OFFLINE ? "special-chess-offline-game" : "special-chess-local";
 const difficultyKey = OFFLINE
@@ -60,6 +62,7 @@ interface State {
   };
   clocks: { w: number; b: number };
   started: boolean;
+  ready: {w:boolean;b:boolean};
   result: Result;
   connected: { w: boolean; b: boolean };
   players?: { w: { name: string; username?: string } | null; b: { name: string; username?: string } | null };
@@ -167,7 +170,7 @@ function clearBattleToast() {
 }
 let ws: WebSocket | undefined,
   state: State | null = null,
-  session: { code: string; color: "w" | "b"; token: string } | null = null,
+  session: { code: string; color: "w" | "b"; token: string; server?:string } | null = null,
   reconnectTimer: ReturnType<typeof setTimeout> | undefined,
   serverStamp = Date.now(),
   requestPending = false;
@@ -196,6 +199,31 @@ const storage = {
     } catch {}
   },
 };
+let onlineEndpoint=duelEndpoint(new URLSearchParams(location.search).get('server'))||duelEndpoint(storage.get('special-chess-duel-server'))||(!OFFLINE?duelEndpoint(location.origin):null);
+let connectionGeneration=0,reconnectAttempt=0,configAttempted=false;
+const onlinePanel=$('#online-panel');
+onlinePanel.insertAdjacentHTML('afterbegin',`<div class="duel-heading"><small>PRIVATE DUEL</small><h2>ท้าดวลกับเพื่อน</h2><p>หมากรุกปกติ · ฝ่ายละ 5 นาที · สกินของแต่ละคน</p></div><div id="duel-connection" role="status"></div><details id="duel-server-settings"><summary>การเชื่อมต่อห้อง</summary><label>เซิร์ฟเวอร์เกม<input id="duel-server" type="url" placeholder="https://your-server.onrender.com" autocomplete="off"></label><button id="duel-connect">เชื่อมต่อ</button><p>ลิงก์เชิญจะระบุเซิร์ฟเวอร์นี้ให้เพื่อนโดยอัตโนมัติ</p></details><div id="duel-seats" aria-live="polite"></div><button id="duel-ready" hidden>พร้อมประลอง</button><p id="duel-message" role="status"></p>`);
+$<HTMLInputElement>('#duel-server').value=onlineEndpoint||'';
+$('#duel-connect').onclick=()=>{
+  if(session)return;
+  const endpoint=duelEndpoint($<HTMLInputElement>('#duel-server').value);
+  if(!endpoint){notice('ใช้ HTTPS ของเซิร์ฟเวอร์เกม หรือ localhost สำหรับทดสอบ');return;}
+  disconnect();onlineEndpoint=endpoint;storage.set('special-chess-duel-server',endpoint);configAttempted=true;connect();
+};
+$('#duel-ready').onclick=()=>{if(session&&!state?.started)send({type:'ready',ready:!state?.ready?.[session.color]});};
+function updateDuelLobby(){
+  const connected=ws?.readyState===1;
+  const connection=$('#duel-connection');connection.dataset.state=connected?'connected':ws?.readyState===0?'connecting':'disconnected';
+  connection.textContent=connected?'เชื่อมต่อแล้ว · '+new URL(onlineEndpoint!).host:onlineEndpoint?'กำลังเชื่อมต่อ · เซิร์ฟเวอร์อาจใช้เวลาตื่นขึ้น':'ยังไม่เชื่อมเซิร์ฟเวอร์ · ตั้งค่าเมื่อเปิดบริการแล้ว';
+  $<HTMLButtonElement>('#create').disabled=!connected||requestPending;
+  $<HTMLButtonElement>('#join').disabled=!connected||requestPending;
+  $<HTMLButtonElement>('#duel-connect').disabled=!!session;
+  $<HTMLInputElement>('#duel-server').disabled=!!session;
+  $('#duel-server-settings').toggleAttribute('open',!onlineEndpoint);
+  const ready=$<HTMLButtonElement>('#duel-ready');ready.hidden=!session||!!state?.started||!!state?.result;ready.disabled=!connected;
+  ready.textContent=state?.ready?.[session?.color||'w']?'ยกเลิกพร้อม':'พร้อมประลอง';ready.setAttribute('aria-pressed',String(!!state?.ready?.[session?.color||'w']));
+  $('#duel-seats').innerHTML=session?(['w','b'] as const).map(color=>`<article class="duel-seat ${color}"><span>${geometricPiece('k',color)}</span><div><strong>${color==='w'?'ฝ่ายขาว':'ฝ่ายดำ'}${session?.color===color?' · คุณ':''}</strong><small>${state?.connected[color]?state.ready?.[color]?'พร้อมประลอง':'กำลังเตรียมตัว':'รอเข้าร่วม'}</small></div></article>`).join(''):'';
+}
 const audioPreferences = readAudioPreferences(storage.get("special-chess-audio-mix"));
 function saveAudioMix() { storage.set("special-chess-audio-mix", JSON.stringify(audioPreferences)); }
 function syncMusic() {
@@ -447,7 +475,7 @@ function updateUI() {
       : game.isDraw()
         ? "เกมเสมอ"
         : mode === "online" && !state?.started
-          ? "รอเพื่อนเข้าร่วม"
+          ? state?.connected.w&&state?.connected.b ? "ยืนยันพร้อมทั้งคู่เพื่อเริ่มดวล" : "รอเพื่อนเข้าร่วม"
           : `ตาฝ่าย${turn === "w" ? "ขาว" : "ดำ"}${game.isCheck() ? " · รุก!" : ""}${mode === "bot" && turn !== humanColor ? " · กำลังคิด" : ""}`;
   $("#white-player").classList.toggle(
     "current",
@@ -537,6 +565,8 @@ function updateUI() {
     const lead = (color === "w" ? 1 : -1) * balance;
     $(`#${label}-material`).textContent = lead > 0 ? `+${lead}` : "";
   }
+  $("#stage").classList.toggle("online-duel",mode==="online");
+  updateDuelLobby();
   $("#room-info").hidden = !session;
   $("#leave").hidden = !session;
   $("#create").hidden = !!session;
@@ -1121,7 +1151,7 @@ function newLocal() {
   scheduleBot();
 }
 function disconnect() {
-  if (OFFLINE) return;
+  connectionGeneration++;
   clearTimeout(reconnectTimer);
   const socket = ws;
   ws = undefined;
@@ -1135,7 +1165,7 @@ function disconnect() {
   storage.remove("special-chess-session");
 }
 function setMode(next: Mode) {
-  if (OFFLINE && next === "online") return;
+
   if (mode === next && !specialDuel && !activeVariant) return;
   specialDuel = false; activeVariant = null; activeContract = null;
   disconnect();
@@ -1143,7 +1173,7 @@ function setMode(next: Mode) {
   matchPaused = !hud.drawer.hidden && next !== "online";
   scene?.setPaused(matchPaused);
   newLocal();
-  if (!OFFLINE && next === "online") { connect(); hud.open("room"); }
+  if (next === "online") { connect(); hud.open("room"); }
 }
 function send(data: unknown) {
   if (ws?.readyState !== WebSocket.OPEN) {
@@ -1153,20 +1183,30 @@ function send(data: unknown) {
   ws.send(JSON.stringify(data));
   return true;
 }
-function connect() {
-  if (OFFLINE) return;
+async function connect() {
   if (mode !== "online") return;
   clearTimeout(reconnectTimer);
+  const generation=++connectionGeneration;
+  if(!onlineEndpoint&&!configAttempted&&OFFLINE&&location.protocol!=='file:'){
+    configAttempted=true;
+    try{const response=await fetch(new URL('online-config.json',location.href),{cache:'no-store',signal:AbortSignal.timeout(5000)});if(response.ok){const value=await response.json();if(generation===connectionGeneration)onlineEndpoint=duelEndpoint(value.server);}}catch{}
+  }
+  if(generation!==connectionGeneration||mode!=='online')return;
+  if(!onlineEndpoint){notice('ยังไม่ได้เชื่อมเซิร์ฟเวอร์ท้าดวล · เปิดการตั้งค่าการเชื่อมต่อ');updateUI();return;}
+  $<HTMLInputElement>('#duel-server').value=onlineEndpoint;
+  updateUI();
   if (ws) {
     ws.onclose = null;
     ws.close();
   }
   const socket = new WebSocket(
-    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`,
+    onlineEndpoint,
   );
   ws = socket;
   socket.onopen = () => {
-    requestPending = false;
+    if(ws!==socket)return;
+    storage.set("special-chess-duel-server",onlineEndpoint!);
+    reconnectAttempt=0;requestPending = false;
     if (session)
       send({ type: "resume", code: session.code, token: session.token });
     updateUI();
@@ -1177,7 +1217,7 @@ function connect() {
       const m = JSON.parse(e.data);
       if (m.type === "error") {
         requestPending = false;
-        notice(m.message);
+        notice(m.message);$("#duel-message").textContent=m.message;
         if (
           m.message.includes("กลับเข้าห้อง") ||
           m.message.includes("ไม่พบห้อง")
@@ -1190,9 +1230,9 @@ function connect() {
         return;
       }
       if (m.type === "session") {
-        session = { code: m.code, color: m.color, token: m.token };
+        session = { code: m.code, color: m.color, token: m.token, server:onlineEndpoint! };
         storage.set("special-chess-session", JSON.stringify(session));
-        requestPending = false;
+        requestPending = false;$("#duel-message").textContent="";
         scene?.resetView(m.color === "b");
         updateUI();
         return;
@@ -1216,16 +1256,16 @@ function connect() {
       updateUI();
       return;
     }
-    reconnectTimer = setTimeout(connect, 2000);
+    reconnectTimer = setTimeout(connect, Math.min(15000,1000*2**Math.min(4,reconnectAttempt++)));
   };
-  socket.onerror = () =>
-    notice("เชื่อมต่อออนไลน์ไม่ได้ ตรวจว่าเซิร์ฟเวอร์กำลังทำงาน");
+  socket.onerror = () => { if(ws===socket)notice("เชื่อมต่อออนไลน์ไม่ได้ ตรวจว่าเซิร์ฟเวอร์กำลังทำงาน"); };
   updateUI();
 }
 function receiveState(next: State) {
+  const wasStarted=!!state?.started;
   const changed = !state || next.revision !== state.revision;
   const presenceChanged = !state || next.started !== state.started ||
-    next.connected.w !== state.connected.w || next.connected.b !== state.connected.b;
+    next.connected.w !== state.connected.w || next.connected.b !== state.connected.b || next.ready?.w!==state.ready?.w || next.ready?.b!==state.ready?.b;
   state = next;
   serverStamp = Date.now();
   if (changed) {
@@ -1257,6 +1297,7 @@ function receiveState(next: State) {
       $("#stage").classList.remove("cinematic");
     }
   }
+  if(next.started&&!wasStarted){hud.close();notice("เริ่มประลอง · ฝ่ายขาวเดินก่อน");}
   // Clock snapshots should not rebuild/focus the accessible board every second.
   if (changed || presenceChanged) updateUI();
   else updateClocks();
@@ -1278,7 +1319,7 @@ function updateClocks() {
         : "—";
   }
 }
-if (!OFFLINE) setInterval(updateClocks, 200);
+setInterval(updateClocks, 200);
 for (const b of document.querySelectorAll<HTMLButtonElement>("[data-mode]"))
   b.onclick = () => setMode(b.dataset.mode as Mode);
 $("#reset").onclick = () => {
@@ -1346,7 +1387,7 @@ $("#join-form").onsubmit = (e) => {
   if (
     /^[A-F0-9]{6}$/.test(code) &&
     !requestPending &&
-    send({ type: "join", code, cosmetics: { skin: profile.skin, loadout: profile.loadouts.b } })
+    send({ type: "join", code, armies:{w:{skin:profile.skin,loadout:profile.loadouts.w},b:{skin:profile.skin,loadout:profile.loadouts.b}}, cosmetics: { skin: profile.skin, loadout: profile.loadouts.b } })
   )
     requestPending = true;
 };
@@ -1360,8 +1401,7 @@ $("#leave").onclick = () => {
 $("#resign").onclick = () => send({ type: "resign" });
 $("#copy").onclick = async () => {
   if (!session) return;
-  const url = new URL(location.href);
-  url.searchParams.set("room", session.code);
+  const url = new URL(duelInvite(location.href, session.code, onlineEndpoint!));
   try {
     await navigator.clipboard.writeText(url.href);
     notice("คัดลอกลิงก์แล้ว ส่งให้เพื่อนได้เลย");
@@ -1475,17 +1515,15 @@ try {
   specialDuel = false; activeVariant = null; activeContract = null; game = new Chess();
   initialFen = game.fen(); activeTraining = null; activeTrial = null; activeDaily = null;
 }
-const invite = OFFLINE
-  ? null
-  : new URLSearchParams(location.search).get("room");
-if (!OFFLINE)
+const invite = invitationCode(location.search);
   try {
     const saved = JSON.parse(storage.get("special-chess-session") || "null");
     if (
       saved &&
       /^[A-F0-9]{6}$/.test(saved.code) &&
       typeof saved.token === "string" &&
-      (!invite || invite === saved.code)
+      (!invite || invite === saved.code) &&
+      (saved.server===onlineEndpoint || !OFFLINE&&!saved.server&&onlineEndpoint===duelEndpoint(location.origin))
     ) {
       session = saved;
       mode = "online";
@@ -1495,14 +1533,15 @@ if (invite) {
   mode = "online";
   $<HTMLInputElement>("#room-code").value = invite.toUpperCase();
 }
+if(mode==="online"){specialDuel=false;activeVariant=null;activeContract=null;activeTrial=null;activeDaily=null;activeTraining=null;game=new Chess();initialFen=game.fen();}
 if (OFFLINE) {
   document.body.classList.add("offline-edition");
-  $(".brand small").textContent = "OFFLINE BOT EDITION";
+  $(".brand small").textContent = "OFFLINE + FRIEND DUELS";
   $(".match-head p").textContent = "เล่นได้โดยไม่ใช้อินเทอร์เน็ต · บอต 3 ระดับ";
   $(".tabs").hidden = true;
-  $('[data-hud-open="room"]').hidden = true;
+
   $("#connection").textContent = "OFFLINE";
-  $("#help-dialog").querySelectorAll("p")[3].remove();
+
 }
 const savedDifficulty = storage.get(difficultyKey);
 if (savedDifficulty && ["1", "2", "3"].includes(savedDifficulty))
@@ -1854,7 +1893,7 @@ function openTitle() {
   $("#game-shell").hidden = true;
   title.show(profile, {
     view: "menu",
-    mode: activeContract?.mode || activeVariant?.id || (mode === "online" && !OFFLINE ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : mode),
+    mode: activeContract?.mode || activeVariant?.id || (mode === "online" ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : mode),
     special: specialConfig, variant: activeVariant?.options, opponent: mode === "local" ? "local" : "bot",
     side: humanColor,
     depth: $<HTMLSelectElement>("#difficulty").value,
@@ -1878,7 +1917,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) { stopBot(); scene?.setPaused(true, true); }
   else { scene?.setPaused(menuOpen || matchPaused); if (!showcaseActive) syncMusic(); scheduleBot(); }
 });
-title.show(profile, { special: specialConfig, variant: activeVariant?.options, opponent: mode === "local" ? "local" : "bot", mode: activeContract?.mode || activeVariant?.id || (mode === "online" && !OFFLINE ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot"), side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn", trial: activeTrial || "rescue" });
+title.show(profile, { special: specialConfig, variant: activeVariant?.options, opponent: mode === "local" ? "local" : "bot", mode: activeContract?.mode || activeVariant?.id || (mode === "online" ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot"), side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn", trial: activeTrial || "rescue" });
 
 installDesign();
 player = installPlayer({ offline: OFFLINE,
