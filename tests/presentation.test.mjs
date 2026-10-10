@@ -5,9 +5,9 @@ import {readProfile} from '../src/profile.ts';
 import {presentationCatalog} from '../shared/presentation.js';
 
 test('cosmetic shop contains distinct purchasable dimensions, finishers and player frames',()=>{
- assert.equal(presentationCatalog.length,28);assert.equal(shopCatalog.length,52);
- assert.equal(new Set(shopCatalog.map(v=>v.id)).size,52);
- for(const [kind,count] of [['dimension',8],['finisher',8],['frame',12]])assert.equal(presentationCatalog.filter(v=>v.kind===kind).length,count);
+ assert.equal(presentationCatalog.length,52);assert.equal(shopCatalog.length,76);
+ assert.equal(new Set(shopCatalog.map(v=>v.id)).size,76);
+ for(const [kind,count] of [['dimension',8],['finisher',16],['frame',12],['board',8],['skill',8]])assert.equal(presentationCatalog.filter(v=>v.kind===kind).length,count);
 });
 test('cosmetics spend once, equip independently, toggle off and survive saves without affecting skin or rules',()=>{
  let wallet={...readEconomy(),credits:5000};

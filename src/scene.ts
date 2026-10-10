@@ -1,3 +1,5 @@
+import {boardTexture,SkillCosmetic} from './cosmetic-effects';
+import {boardThemes,skillThemes} from '../shared/presentation.js';
 import {CombatDimension,dimensionWindow,dimensionTransition} from './combat-dimension';
 import {shopCatalog} from '../shared/economy.js';
 import * as THREE from "three";
@@ -266,6 +268,7 @@ interface Animation {
   execution?:ExecutionVFX;
   quieted?:boolean;
   vfx?: CombatVFX;
+  skillFx?:SkillCosmetic;
   dramatic: boolean;
   launched: boolean;
   lock?: THREE.Group;
@@ -291,11 +294,27 @@ export class ChessScene {
   readonly environment = new ArenaEnvironment();
   readonly combatDimension=new CombatDimension();
   onDimension=(_active:boolean)=>{};
-  private presentation:Partial<Record<'dimension'|'finisher'|'frame',string>>={};
+  private presentation:Partial<Record<'dimension'|'finisher'|'frame'|'board'|'skill',string>>={};
   private dimensionSaved?:{visibility:[THREE.Object3D,boolean][];background:THREE.Scene['background'];fog:THREE.Scene['fog']};
   private dimensionCurtain?:HTMLElement;
   private dimensionLabel?:HTMLElement;
-  setPresentation(equipped:Partial<Record<'dimension'|'finisher'|'frame',string>>){this.presentation={...equipped};}
+  private customBoardTexture?:THREE.Texture;
+  private customBoardId?:string;
+  setPresentation(equipped:Partial<Record<'dimension'|'finisher'|'frame'|'board'|'skill',string>>){this.presentation={...equipped};this.applyBoardCosmetic();}
+  private applyBoardCosmetic(){
+    const id=this.presentation.board,theme=boardThemes.find(v=>`board-${v.id}`===id);
+    if(id!==this.customBoardId){this.customBoardTexture?.dispose();this.customBoardTexture=theme?boardTexture(theme):undefined;this.customBoardId=id;}
+    for(const tile of this.board.children)if(tile instanceof THREE.InstancedMesh){
+      const mat=tile.material as THREE.MeshStandardMaterial;
+      const map=this.customBoardTexture||tile.userData.baseMap;
+      if(mat.map!==map){mat.map=map;mat.needsUpdate=true;}
+      mat.color.setHex(tile.userData.parity?arenas[this.environment.id].dark:arenas[this.environment.id].light);
+      if(theme&&!tile.userData.parity)mat.color.lerp(new THREE.Color(theme.color),.22);
+    }
+    this.boardRail?.material.color.set(theme?.color||arenas[this.environment.id].glow);
+    if(theme)this.stage.dataset.boardCosmetic=theme.id;else delete this.stage.dataset.boardCosmetic;
+    this.dirty=true;
+  }
   private leaveDimension(){
     if(this.dimensionSaved){for(const [object,visible] of this.dimensionSaved.visibility)object.visible=visible;
       this.scene.background=this.dimensionSaved.background;this.scene.fog=this.dimensionSaved.fog;this.dimensionSaved=undefined;
@@ -403,6 +422,7 @@ export class ChessScene {
     this.arenaRim?.color.setHex(theme.glow);
     this.arenaSun?.color.setHex(theme.sky);
     this.boardRail?.material.color.setHex(theme.glow);
+    this.applyBoardCosmetic();
     this.environment.setMotion(this.quality === "low", this.reduced);
     this.renderer.shadowMap.needsUpdate = true; this.dirty = true;
   }
@@ -581,7 +601,7 @@ export class ChessScene {
           squares.push(square);
         }
       tiles.userData.squares = squares;
-      tiles.userData.parity = parity;
+      tiles.userData.parity = parity;tiles.userData.baseMap=plateTexture;
       tiles.receiveShadow = true;
       this.board.add(tiles);
     }
@@ -1060,6 +1080,7 @@ export class ChessScene {
     this.animation = null;
     if (!preserveField) this.environment.resetReaction();
     this.overlay.clear();
+    delete this.stage.dataset.skillCosmetic;
     delete this.stage.dataset.movePhase;
     delete this.stage.dataset.attackStyle;
     delete this.stage.dataset.executionPhase;
@@ -1180,6 +1201,8 @@ export class ChessScene {
         defenderPiece: defenderProfile?.piece, defenderSkin: defenderProfile?.skin,
         defenderColor: victim ? battleColor(victim.userData.color, undefined, victim.userData.skin || this.skin) : undefined, reaction: this.animation.reaction });
       this.animation.vfx = visual;
+      const skill=skillThemes.find(v=>`skill-${v.id}`===this.presentation.skill);
+      if(skill){this.animation.skillFx=new SkillCosmetic(skill);this.fx.add(this.animation.skillFx.mesh);this.stage.dataset.skillCosmetic=skill.id;}
       this.animation.aura = visual.chargeGroup;
       this.animation.lock = visual.lockGroup;
       if (ultimate) {
@@ -1609,6 +1632,7 @@ export class ChessScene {
         this.animateExecution(a, t);
         if (!a.died && capture.death) { a.died = true; this.death(a); if (this.animation !== a) return; }
       } else if (!this.reduced) this.animateMoveAvatar(a, t, travel, a.dramatic ? choreography.charge : short.charge);
+      a.skillFx?.update(t,a.avatar?.position||a.object.position,a.defenderAvatar?.position||a.victimOrigin||a.to,contact);
       if (a.vfx) {
         a.vfx.update({ time: t * a.duration / 1000, progress: t,
           phase: capture?.phase || (a.dramatic ? choreography.phase : short.phase),

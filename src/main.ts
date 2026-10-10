@@ -9,7 +9,7 @@ import {
 import { ChessScene, type GraphicsQuality } from "./scene";
 import { Battleground } from "./battleground";
 import { TitleScreen, type LaunchSettings } from "./title";
-import { economicDefinition, isEconomicMode, enterContract, settleContract, contractAmount, claimCredits, dailyCredits, rollSkin, forgeSkin, buyShopItem, equipShopItem, trialPremium, shopCatalog, type Contract } from "../shared/economy.js";
+import { economicDefinition, isEconomicMode, enterContract, settleContract, contractAmount, claimCredits, dailyCredits, rollSkin, rollCapsules, forgeCosmetic, forgeSkin, buyShopItem, equipShopItem, trialPremium, shopCatalog, type Contract } from "../shared/economy.js";
 import type { EconomyAction } from "./economy-ui";
 import { arenas, arenaOptions, isArena, type ArenaId } from "./arenas";
 import { SpaceAudio, type MusicState, type SoundPhase } from "./sound";
@@ -284,7 +284,13 @@ function changeEconomy(action: EconomyAction) {
   try {
     const unlocked = (Object.keys(skins) as SkinId[]).filter(skin => isSkinUnlocked(profile, skin));
     let message = "";
-    if (action.type === "pull") {
+    if(action.type==='capsule'){
+      const random=()=>{const bytes=new Uint32Array(1);crypto.getRandomValues(bytes);return bytes[0]/4294967296;};
+      const result=rollCapsules(profile.economy,action.banner,action.count,unlocked,random);
+      profile={...profile,economy:result.wallet};message=`เปิด ${result.rewards.length} ชิ้น · ของใหม่ ${result.rewards.filter(v=>!v.duplicate).length} · ของซ้ำ +${result.rewards.reduce((sum,v)=>sum+v.shards,0)} เศษพลังงาน`;
+    }else if(action.type==='forge-cosmetic'){
+      profile={...profile,economy:forgeCosmetic(profile.economy,action.product)};message='หลอมสำเร็จ · สวมใช้งานได้ในร้าน';
+    }else if (action.type === "pull") {
       const random = () => { const bytes = new Uint32Array(1); crypto.getRandomValues(bytes); return bytes[0] / 4294967296; };
       const reward = rollSkin(profile.economy, unlocked, random);
       profile = { ...profile, economy: reward.wallet };
@@ -296,7 +302,7 @@ function changeEconomy(action: EconomyAction) {
       const reward=trialPremium(profile.economy);profile={...profile,economy:reward.wallet};message=reward.added?"รับพรีเมียมทดลอง +300 แล้ว · ไม่มีการจ่ายเงินจริง":"รับพรีเมียมทดลองไปแล้ว";
     } else if(action.type === "equip") {
       profile={...profile,economy:equipShopItem(profile.economy,action.product)};
-      message=profile.economy.equipped[shopCatalog.find(item=>item.id===action.product)!.kind as 'dimension'|'finisher'|'frame']===action.product?'สวมใช้งานแล้ว':'ถอดออกแล้ว';
+      message=profile.economy.equipped[shopCatalog.find(item=>item.id===action.product)!.kind as 'dimension'|'finisher'|'frame'|'board'|'skill']===action.product?'สวมใช้งานแล้ว':'ถอดออกแล้ว';
     } else if(action.type === "buy") {
       profile={...profile,economy:buyShopItem(profile.economy,action.product,unlocked)};
       const item=shopCatalog.find(item=>item.id===action.product)!;message=`ซื้อ ${item.skin?skins[item.skin].name:item.label} สำเร็จ${item.skin?' · สวมได้ในคลังแสง':''}`;

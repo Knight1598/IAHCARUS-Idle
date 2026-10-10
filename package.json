@@ -23,6 +23,8 @@
     "test:audio": "node tests/audio-browser.mjs",
     "test:showcase": "node tests/showcase-browser.mjs",
     "test:battleground": "node tests/battleground-browser.mjs",
+    "test:gacha": "node tests/gacha-browser.mjs",
+    "test:cosmetics": "node tests/cosmetic-effects-browser.mjs",
     "test:shop": "node tests/shop-browser.mjs",
     "test:economy": "node tests/economy-browser.mjs",
     "test:daily": "node tests/daily-browser.mjs",

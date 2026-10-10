@@ -42,7 +42,7 @@ repeat it. Undo is allowed before settlement, then disabled and guarded after
 the money is paid. Rush keeps one contract across all puzzles and settles only
 when the entire run ends. Skipping/replaying combat never awards money.
 
-## Skin capsule and forge
+## Legacy skin capsule and forge
 
 One capsule costs **150 credits**. It unlocks a whole existing skin set, usable
 on every piece and equipable separately in the armory. A collected skin unlocks
@@ -91,3 +91,48 @@ backup round trips. The offline browser harness exercises actual menu actions,
 responsive layouts, independent equipment, five playable launches, saved resume,
 five legal-result settlements, Rush totals and the post-settlement undo guard.
 These checks do not establish a real iPhone/Safari frame rate or a cash economy.
+
+## Collection shop and capsules
+
+The trial shop has 76 products: 10 skins, 10 skin bundles, 4 supply packs,
+8 battle dimensions, 16 finisher seals, 12 profile frames, 8 board surfaces and
+8 skill overlays. Cosmetic equipment slots are independent. Board textures stay
+applied when changing arenas; skill overlays add a distinct charge/impact mesh
+without changing movement, stats or the fighter's skin choreography. Finishers
+appear during capture cinematics. Reduced motion omits combat overlays.
+
+Four capsule banners use **120 play credits per draw**, **1,200 per ten**.
+Collection includes all 62 skins/cosmetics; Combat has 24 skill/finisher rewards;
+Arena has 16 board/dimension rewards; Army has all 10 nonstarter skins. There are
+no resources or bundles in capsule pools and no premium currency capsule cost.
+Normal rarity rates are Common 55%, Rare 30%, Epic 12%, Legendary 3%; items within
+a rarity have equal probability. Cosmetic banners include every rarity. Army contains only Rare-or-better skins,
+so it proportionally normalizes the three available rarity weights (Rare 66.667%,
+Epic 26.667%, Legendary 6.667%). Legendary includes the existing mythic skins.
+
+Each banner separately tracks consecutive draws without Rare-or-better (max 9)
+and without Legendary (max 19). The tenth draw without Rare-or-better excludes
+Common and proportionally normalizes the other three rates. The twentieth draw
+without Legendary draws exclusively from Legendary items. Legendary takes
+priority if both guarantees are due. Any Rare-or-better resets the rare counter;
+any Legendary resets both. Ten-draw purchases advance counters after each item
+exactly as ten singles do. They do not add an extra guarantee or discount.
+
+The expanded banner does not consume or reset the legacy eight-draw skin pity.
+The legacy capsule remains accessible to finish existing progress. The UI shows
+actual per-item next-draw odds, including conditional guarantees. Browser draws
+use crypto.getRandomValues. A failed batch leaves the original wallet intact;
+successful batches save before revealing. Dismissal, skip, reload and equipment
+buttons never draw another reward or charge again. The last 60 item receipts and
+all banner counters survive local and configured-account backup normalization.
+
+Duplicates (including XP-unlocked skins) convert to shards: Common 15, Rare 35,
+Epic 80, Legendary 160. At the wallet cap the receipt reports only fragments
+actually added. Any unowned cosmetic can be selected and forged from its shop
+card for 60/140/320/640 shards by rarity. This costs no credits. Existing seven
+legacy skin forge recipes remain unchanged. The owned filter shows purchased,
+forged and capsule cosmetics, with independent equipment buttons.
+
+Run `npm test`, `npm run build:pages`, `npm run test:gacha`,
+`npm run test:cosmetics` and `npm run test:shop` to validate guarantees,
+transactions, real UI persistence, procedural graphics and legacy purchases.

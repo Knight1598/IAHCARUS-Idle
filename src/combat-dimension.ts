@@ -54,7 +54,8 @@ export class CombatDimension {
   this.pillars.instanceMatrix.needsUpdate=true;
   if(this.finalId!==(finishId||'')){this.finalId=finishId||'';this.setFinisher(finisherThemes.find(v=>v.id===finishId));}
   if(this.final){const p=Math.max(0,Math.min(1,(t-CAPTURE_CONTACT)/(CAPTURE_DEATH-CAPTURE_CONTACT+.06)));
-   this.final.visible=p>0&&p<1;this.final.scale.setScalar(.6+p*2.0);this.final.rotation.y=p*(this.final.userData.pattern===1?-2:1.5);
+   this.final.visible=p>0&&p<1;this.final.scale.setScalar(this.final.userData.pattern===11?2.4-p*1.8:.6+p*2.0);
+   this.final.position.y=this.final.userData.pattern===10?3-p*4:1;this.final.rotation.y=p*(this.final.userData.pattern===1?-2:1.5);
    (this.final.material as THREE.MeshBasicMaterial).opacity=Math.sin(p*Math.PI)*.7;
   }
  }
@@ -66,9 +67,17 @@ export class CombatDimension {
   else if(p===1||p===7)for(let i=0;i<2;i++)parts.push(new THREE.TorusGeometry(.8,.03,4,32,Math.PI*1.6).rotateY(i*Math.PI/2));
   else if(p===2)for(let i=-1;i<=1;i++)parts.push(new THREE.TorusGeometry(.75,.03,4,24,Math.PI*.8).rotateZ(-.5).translate(i*.24,0,0));
   else if(p===3||p===6)for(let i=0;i<6;i++){const a=i*Math.PI/3;parts.push(new THREE.ConeGeometry(.08,.7,4).rotateZ(p===6?-a:0).translate(Math.cos(a)*.65,.4,Math.sin(a)*.65));}
+  else if(p===8){parts.push(new THREE.CylinderGeometry(.025,.025,3,5));parts.push(new THREE.ConeGeometry(.22,.7,4).translate(0,1.7,0));}
+  else if(p===9)for(let i=0;i<8;i++){const a=i*Math.PI/4;parts.push(new THREE.ConeGeometry(.1,1.2,3).rotateZ(-a).translate(Math.sin(a)*.6,Math.cos(a)*.6,0));}
+  else if(p===10)for(let i=0;i<7;i++)parts.push(new THREE.OctahedronGeometry(.18).translate((i%3-1)*.6,1+i*.17,(Math.floor(i/3)-1)*.6));
+  else if(p===11){parts.push(new THREE.BoxGeometry(1.8,1.8,1.8));}
+  else if(p===12){parts.push(new THREE.BoxGeometry(.12,2.3,.12),new THREE.BoxGeometry(1.6,.12,.12).translate(0,.3,0));}
+  else if(p===13){const pts=Array.from({length:48},(_,i)=>new THREE.Vector3(Math.cos(i*.3)*.8,(i/47-.5)*2,Math.sin(i*.3)*.8));parts.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts),48,.025,4));}
+  else if(p===14){parts.push(new THREE.IcosahedronGeometry(.5));for(let i=0;i<12;i++)parts.push(new THREE.ConeGeometry(.06,.9,3).rotateZ(-i*Math.PI/6).translate(Math.sin(i*Math.PI/6),Math.cos(i*Math.PI/6),0));}
+  else if(p===15){parts.push(new THREE.TorusGeometry(1,.1,3,36,Math.PI*1.2).rotateZ(-.6));}
   else for(let i=-1;i<=1;i++){parts.push(new THREE.BoxGeometry(1.7,.025,.025).translate(0,i*.3,0));parts.push(new THREE.BoxGeometry(.025,1.7,.025).translate(i*.3,0,0));}
   const prepared=parts.map(g=>g.index?g.toNonIndexed():g),geometry=mergeGeometries(prepared)!;new Set([...parts,...prepared]).forEach(g=>g.dispose());
-  this.final=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({color:theme.color,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,forceSinglePass:true,toneMapped:false}));
+  this.final=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({color:theme.color,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,forceSinglePass:true,wireframe:p===11,toneMapped:false}));
   this.final.userData.pattern=p;this.final.position.y=1;this.root.add(this.final);
  }
 }

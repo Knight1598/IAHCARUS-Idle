@@ -11,7 +11,7 @@ import { ultimates, alternateUltimates, readSpecialConfig, type SpecialConfig } 
 import { icon, geometricPiece, logo } from "./design";
 import { modeDefinitions, draftBudget, draftCosts, defaultDraft, validateDraft, variantInitialFen, encodeChallenge, decodeChallenge, type VariantId } from "./variants";
 import { economicModes, economicDefinition, isEconomicMode, type EconomicMode, shopCatalog, type ShopItem } from "../shared/economy.js";
-import { treasuryHTML, shopName, type EconomyAction } from "./economy-ui";
+import { lootCard, treasuryHTML, shopName, type EconomyAction } from "./economy-ui";
 import "./lobby.css";
 import "./special.css";
 import "./royal-ui.css";
@@ -61,6 +61,7 @@ export class TitleScreen {
   private dailyDay = utcDay();
   private economyMessage = "ทดลองสกินก่อนซื้อ · เลือกสินค้าที่ต้องการ";
   private shopFilter = "all";
+  private gachaBanner="collection";
   private shopSearch="";
   private economyBusyUntil = 0;
   private category: ModeCategory = "duel";
@@ -644,12 +645,23 @@ export class TitleScreen {
   private renderTreasury() {
     if (!this.profile || this.view !== "treasury") return;
     const host = this.get("#treasury-content"), busy = performance.now() < this.economyBusyUntil;
-    host.innerHTML = treasuryHTML(this.profile, this.economyMessage, busy, this.shopFilter);
+    host.innerHTML = treasuryHTML(this.profile, this.economyMessage, busy, this.shopFilter, this.gachaBanner);
     const search=host.querySelector<HTMLInputElement>('#shop-search')!;search.value=this.shopSearch;
     const filterCards=()=>{const query=this.shopSearch.trim().toLocaleLowerCase();host.querySelectorAll<HTMLElement>('.shop-card').forEach(card=>card.hidden=!!query&&!card.textContent!.toLocaleLowerCase().includes(query));};
     search.oninput=()=>{this.shopSearch=search.value;filterCards();};filterCards();
     host.querySelector<HTMLSelectElement>('#shop-filter')!.onchange=event=>{this.shopFilter=(event.target as HTMLSelectElement).value;this.renderTreasury();};
     host.querySelector<HTMLButtonElement>('#shop-open-arena')!.onclick=()=>this.chooseMode('open');
+    host.querySelectorAll<HTMLButtonElement>('[data-gacha-banner]').forEach(button=>button.onclick=()=>{this.gachaBanner=button.dataset.gachaBanner!;this.renderTreasury();});
+    host.querySelectorAll<HTMLButtonElement>('[data-cosmetic-forge]').forEach(button=>button.onclick=()=>{this.economyMessage=this.callbacks.economy?.({type:'forge-cosmetic',product:button.dataset.cosmeticForge!})||'';this.renderTreasury();});
+    host.querySelectorAll<HTMLButtonElement>('[data-reward-equip]').forEach(button=>button.onclick=()=>{this.economyMessage=this.callbacks.economy?.({type:'equip',product:button.dataset.rewardEquip!})||'';this.renderTreasury();});
+    host.querySelectorAll<HTMLButtonElement>('[data-capsule-count]').forEach(button=>button.onclick=()=>{
+      if(performance.now()<this.economyBusyUntil)return;
+      const before=this.profile!.economy.pulls,count=Number(button.dataset.capsuleCount);
+      this.economyBusyUntil=performance.now()+600;
+      this.economyMessage=this.callbacks.economy?.({type:'capsule',banner:this.gachaBanner,count})||'';
+      if(this.profile!.economy.pulls>before)this.showLoot(count);
+      this.renderTreasury();setTimeout(()=>this.renderTreasury(),610);
+    });
     host.querySelectorAll<HTMLButtonElement>('[data-shop-equip]').forEach(button=>button.onclick=()=>{this.economyMessage=this.callbacks.economy?.({type:'equip',product:button.dataset.shopEquip!})||'';this.renderTreasury();});
     for(const kind of ['buy','preview'])host.querySelectorAll<HTMLButtonElement>(`[data-shop-${kind}]`).forEach(button=>button.onclick=()=>{const item=shopCatalog.find(item=>item.id===button.dataset[kind==='buy'?'shopBuy':'shopPreview']);if(item)this.openShopItem(item,kind==='preview');});
     host.querySelectorAll<HTMLButtonElement>("[data-economy-action]").forEach(button => button.onclick = () => {
@@ -661,12 +673,20 @@ export class TitleScreen {
       setTimeout(() => { this.renderTreasury(); this.get<HTMLButtonElement>(`[data-economy-action="${action.type}"]`)?.focus({ preventScroll: true }); }, 510);
     });
   }
+  private showLoot(count:number){
+    let dialog=this.root.querySelector<HTMLDialogElement>('#capsule-reveal');
+    if(!dialog){dialog=document.createElement('dialog');dialog.id='capsule-reveal';this.root.append(dialog);}
+    dialog.innerHTML=`<small>RELIQUARY / SAVED TO INVENTORY</small><h2>คลังผนึกเปิดแล้ว</h2><p>รางวัลบันทึกเข้าคลังแล้ว · ปิดหน้าต่างได้ทันที</p><div class="loot-grid">${this.profile!.economy.lootHistory.slice(-count).map(reward=>lootCard(reward)).join('')}</div><button id="loot-close" class="primary">รับรางวัลและกลับร้าน</button>`;
+    dialog.querySelector<HTMLButtonElement>('#loot-close')!.onclick=()=>dialog!.close();
+    dialog.querySelectorAll<HTMLButtonElement>('[data-reward-equip]').forEach(button=>button.onclick=()=>{this.economyMessage=this.callbacks.economy?.({type:'equip',product:button.dataset.rewardEquip!})||'';button.textContent=this.economyMessage;});
+    dialog.showModal();
+  }
   private openShopItem(item:ShopItem,trial:boolean) {
     if(!this.profile)return;
     let dialog=this.root.querySelector<HTMLDialogElement>('#shop-item-dialog');
     if(!dialog){dialog=document.createElement('dialog');dialog.id='shop-item-dialog';this.root.append(dialog);dialog.addEventListener('close',()=>{this.callbacks.shopPreview?.(null);this.previewKey='';this.preview();});}
     const wallet=this.profile.economy,owned=item.cosmetic?wallet.inventory.includes(item.id):!!item.skin&&isSkinUnlocked(this.profile,item.skin);
-    dialog.innerHTML=`<small>${trial?'TRY BEFORE YOU BUY':'CONFIRM PURCHASE'} / TRIAL SHOP</small><h2>${shopName(item)}</h2>${item.skin?`<div id="shop-preview-stage" aria-label="พรีวิวสกิน 3D"></div><label>ทดลองหมาก<select id="shop-preview-piece">${(['p','n','b','r','q','k'] as PieceSymbol[]).map(p=>`<option value="${p}" ${p==='n'?'selected':''}>${pieceNames[p]}</option>`).join('')}</select></label><button id="shop-preview-attack">ทดลองท่าโจมตีและเสียง</button>`:item.cosmetic?`<div class="shop-cosmetic-preview">${cosmeticArt(item)}</div><p>${item.description}</p>`:''}<p>ราคา ${item.price} ${item.currency==='premium'?'พรีเมียม':'เครดิต'}${item.shards?` · พร้อม ${item.shards} เศษพลังงาน`:''}</p><p>ยอดคงเหลือ ${wallet[item.currency]} → ${wallet[item.currency]>=item.price?wallet[item.currency]-item.price:"เงินไม่พอ"} ${item.currency==='premium'?'พรีเมียม':'เครดิต'}</p><p class="economy-note">ทดลองไม่หักเงินหรือเปลี่ยนสกินที่สวม · สกินไม่เพิ่มความสามารถหมาก · ร้านนี้ไม่มีการชำระเงินจริง</p><div class="shop-dialog-actions"><button id="shop-confirm-buy" ${owned||wallet[item.currency]<item.price?'disabled':''}>${owned?'มีสกินแล้ว':'ยืนยันซื้อ'}</button><button id="shop-dialog-close">${trial?'ปิดพรีวิว':'ยกเลิก'}</button></div>`;
+    dialog.innerHTML=`<small>${trial?'TRY BEFORE YOU BUY':'CONFIRM PURCHASE'} / TRIAL SHOP</small><h2>${shopName(item)}</h2>${item.skin?`<div id="shop-preview-stage" aria-label="พรีวิวสกิน 3D"></div><label>ทดลองหมาก<select id="shop-preview-piece">${(['p','n','b','r','q','k'] as PieceSymbol[]).map(p=>`<option value="${p}" ${p==='n'?'selected':''}>${pieceNames[p]}</option>`).join('')}</select></label><button id="shop-preview-attack">ทดลองท่าโจมตีและเสียง</button>`:item.cosmetic?`<div class="shop-cosmetic-preview">${cosmeticArt(item)}</div><p>${item.description}</p>`:''}<p>ราคา ${item.price} ${item.currency==='premium'?'พรีเมียม':'เครดิต'}${item.shards?` · พร้อม ${item.shards} เศษพลังงาน`:''}</p><p>ยอดคงเหลือ ${wallet[item.currency]} → ${wallet[item.currency]>=item.price?wallet[item.currency]-item.price:"เงินไม่พอ"} ${item.currency==='premium'?'พรีเมียม':'เครดิต'}</p><p class="economy-note">ทดลองไม่หักเงินหรือเปลี่ยนสกินที่สวม · สกินไม่เพิ่มความสามารถหมาก · ร้านนี้ไม่มีการชำระเงินจริง</p><div class="shop-dialog-actions"><button id="shop-confirm-buy" ${owned||wallet[item.currency]<item.price?'disabled':''}>${owned?'มีสินค้าแล้ว':'ยืนยันซื้อ'}</button><button id="shop-dialog-close">${trial?'ปิดพรีวิว':'ยกเลิก'}</button></div>`;
     dialog.querySelector<HTMLButtonElement>('#shop-confirm-buy')!.onclick=()=>{if(performance.now()<this.economyBusyUntil)return;this.economyBusyUntil=performance.now()+500;this.economyMessage=this.callbacks.economy?.({type:'buy',product:item.id})||'ยังไม่พร้อมใช้งาน';dialog!.close();this.renderTreasury();setTimeout(()=>this.renderTreasury(),510);};
     dialog.querySelector<HTMLButtonElement>('#shop-dialog-close')!.onclick=()=>dialog!.close();dialog.showModal();
     if(item.skin){const piece=dialog.querySelector<HTMLSelectElement>('#shop-preview-piece')!;const preview=()=>this.callbacks.shopPreview?.(dialog!.querySelector('#shop-preview-stage')!,item.skin,piece.value as PieceSymbol);piece.onchange=preview;preview();dialog.querySelector<HTMLButtonElement>('#shop-preview-attack')!.onclick=()=>this.callbacks.audition?.(piece.value as PieceSymbol,item.skin!);}

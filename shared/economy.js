@@ -25,10 +25,12 @@ export function readEconomy(raw) {
   const existing = raw && typeof raw === "object" && !Array.isArray(raw);
   return { version: 2, premium: integer(raw?.premium), credits: existing ? integer(raw.credits) : 750, shards: integer(raw?.shards),
     inventory: Array.isArray(raw?.inventory) ? [...new Set(raw.inventory.filter(id=>presentationCatalog.some(item=>item.id===id)))] : [],
-    equipped: Object.fromEntries(['dimension','finisher','frame'].flatMap(kind=>{
+    equipped: Object.fromEntries(['dimension','finisher','frame','board','skill'].flatMap(kind=>{
       const id=raw?.equipped?.[kind],item=presentationCatalog.find(item=>item.id===id&&item.kind===kind);
       return item&&Array.isArray(raw?.inventory)&&raw.inventory.includes(id)?[[kind,id]]:[];
     })),
+    bannerPity: Object.fromEntries(['collection','combat','arena','army'].map(id=>[id, {legend:Math.min(19,integer(raw?.bannerPity?.[id]?.legend)), rare:Math.min(9,integer(raw?.bannerPity?.[id]?.rare))}])),
+    lootHistory: Array.isArray(raw?.lootHistory)?raw.lootHistory.filter(v=>v&&validId(v.id)&&['collection','combat','arena','army'].includes(v.banner)&&shopCatalog.some(item=>item.id===v.product&&(item.cosmetic||item.kind==='skin'))&&['common','rare','epic','legendary'].includes(v.rarity)).slice(-60).map(v=>({id:v.id,banner:v.banner,product:v.product,rarity:v.rarity,duplicate:v.duplicate===true,shards:integer(v.shards),guaranteed:v.guaranteed===true})):[],
     pulls: integer(raw?.pulls), pity: Math.min(pityLimit - 1, integer(raw?.pity)),
     owned: Array.isArray(raw?.owned) ? [...new Set(raw.owned.filter(id => skinIds.includes(id)))] : [],
     claimed: Array.isArray(raw?.claimed) ? [...new Set(raw.claimed.filter(validId))] : [],
@@ -133,4 +135,56 @@ export function equipShopItem(wallet,id) {
   const equipped={...wallet.equipped};
   if(equipped[item.kind]===id)delete equipped[item.kind];else equipped[item.kind]=id;
   return {...wallet,equipped};
+}
+
+// Collection capsules use play credits only. Each banner retains its own guarantees.
+export const gachaBanners = [
+ {id:'collection',label:'คลังจักรวาล',description:'ทุกสกินและเครื่องแต่งทั้งห้าประเภท',kinds:['skin','dimension','finisher','frame','board','skill']},
+ {id:'combat',label:'คลังยุทธศิลป์',description:'เอฟเฟกต์สกิลและสังหาร',kinds:['skill','finisher']},
+ {id:'arena',label:'คลังสนาม',description:'กระดานและมิติต่อสู้',kinds:['board','dimension']},
+ {id:'army',label:'คลังกองทัพ',description:'สกินกองทัพทั้ง 10 แบบ',kinds:['skin']},
+];
+export const capsuleCost=120;
+export const rarityRates={common:55,rare:30,epic:12,legendary:3};
+export const duplicateShards={common:15,rare:35,epic:80,legendary:160};
+export const cosmeticForgeCosts={common:60,rare:140,epic:320,legendary:640};
+const skinRarities={ember:'rare',frost:'rare',storm:'rare',astral:'epic',nova:'epic',phantom:'legendary',royal:'legendary',void:'legendary',prism:'legendary',dragon:'legendary'};
+export function lootRarity(item){return item.rarity||skinRarities[item.skin]||'common';}
+export function bannerPool(id){
+ const banner=gachaBanners.find(v=>v.id===id);if(!banner)throw Error('ตู้สุ่มไม่ถูกต้อง');
+ return shopCatalog.filter(v=>banner.kinds.includes(v.kind)&&(v.cosmetic||v.kind==='skin'));
+}
+export function bannerOdds(id,wallet){
+ const pool=bannerPool(id),pity=wallet?.bannerPity?.[id]||{legend:0,rare:0};
+ const allowed=Object.keys(rarityRates).filter(r=>pool.some(v=>lootRarity(v)===r)&&(pity.legend>=19?r==='legendary':pity.rare>=9?r!=='common':true));
+ const total=allowed.reduce((sum,r)=>sum+rarityRates[r],0);
+ return pool.map(item=>({product:item.id,rarity:lootRarity(item),chance:allowed.includes(lootRarity(item))?rarityRates[lootRarity(item)]/total*100/pool.filter(v=>lootRarity(v)===lootRarity(item)).length:0}));
+}
+export function rollCapsules(wallet,banner,count=1,unlocked=[],random=Math.random){
+ if(count!==1&&count!==10)throw Error('เปิดได้ครั้งละ 1 หรือ 10 ชิ้น');
+ bannerPool(banner);if(wallet.credits<capsuleCost*count)throw Error(`ต้องมี ${capsuleCost*count} เครดิต`);
+ let next=readEconomy(wallet);const rewards=[];
+ for(let i=0;i<count;i++){
+  const value=random();if(!Number.isFinite(value)||value<0||value>=1)throw Error('ค่าการสุ่มไม่ถูกต้อง');
+  const odds=bannerOdds(banner,next);let cumulative=0;
+  const selected=odds.find(v=>(cumulative+=v.chance)>value*100)||odds.findLast(v=>v.chance>0);
+  const item=shopCatalog.find(v=>v.id===selected.product),pity=next.bannerPity[banner];
+  const duplicate=item.cosmetic?next.inventory.includes(item.id):next.owned.includes(item.skin)||unlocked.includes(item.skin);
+  const shards=duplicate?Math.min(duplicateShards[selected.rarity],10000000-next.shards):0;
+  const reward={id:`capsule:${next.pulls+1}`,banner,product:item.id,rarity:selected.rarity,duplicate,shards,guaranteed:pity.legend>=19||pity.rare>=9};
+  next={...next,credits:next.credits-capsuleCost,pulls:next.pulls+1,shards:next.shards+shards,
+   inventory:item.cosmetic?[...new Set([...next.inventory,item.id])]:next.inventory,
+   owned:item.skin?[...new Set([...next.owned,item.skin])]:next.owned,
+   bannerPity:{...next.bannerPity,[banner]:{legend:selected.rarity==='legendary'?0:pity.legend+1,rare:selected.rarity==='common'?pity.rare+1:0}},
+   lootHistory:[...next.lootHistory,reward].slice(-60),
+   log:[...next.log,{id:reward.id,label:`${item.label||item.skin}${duplicate?' · ของซ้ำ':''}`,delta:-capsuleCost}].slice(-40)};
+  rewards.push(reward);
+ }
+ return {wallet:next,rewards};
+}
+export function forgeCosmetic(wallet,id){
+ const item=presentationCatalog.find(v=>v.id===id);if(!item)throw Error('เลือกเครื่องแต่งที่หลอมได้');
+ if(wallet.inventory.includes(id))throw Error('มีสินค้านี้แล้ว');
+ const cost=cosmeticForgeCosts[item.rarity];if(wallet.shards<cost)throw Error('เศษพลังงานไม่พอ');
+ return {...wallet,shards:wallet.shards-cost,inventory:[...wallet.inventory,id],log:[...wallet.log,{id:`forge:${id}`,label:`หลอม ${item.label} · ${cost} เศษ`,delta:0}].slice(-40)};
 }
