@@ -4,4 +4,7 @@
 .audio-mix .setting-select > span { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .audio-mix input[type="range"] { min-width: 70px; width: 100%; accent-color: #76e3f6; }
 .audio-mix output { width: 3em; text-align: right; color: #cfeefa; font-variant-numeric: tabular-nums; }
+.audio-mix .audio-processing-control { gap: 6px; }
+.audio-mix .audio-processing-control select { width: 100%; min-width: 0; border-color: #47778d; color: #ddf5ff; background: #0e2636; }
+.audio-mix p.audio-processing-help { padding: 0 0 10px; margin: 0 0 10px; border-bottom: 1px solid #365d7366; line-height: 1.6; }
 @media (prefers-reduced-motion: no-preference) { .audio-mix input { transition: filter .2s; } .audio-mix input:focus-visible { filter: drop-shadow(0 0 6px #64dbef); } }

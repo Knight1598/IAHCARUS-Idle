@@ -1,3 +1,4 @@
+import {processEffectPCM,type AudioProcessingMode} from './audio-processing.ts';
 import type { SoundLayer, SoundRecipe } from "./sound.ts";
 
 export type StereoPCM = { left: Float32Array; right: Float32Array; sampleRate: number; duration: number };
@@ -13,7 +14,7 @@ export function seededAudioRandom(seed: number) {
 }
 /** One PCM voice contains the transient, weight, formants, spectral texture and room tail.
  * Rendering happens once per cached recipe; combat frames never allocate oscillator graphs. */
-export function renderSoundRecipe(recipe: SoundRecipe, sampleRate = 24000, seed = 2027): StereoPCM {
+export function renderSoundRecipe(recipe: SoundRecipe, sampleRate = 24000, seed = 2027, processing:AudioProcessingMode='cinematic', key=''): StereoPCM {
   const TAU = Math.PI * 2;
   let value = seed >>> 0;
   const random = () => { value = (Math.imul(value, 1664525) + 1013904223) >>> 0; return value / 4294967296; };
@@ -28,7 +29,7 @@ export function renderSoundRecipe(recipe: SoundRecipe, sampleRate = 24000, seed 
   
   const bodyDuration = Math.max(...recipe.map((layer) => layer.offset + layer.duration));
   const room = Math.max(0,Math.min(.6,recipe.reduce((sum,l)=>sum+(l.room??.18),0)/Math.max(1,recipe.length)));
-  const tail = room<.06?.06:.3, length = Math.ceil((bodyDuration + tail) * sampleRate);
+  const tail = processing==='dry'?(room<.06?.06:.3):.04, length = Math.ceil((bodyDuration + tail) * sampleRate);
   const left = new Float32Array(length), right = new Float32Array(length);
   for (const layer of recipe) {
     const start = Math.floor(layer.offset * sampleRate), count = Math.ceil(layer.duration * sampleRate);
@@ -82,7 +83,7 @@ export function renderSoundRecipe(recipe: SoundRecipe, sampleRate = 24000, seed 
   // No feedback network can continue after skip or collect tails between captures.
   const reflections = [[0.037, 0.17], [0.071, 0.11], [0.113, 0.075], [0.179, 0.047], [0.263, 0.028]];
   const dryL = left.slice(), dryR = right.slice();
-  for (const [seconds, amount] of reflections) {
+  for (const [seconds, amount] of processing==='dry'?reflections:[]) {
     const delay = Math.floor(seconds * sampleRate);
     for (let i = delay; i < length; i++) {
       left[i] += dryR[i - delay] * amount*(room/.18);
@@ -93,7 +94,7 @@ export function renderSoundRecipe(recipe: SoundRecipe, sampleRate = 24000, seed 
     left[i] = Math.tanh(left[i] * 1.5) * 0.75;
     right[i] = Math.tanh(right[i] * 1.5) * 0.75;
   }
-  return { left, right, sampleRate, duration: length / sampleRate };
+  return processEffectPCM({ left, right, sampleRate, duration: length / sampleRate },recipe,processing,key);
 }
 
 /** Lightweight stereo impulse-like pressure room for the independent ambience bed. */

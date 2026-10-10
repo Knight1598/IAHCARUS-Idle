@@ -203,3 +203,21 @@ test('low priority feedback cannot steal important danger voices when the voice 
  const stops=context.scheduled.map(v=>v.stopped);sound.anticipateImpact();assert.deepEqual(context.scheduled.map(v=>v.stopped),stops,'king warnings should survive the combat hush');
  sound.dispose();
 });
+
+test('quiet ordinary landings stay below full capture impacts across every skin after scoring and DSP',()=>{
+ const rms=buffer=>{let power=0;for(let c=0;c<2;c++)for(const sample of buffer.getChannelData(c))power+=sample*sample;return Math.sqrt(power/(buffer.length*2));};
+ for(const skin of ['classic','ember','frost','astral','royal','storm','void','prism','nova','phantom','dragon']){
+  const quietContext=audioContext(),fullContext=audioContext(),quiet=new SpaceAudio(quietContext,()=>.25),full=new SpaceAudio(fullContext,()=>.25);
+  quiet.play('n','impact',.3,false,0,skin);full.play('n','impact',.3,true,0,skin);
+  const ratio=rms(quietContext.scheduled[0].buffer)/rms(fullContext.scheduled[0].buffer);
+  assert.ok(ratio>.12&&ratio<.6,`${skin} landing/capture RMS ${ratio}`);quiet.dispose();full.dispose();
+ }
+});
+
+test('processing switch keeps independent buffers and recovers the same cached original take',()=>{
+ const context=audioContext(),sound=new SpaceAudio(context,()=>.25);
+ sound.setProcessingMode('dry');sound.auditionCombatCue('n','frost','impact',0);const original=context.scheduled.at(-1).buffer;
+ sound.setProcessingMode('cinematic');sound.auditionCombatCue('n','frost','impact',0);const cinematic=context.scheduled.at(-1).buffer;
+ assert.notEqual(original,cinematic);assert.notEqual(original.length,cinematic.length);
+ sound.setProcessingMode('dry');sound.auditionCombatCue('n','frost','impact',0);assert.equal(context.scheduled.at(-1).buffer,original);assert.equal(sound.diagnostics.addon.name,'@thi.ng/dsp');sound.dispose();
+});

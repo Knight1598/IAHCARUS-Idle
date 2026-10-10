@@ -200,3 +200,12 @@ All four start with 12 reserve pieces. Submit a hidden piece/cell deployment, re
 Completed Battleground games award local play credits once per game: 650 for a winner, 100 for other participants after at least three resolved rounds. No premium is awarded. All these credits/cosmetic unlocks remain browser-owned trial progression. Online rules, reserves, deadlines and results are enforced by the server, but this is not a ranked or paid-entitlement system.
 
 Nova Vanguard, Phantom Veil and Crimson Wyrm add three procedural armor/weapon/aura identities and dedicated solar nova, phantom portal and dragon-fang execution shaders. They work in normal chess, previews and Battleground. The skin roll pool/odds are unchanged; the new skins are available through direct shop purchases or existing level progression. `npm run test:battleground` exercises the packaged frontend with a real four-context server room; `npm run test:friend-deploy` also verifies four-player captures in the production Docker image. Deploy both Pages and Render from the same revision before inviting friends.
+
+### Open-source audio processing
+
+The bundled Apache-2.0 [`@thi.ng/dsp`](https://www.npmjs.com/package/@thi.ng/dsp)
+addon shapes cached sound materials, body and room reflections. Seven legacy
+skins have their own source scores. Choose cinematic, focused or dry audio in
+settings; the existing mixer, offline play and single AudioContext are retained.
+See [provenance and licenses](docs/OPEN-SOURCE-AUDIO.md). Verify with
+`npm run test:audio-addon` (add `AUDIO_ADDON_OFFLINE_TEST=1` for the built game).

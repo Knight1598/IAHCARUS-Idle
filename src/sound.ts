@@ -1,3 +1,5 @@
+import {rescoreLegacySkin} from './audio-skin-score.ts';
+import {processBedPCM,readProcessingMode,AUDIO_DSP_ADDON,type AudioProcessingMode} from './audio-processing.ts';
 import type { PieceSymbol } from "chess.js";
 import type { SkinId } from "./profile";
 import { combatProfile } from "./combat-profiles.ts";
@@ -223,6 +225,7 @@ function applySkinSoundProfile(recipe: SoundRecipe, skin: SkinId, cue: string, u
     recipe=c.layers;
     for(const layer of recipe)layer.room=skin==='phantom'?.45:skin==='dragon'?.16:.23;
   }
+  const scored=rescoreLegacySkin(recipe,skin,cue,piece,variant);if(scored)recipe=scored;
   const signature = combatProfile(piece, skin).sound;
   const weight = Math.max(.88, Math.min(1.12, 1 + (signature.body - .8) * .12));
   const pitch = 1 + (signature.pitch - 1) * .2;
@@ -233,30 +236,6 @@ function applySkinSoundProfile(recipe: SoundRecipe, skin: SkinId, cue: string, u
     if (layer.kind === "tone") { layer.from *= pitch; layer.to *= pitch; }
     // Profile tails affect aftermath; anticipation stays on the shared score.
     if (["impact", "death", "disintegrate", "armor"].includes(cue)) layer.duration *= tail;
-    if (skin === "storm") {
-      if (layer.kind === "tone") { layer.texture = "plasma"; layer.fm *= 2.2; layer.from *= 1.2; layer.partials = [.38, .17, .08]; }
-      layer.offset += i % 3 * .012; layer.duration *= .86;
-    } else if (skin === "void") {
-      if (layer.kind === "tone") { layer.texture = "choir"; layer.from *= .65; layer.to *= .7; layer.fm *= 1.4; }
-      layer.pan = i % 2 ? -.55 : .55; layer.cutoff = Math.min(2200, layer.cutoff);
-    } else if (skin === "prism") {
-      if (layer.kind === "tone") { layer.texture = "metal"; layer.partials = [.25, .18, .13]; layer.from *= 1.14; layer.fm *= .6; }
-      layer.offset += i * .018; layer.pan = i % 2 ? -.4 : .4;
-    } else if (skin === "ember") {
-      layer.cutoff = Math.min(4400, layer.cutoff * .8); layer.offset += i % 2 * .018;
-      if (layer.kind === "tone") { layer.texture = "plasma"; layer.fm *= 1.55; layer.partials = [.46, .2, .09]; }
-    } else if (skin === "frost") {
-      if (layer.kind === "tone") { layer.texture = "metal"; layer.fm = .75; layer.partials = [.3, .15, .07]; }
-      layer.envelope = layer.envelope === "rise" ? "rise" : "swell";
-      layer.offset += i * .013; layer.pan += i % 2 ? -.1 : .1;
-    } else if (skin === "astral") {
-      if (layer.kind === "tone") { layer.fm *= 1.85; layer.from *= .8; layer.texture = i % 2 ? "choir" : "metal"; }
-      layer.envelope = cue === "charge" || cue === "draw" ? "rise" : layer.envelope;
-      layer.offset += i % 2 * .036; layer.pan = i % 2 ? -.6 : .6;
-    } else if (skin === "royal") {
-      if (layer.kind === "tone") { layer.texture = "brass"; layer.partials = [.5, .22, .09]; layer.from *= .75; layer.to *= .75; }
-      layer.duration *= 1.08; layer.cutoff = Math.min(layer.cutoff, 2800);
-    }
     if (ultimate) { layer.level *= 1.22; if (layer.kind === "tone") layer.partials = [.5, .24, .08]; }
     layer.level = Math.min(.24, layer.level); layer.pan = Math.max(-.75, Math.min(.75, layer.pan));
   }
@@ -267,7 +246,7 @@ export function soundPriority(key:string,bus:string){return bus==="music"||bus==
 
 type Voice = { priority:number; source: AudioBufferSourceNode; gain: GainNode; stereo?: StereoPannerNode; bus: Exclude<AudioBus, "master">; key: string; buffer: AudioBuffer; ended: boolean };
 type CacheEntry = { buffer: AudioBuffer; bytes: number };
-type MusicJob = { state?: MusicState; ambience?: AmbiencePreset; recipe?: SoundRecipe; key: string; resolve: () => void };
+type MusicJob = { state?: MusicState; ambience?: AmbiencePreset; recipe?: SoundRecipe; processing:AudioProcessingMode; key: string; resolve: () => void };
 const clamp = (value: number) => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
 const busIds = ["music", "ambience", "sfx", "cinematic"] as const;
 
@@ -299,7 +278,8 @@ export class SpaceAudio {
   private ambienceVoice: Voice | null = null;
   private ambiencePreset: AmbiencePreset = "citadel";
   private worker: Worker | null = null;
-  private workerUrl: string | null = null;
+  private workerFailed=false;
+  private processing:AudioProcessingMode='cinematic';
   private jobs: MusicJob[] = [];
   private activeJob: MusicJob | null = null;
   private waiting = new Map<string, Promise<void>>();
@@ -342,8 +322,15 @@ export class SpaceAudio {
       residentBytes: [...unique].reduce((sum, buffer) => sum + buffer.length * buffer.numberOfChannels * 4, 0),
       cacheLimit: AUDIO_CACHE_LIMIT, musicState: this.state, ambiencePreset: this.ambiencePreset,
       dimension:this.dimension, busLevels: { ...this.levels }, muted: this.muted, paused: this.paused, duckDb: this.duckDb,
-      worker: !!this.worker, maxSynthesisMs: this.maxSynthesisMs,
+      worker: !!this.worker, processing:this.processing, addon:AUDIO_DSP_ADDON, maxSynthesisMs: this.maxSynthesisMs,
     };
+  }
+  setProcessingMode(value:AudioProcessingMode){
+    const mode=readProcessingMode(value);if(this.disposed||mode===this.processing)return;
+    this.cancelEffects();this.processing=mode;
+    // Let queued beds warm once requested in the new mode; voices from the old mix fade.
+    if(this.musicVoice)this.stopVoice(this.musicVoice,.08);if(this.ambienceVoice)this.stopVoice(this.ambienceVoice,.08);
+    this.musicVoice=null;this.ambienceVoice=null;if(this.state)this.updateBeds();
   }
   setVolume(value: number) { this.setBusVolume("master", value); }
   setBusVolume(bus: AudioBus, value: number) {
@@ -390,7 +377,7 @@ export class SpaceAudio {
     // The one active worker task may finish caching, but cannot start an effect.
     const keep: MusicJob[] = [];
     for (const job of this.jobs) {
-      if (job.recipe) { this.waiting.delete(job.key); job.resolve(); }
+      if (job.recipe) { this.waiting.delete(`${job.processing}|${job.key}`); job.resolve(); }
       else keep.push(job);
     }
     this.jobs = keep;
@@ -408,7 +395,6 @@ export class SpaceAudio {
     for (const voice of this.sources.values()) { voice.source.onended = null; voice.source.disconnect(); voice.gain.disconnect(); voice.stereo?.disconnect(); }
     this.sources.clear(); this.nodes.forEach((node) => node.disconnect()); this.cache.clear(); this.bytes = 0;
     this.worker?.terminate(); this.worker = null;
-    if (this.workerUrl) URL.revokeObjectURL(this.workerUrl);
     if (this.fallbackTimer) clearTimeout(this.fallbackTimer);
     for (const job of [this.activeJob, ...this.jobs]) job?.resolve();
     this.activeJob = null; this.jobs = []; this.waiting.clear();
@@ -424,13 +410,14 @@ export class SpaceAudio {
       const first = this.cache.entries().next().value!;
       this.cache.delete(first[0]); this.bytes -= first[1].bytes;
     }
-    if (bytes <= AUDIO_CACHE_LIMIT) { this.cache.set(key, { buffer, bytes }); this.bytes += bytes; }
+    if (bytes <= AUDIO_CACHE_LIMIT) { this.cache.set(`${this.processing}|${key}`, { buffer, bytes }); this.bytes += bytes; }
     return buffer;
   }
   private cached(key: string): AudioBuffer | null {
-    const entry = this.cache.get(key);
+    const qualified=`${this.processing}|${key}`;
+    const entry = this.cache.get(qualified);
     if (!entry) return null;
-    this.cache.delete(key); this.cache.set(key, entry); return entry.buffer;
+    this.cache.delete(qualified); this.cache.set(qualified, entry); return entry.buffer;
   }
   private voice(buffer: AudioBuffer, key: string, bus: Voice["bus"], loop = false, fade = .006, pan = 0): Voice | null {
     if (this.disposed || this.muted || this.levels[bus] === 0 || this.paused && bus !== "music" && bus !== "ambience") return null;
@@ -472,7 +459,7 @@ export class SpaceAudio {
     let buffer = this.cached(key);
     if (!buffer) {
       const start = typeof performance === "undefined" ? 0 : performance.now();
-      buffer = this.remember(key, renderSoundRecipe(recipe, 24000, audioSeed(key)));
+      buffer = this.remember(key, renderSoundRecipe(recipe, 24000, audioSeed(key),this.processing,key));
       if (typeof performance !== "undefined") this.maxSynthesisMs = Math.max(this.maxSynthesisMs, performance.now() - start);
     }
     this.voice(buffer, key, bus, false, .006, pan);
@@ -481,7 +468,8 @@ export class SpaceAudio {
     const key = `${piece}:${canonicalPhase(phase)}${skin === "classic" ? "" : `:${skin}`}`, variant = this.variants.next(key);
     this.lastVariant = { key, variant };
     const quantized = Math.round(duration * 20) / 20;
-    const recipe = applySkinSoundProfile(pieceSoundRecipe(piece, phase, variant, quantized, capture, 0), skin, canonicalPhase(phase), ultimate, piece, variant);
+    const recipe = applySkinSoundProfile(pieceSoundRecipe(piece, phase, variant, quantized, true, 0), skin, canonicalPhase(phase), ultimate, piece, variant);
+    if(canonicalPhase(phase)==="impact"&&!capture)for(const layer of recipe)layer.level*=.32;
     this.render(recipe, `${key}:${variant}:${quantized}:${capture}:${ultimate}`, "sfx", pan);
     return variant;
   }
@@ -527,10 +515,11 @@ export class SpaceAudio {
   }
   private requestRecipe(key: string, recipe: SoundRecipe): Promise<void> {
     if (this.cached(key) || this.disposed) return Promise.resolve();
-    const waiting = this.waiting.get(key); if (waiting) return waiting;
+    const qualified=`${this.processing}|${key}`;
+    const waiting = this.waiting.get(qualified); if (waiting) return waiting;
     const promise = new Promise<void>((resolve) => { const position = this.jobs.findIndex((job) => !!job.state);
-      this.jobs.splice(position < 0 ? this.jobs.length : position, 0, { recipe, key, resolve }); });
-    this.waiting.set(key, promise); this.processMusicJob(); return promise;
+      this.jobs.splice(position < 0 ? this.jobs.length : position, 0, { recipe, key, processing:this.processing, resolve }); });
+    this.waiting.set(qualified, promise); this.processMusicJob(); return promise;
   }
   private renderCombatCue(piece: PieceSymbol, skin: SkinId, cue: CombatSoundCue, variant: number, duration: number, pan: number, ultimate: boolean) {
     const quantized = cue === "charge" || cue === "finisher" ? Math.round(duration * 20) / 20 : .3;
@@ -589,30 +578,38 @@ export class SpaceAudio {
   private requestMusic(state: MusicState): Promise<void> {
     const key = `music:${state}`;
     if (this.cached(key) || this.disposed) return Promise.resolve();
-    const waiting = this.waiting.get(key); if (waiting) return waiting;
-    const promise = new Promise<void>((resolve) => { this.jobs.push({ state, key, resolve }); });
-    this.waiting.set(key, promise); this.processMusicJob(); return promise;
+    const qualified=`${this.processing}|${key}`;
+    const waiting = this.waiting.get(qualified); if (waiting) return waiting;
+    const promise = new Promise<void>((resolve) => { this.jobs.push({ state, key, processing:this.processing, resolve }); });
+    this.waiting.set(qualified, promise); this.processMusicJob(); return promise;
   }
   private requestAmbience(ambience: AmbiencePreset): Promise<void> {
     const key = `ambience:${ambience}`;
     if (this.cached(key) || this.disposed) return Promise.resolve();
-    const waiting = this.waiting.get(key); if (waiting) return waiting;
-    const promise = new Promise<void>((resolve) => { this.jobs.push({ ambience, key, resolve }); });
-    this.waiting.set(key, promise); this.processMusicJob(); return promise;
+    const qualified=`${this.processing}|${key}`;
+    const waiting = this.waiting.get(qualified); if (waiting) return waiting;
+    const promise = new Promise<void>((resolve) => { this.jobs.push({ ambience, key, processing:this.processing, resolve }); });
+    this.waiting.set(qualified, promise); this.processMusicJob(); return promise;
   }
   private processMusicJob() {
     if (this.activeJob || !this.jobs.length || this.disposed) return;
     this.activeJob = this.jobs.shift()!;
-    if (!this.worker && typeof Worker !== "undefined" && typeof URL.createObjectURL === "function") {
-      try {
-        const code = `self.onmessage = function(event) { const { state, ambience, recipe, seed } = event.data; const pcm = recipe ? (${renderSoundRecipe.toString()})(recipe, 24000, seed) : ambience ? (${renderAmbience.toString()})(seed, 12000, 31.7, ambience) : (${renderMusic.toString()})(state, seed); self.postMessage(pcm, [pcm.left.buffer, pcm.right.buffer]); };`;
-        this.workerUrl = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
-        this.worker = new Worker(this.workerUrl);
-        this.worker.onmessage = (event: MessageEvent<StereoPCM>) => this.completeMusicJob(event.data);
-        this.worker.onerror = () => { this.worker?.terminate(); this.worker = null; this.fallbackMusicJob(); };
-      } catch { this.worker = null; }
+    if(!this.worker&&!this.workerFailed&&typeof Worker!=='undefined'&&typeof URL.createObjectURL==='function'){
+      // Imported lazily so native tests and unsupported browsers keep the synchronous fallback.
+      // Vite bundles the addon into this inline worker, including the single-file build.
+      void import('./audio-worker-loader').then(({createAudioWorker})=>{
+        if(this.disposed)return;
+        try{this.worker=createAudioWorker();this.worker.onmessage=(event:MessageEvent<StereoPCM>)=>this.completeMusicJob(event.data);
+          this.worker.onerror=()=>{this.worker?.terminate();this.worker=null;this.workerFailed=true;this.fallbackMusicJob();};this.sendWorkerJob();
+        }catch{this.workerFailed=true;this.fallbackMusicJob();}
+      }).catch(()=>{this.workerFailed=true;this.fallbackMusicJob();});
+      return;
     }
-    if (this.worker) this.worker.postMessage({ state: this.activeJob.state, ambience: this.activeJob.ambience, recipe: this.activeJob.recipe, seed: audioSeed(this.activeJob.key) });
+    this.sendWorkerJob();
+  }
+  private sendWorkerJob(){
+    if(!this.activeJob||this.disposed)return;
+    if(this.worker)this.worker.postMessage({state:this.activeJob.state,ambience:this.activeJob.ambience,recipe:this.activeJob.recipe,seed:audioSeed(this.activeJob.key),key:this.activeJob.key,processing:this.activeJob.processing});
     else this.fallbackMusicJob();
   }
   private fallbackMusicJob() {
@@ -622,15 +619,15 @@ export class SpaceAudio {
     this.fallbackTimer = setTimeout(() => {
       this.fallbackTimer = null;
       if (!this.activeJob || this.disposed) return;
-      this.completeMusicJob(this.activeJob.recipe ? renderSoundRecipe(this.activeJob.recipe, 24000, audioSeed(this.activeJob.key))
-        : this.activeJob.ambience ? renderAmbience(audioSeed(this.activeJob.key), 12000, 31.7, this.activeJob.ambience)
-        : renderMusic(this.activeJob.state!, audioSeed(this.activeJob.key)));
+      this.completeMusicJob(this.activeJob.recipe ? renderSoundRecipe(this.activeJob.recipe, 24000, audioSeed(this.activeJob.key),this.activeJob.processing,this.activeJob.key)
+        : processBedPCM(this.activeJob.ambience ? renderAmbience(audioSeed(this.activeJob.key), 12000, 31.7, this.activeJob.ambience)
+        : renderMusic(this.activeJob.state!, audioSeed(this.activeJob.key)),this.activeJob.processing));
     }, 0);
   }
   private completeMusicJob(pcm: StereoPCM) {
     const job = this.activeJob;
     if (!job || this.disposed) return;
-    this.remember(job.key, pcm); this.waiting.delete(job.key); this.activeJob = null; job.resolve();
+    if(job.processing===this.processing)this.remember(job.key, pcm); this.waiting.delete(`${job.processing}|${job.key}`); this.activeJob = null; job.resolve();
     this.updateBeds(); this.processMusicJob();
   }
 }

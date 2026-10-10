@@ -1,3 +1,4 @@
+import type {AudioProcessingMode} from './audio-processing';
 import "./style.css";
 import {
   Chess,
@@ -986,6 +987,7 @@ function enableSound() {
     void audio.resume();
     spaceAudio ||= new SpaceAudio(audio);
     for (const [bus, value] of Object.entries(audioPreferences.levels)) spaceAudio.setBusVolume(bus as keyof typeof audioPreferences.levels, value);
+    spaceAudio.setProcessingMode(audioPreferences.processing);
     spaceAudio.setMuted(audioPreferences.muted);
     spaceAudio.setAmbiencePreset(mode==='online'&&state?.settings?state.settings.arena:profile.arena);
     spaceAudio.setPaused(false);
@@ -1675,7 +1677,8 @@ audioPreferences.levels.master = Number(volumeInput.value) / 100;
 volumeInput.closest("label")!.firstChild!.textContent = "ระดับเสียงรวม";
 volumeInput.setAttribute("aria-label", "ระดับเสียงรวม");
 installAudioControls($(".settings"), audioPreferences, (bus, value) => {
-  if (bus === "mute") { audioPreferences.muted = !!value; spaceAudio?.setMuted(!!value); }
+  if(bus==="processing"){audioPreferences.processing=value as AudioProcessingMode;spaceAudio?.setProcessingMode(audioPreferences.processing);}
+  else if (bus === "mute") { audioPreferences.muted = !!value; spaceAudio?.setMuted(!!value); }
   else { audioPreferences.levels[bus] = Number(value); spaceAudio?.setBusVolume(bus, Number(value)); }
   saveAudioMix();
 });

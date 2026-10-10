@@ -20,8 +20,12 @@ no real iPhone/Safari run has been performed in this cloud environment.
 
 Each action has four shuffled takes without consecutive repeats. Skins change
 material, envelopes, layer articulation and timbre: Ember adds saturated plasma;
-Frost uses crystalline metal and swells; Astral uses FM/choir displacement; Royal
-uses heavier brass partials. Ultimate cues strengthen the body and spectral energy.
+Frost uses ice fractures and crystalline swells; Astral uses spaced seals and
+choir/formant displacement; Royal uses armored brass. Storm has interrupted
+electrical bursts, Void has reverse/vacuum pressure, and Prism has clustered
+shards. These seven skins now have their own arranged source scores rather than
+a lightly transformed copy of the class score. Nova, Phantom and Dragon retain
+their separate source families. Ultimate cues strengthen the body and spectral energy.
 The nine capture cues are documented in [the combat score](CINEMATIC-COMBAT.md).
 A/B auditions fix the take so changes in skin can be compared consistently.
 
@@ -47,16 +51,25 @@ warping and pressure: citadel, ember, frost, astral, storm, grove, reactor, ecli
 Ambience is a separate 31.7-second bed. The arrangements have faded loop seams;
 they are long generated arrangements, not an unlimited music composer.
 
-The five controls are Master, Music, Ambience, SFX and Cinematic, plus mute. Levels
-and mute persist independently. The soundtrack ducks 3–6 dB around powerful cues;
+The five controls are Master, Music, Ambience, SFX and Cinematic, plus mute and
+a persistent processing selector: cinematic, focused and dry. Cinematic shapes
+material body and stereo room reflections; focused lowers wet gain and shortens
+echo tails; dry compares the unprocessed source score and legacy reflections.
+Existing saved bus levels and mute state survive migration. The soundtrack ducks 3–6 dB around powerful cues;
 Skip cancels effect voices and restores the soundtrack gain. A high-pass filter,
-compressor and soft limiter retain mix headroom. Stereo early reflections are
-embedded in each effect, so no feedback tail survives cancellation.
+compressor and soft limiter retain mix headroom. The Apache-2.0 **@thi.ng/dsp 4.7.123** addon provides normalized biquad
+filters, low-mid body equalization and filtered feedback delay while preparing
+PCM. Every echo is embedded in its owning effect source, so no feedback tail
+survives cancellation. Weak families receive a bounded body gain; short UI
+feedback is never boosted and ordinary noncapture landings retain their quieter
+level. Music and ambience receive gentle filtering with unchanged loop lengths.
+See [verified provenance, comparison and API notes](OPEN-SOURCE-AUDIO.md).
 
 ## Lifetime and performance
 
-A reusable worker prepares long music, ambience and capture takes off the drawing
-thread. `prepareCombat` prewarms each actor's next shuffled take without consuming
+A reusable, bundled inline worker prepares long music, ambience and capture
+takes off the drawing thread. Imported DSP code is bundled into that worker
+rather than serializing a function which cannot access library dependencies. `prepareCombat` prewarms each actor's next shuffled take without consuming
 it. An uncached short cue can still synthesize synchronously if preparation has
 not arrived. Worker fallback is asynchronous but runs on the main thread; its
 mobile performance remains a device check. No new AudioContext is created for
@@ -72,22 +85,36 @@ levels, state, worker status and maximum cold synthesis time.
 `cancelEffects` stops both SFX and cinematic voices; `cancelCinematic` is narrower.
 Pause cancels effect voices and gates beds. Reset/menu/skip preserve continuous
 beds, clear the current fight's tails and discard queued obsolete capture takes. Disabling sound cancels all voices.
-`dispose` disconnects nodes, releases cache, terminates the worker, revokes its
+`dispose` disconnects nodes, releases cache, terminates the worker, uses the inline worker loader to manage its
 Blob URL and resolves pending preparation jobs. Race-safe cache insertion avoids
-counting a take twice when a cold frame and worker completion overlap.
+counting a take twice when a cold frame and worker completion overlap. Cache
+and preparation jobs are namespaced by processing mode, so switching during
+warmup cannot serve an old-mode take under the new setting.
 
 ## Verification
 
-`npm run test:audio` checks 232 ordinary/event takes and 1,080 combat takes,
+`npm run test:audio` checks 260 ordinary/event takes and 2,376 combat takes,
 waveform fingerprints, finite samples, duration, envelope, spectrum, peak/RMS,
 headroom, nine music states, eight ambience beds, actual worker preparation,
 independent bus silence, duck restoration, cancellation and disposal. It writes
 `test-results/audio-v2-analysis.json` for the current run. Native tests additionally
 check shuffle bags, cache/source bounds and the cold-frame/preparation race.
 
-The measured full-volume five-event mix peaked at **0.328**, ordinary/event takes
-at **0.123**; combat PCM peaked at **0.320** before master mixing. These values
-show digital headroom, not a subjective listening-quality guarantee. Use Main
-menu → ห้องทดลองการต่อสู้ → เสียงและบรรยากาศ for A/B listening on the intended
-headphones, speakers and phone. No real iPhone or acoustic speaker measurement
-is claimed.
+`npm run test:audio-addon` additionally checks a real DSP spectral response against
+a dry bypass, all 66 class/skin impact families in three modes, exact worker/main
+PCM parity for nine prepared cues, three cache namespaces, an in-flight mode
+switch, cancellation silence and continued music. With
+`AUDIO_ADDON_OFFLINE_TEST=1`, it also runs the built standalone game with network
+requests disabled and verifies the saved processing control and single context.
+
+The current full-volume five-event mix peaked at **0.429**, with ordinary/event
+takes at **0.180**. These are measured digital headroom checks. Use Main menu →
+ห้องทดลองการต่อสู้ → เสียงและบรรยากาศ for fixed-take A/B listening on headphones,
+speakers and phone. No real iPhone or acoustic speaker measurement is claimed.
+The Apache license and dependency attribution are retained in the repo and
+embedded in the downloadable single-file HTML.
+
+Cloud Chromium blocked direct `file://` navigation during this task. The standalone
+check therefore fulfills the exact built HTML from memory with the browser
+network disabled (`OFFLINE_TEST_TRANSPORT=memory`). This verifies the embedded
+assets, worker and controls; direct local-file navigation remains a device check.

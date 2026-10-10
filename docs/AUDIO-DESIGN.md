@@ -4,7 +4,7 @@
 
 ## Research boundary
 
-เมื่อพัฒนาใน cloud environment รอบนี้ ลองเปิดคู่มือทางการ Wwise เรื่อง HDR mixing / random containers และ FMOD Studio mixing แล้ว HTTP proxy ตอบ `403 Forbidden` จึงไม่ได้อ่านหรือยืนยันเนื้อหาออนไลน์จากแหล่งเหล่านั้น รายการด้านล่างเป็นแหล่งอ่านเพิ่มเติม ไม่ใช่หลักฐานว่าได้ค้นเว็บสำเร็จ การออกแบบและข้อกำหนดในไฟล์นี้มาจากความรู้เรื่องการออกแบบเสียงเกมและการตรวจระบบเดิมของโปรเจกต์
+เมื่อพัฒนาใน cloud environment รอบนี้ ลองเปิดคู่มือทางการ Wwise เรื่อง HDR mixing / random containers และ FMOD Studio mixing แล้ว HTTP proxy ตอบ `403 Forbidden` จึงไม่ได้อ่านหรือยืนยันเนื้อหาออนไลน์จากแหล่งเหล่านั้น ต่อมาได้อ่าน npm metadata และ source tarball ทางการของไลบรารีโอเพนซอร์สจริง และเลือก `@thi.ng/dsp@4.7.123` (Apache-2.0) มาใช้กับ PCM; หลักฐานและการเปรียบเทียบอยู่ใน [OPEN-SOURCE-AUDIO.md](OPEN-SOURCE-AUDIO.md) รายการ Wwise/FMOD ด้านล่างเป็นแหล่งอ่านเพิ่มเติม ไม่ใช่หลักฐานว่าได้ค้นเว็บสำเร็จ การออกแบบและข้อกำหนดในไฟล์นี้มาจากความรู้เรื่องการออกแบบเสียงเกมและการตรวจระบบเดิมของโปรเจกต์
 
 - [Wwise documentation](https://www.audiokinetic.com/en/public-library/) — random / shuffle playback, voice limits, HDR mixing and ducking
 - [FMOD Studio mixing](https://www.fmod.com/docs/2.03/studio/mixing.html) — buses, snapshots and mix control
@@ -37,9 +37,11 @@ Nova ใช้ energy riser, plasma release และ solar resonance; Phantom �
 - แยก master / music / ambience / sfx / cinematic รักษาค่ามิกซ์ที่ผู้เล่นบันทึก
 - วงจรจำกัดเสียง 32 PCM voices และ cache 24 MiB; overflow เลือกตัดเสียง priority ต่ำก่อน จึงไม่ให้ปุ่มเมนูแย่งเสียงรุกหรือแรงปะทะสำคัญ
 - ลดเพลงก่อน contact, ลด ambience ในมิติ และคืนมิกซ์เมื่อจบ; การกดข้ามหยุด delayed layers และ room tail ทั้งชุด
+- `@thi.ng/dsp` ใช้ biquad และ filtered feedback delay ปรุงแต่ละเสียงเป็น PCM ก่อนเล่น · โหมดภาพยนตร์/คมชัด/ต้นฉบับสะสม cache แยกและสลับระหว่างเตรียมเสียงได้
 - mechanical feedback ใช้ damped inharmonic resonances; glass และ void มี oscillator texture ของตนเอง room amount แยกตามหน้าที่
 - body มีฮาร์มอนิกกลางเพื่อได้ยินบนลำโพงโทรศัพท์ ไม่พึ่ง sub bass อย่างเดียว ใช้ compressor / limiter กับ mix และทดสอบ finite PCM, headroom และการยกเลิก
 - synthesis ใช้ worker เตรียมคัตซีนล่วงหน้า และ cache take หลีกเลี่ยงสร้าง oscillator graph ต่อเฟรม
+- สกินเดิม 7 แบบมี source score เฉพาะวัสดุและจังหวะ แทนการดัดแปลง recipe เดียวเล็กน้อย; โนวา/แฟนทอม/มังกรยังใช้ชุดต้นเสียงเฉพาะ และปรับสมดุลเนื้อเสียงที่เบาเกินไป
 - ระบบยังเป็น procedural synthesis ไม่มีการดาวน์โหลดหรือใช้เสียงที่สิทธิ์ไม่ชัดเจน การตรวจ waveform/peak ไม่แทนการฟังจริงบนหูฟังและโทรศัพท์เพื่อประเมินรสนิยมและความล้า
 
 ## Scope

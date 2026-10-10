@@ -20,6 +20,7 @@
     "test:title": "node tests/title-browser.mjs",
     "test:hud": "node tests/hud-browser.mjs",
     "test:army": "node tests/army-browser.mjs",
+    "test:audio-addon": "node tests/audio-addon-browser.mjs",
     "test:audio": "node tests/audio-browser.mjs",
     "test:showcase": "node tests/showcase-browser.mjs",
     "test:battleground": "node tests/battleground-browser.mjs",
@@ -42,6 +43,7 @@
     "test:friend-deploy": "node scripts/test-friend-deploy.mjs"
   },
   "dependencies": {
+    "@thi.ng/dsp": "4.7.123",
     "chess.js": "^1.4.0",
     "three": "^0.180.0",
     "ws": "^8.18.3"

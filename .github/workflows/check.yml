@@ -30,6 +30,7 @@ jobs:
       - run: npm run test:hud
       - run: npm run test:army
       - run: npm run test:audio
+      - run: npm run test:audio-addon
       - uses: actions/upload-artifact@v4
         if: always()
         with:
