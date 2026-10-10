@@ -24,7 +24,7 @@ import { readProfile, claimXP, matchXP, levelProgress, skins, isSkinUnlocked, eq
 import { appearanceMap, avatarNames, skillNames, scenarioLoadout } from "./cosmetics";
 import { rivals, trials, evaluateTrial, battleMVP } from "./progression";
 import { dailyChallenge, dailyProgress, utcDay, validDailyDay } from "./daily";
-import { previewMove, type MovePreview } from "./tactics";
+import { previewMove, inspectPiece, type MovePreview, type TacticalPiece } from "./tactics";
 import { BattlePresentation } from "./presentation";
 import type { ArmyCosmetics } from "../shared/cosmetics.js";
 import { matchStory, latestMoment } from "./battle";
@@ -34,6 +34,7 @@ import { VariantChess, createVariant, variantInitialFen, modeDefinitions, rushPu
 import { newModeSession, readModeSession, mirrorScore, type ModeSession } from "./mode-session";
 import { installPlayer, type PlayerManager } from "./player";
 import { installDesign, geometricPiece } from "./design";
+import { installGameHelp } from './game-help';
 import "./mode-ui.css";
 import "./design.css";
 import BotWorker from "./bot.ts?worker&inline";
@@ -150,7 +151,7 @@ let activeVariant: ModeSession | null = null;
 let activeContract: Contract | null = null;
 let player: PlayerManager | undefined;
 let rushStamp = performance.now();
-$("#stage").insertAdjacentHTML("beforeend", `<section id="variant-hud" hidden aria-label="กติกาโหมดปัจจุบัน"><div><small id="variant-title"></small><strong id="variant-progress"></strong></div><p id="variant-forecast"></p><button id="variant-next" hidden>โจทย์ถัดไป</button></section>`);
+$("#arena-intel").insertAdjacentHTML("beforeend", `<section id="variant-hud" hidden aria-label="กติกาโหมดปัจจุบัน"><div><small id="variant-title"></small><strong id="variant-progress"></strong></div><p id="variant-forecast"></p><button id="variant-next" hidden>โจทย์ถัดไป</button></section>`);
 $("#stage").insertAdjacentHTML("beforeend", '<section id="economy-hud" class="economy-hud" hidden aria-label="สัญญาและเครดิต"></section>');
 let ultimateTarget: Square | null = null;
 let game = new Chess(),
@@ -744,17 +745,25 @@ function updateFlatBoard() {
 }
 function updateTactics(target: MovePreview | null = null) {
   const panel = $("#tactical-readout");
-  const piece = selected && game.get(selected);
-  panel.hidden = !piece || !canPlay();
+  const inspection = selected ? inspectPiece(game, selected) : null;
+  panel.hidden = !inspection || !canPlay();
   document.querySelectorAll("#flat-board .preview").forEach(el => el.classList.remove("preview"));
-  if (!piece || !selected) return;
-  const options = new Set(game.moves({ square: selected, verbose: true }).map(m => m.to)).size;
-  panel.querySelector("strong")!.textContent = `${symbols[piece.color][piece.type]} ${names[piece.type]} ${selected.toUpperCase()} · ${options} ทางเดิน`;
+  if (!inspection || !selected) return;
+  panel.querySelector("strong")!.innerHTML = `${geometricPiece(inspection.type, inspection.color)} ${names[inspection.type]} ${selected.toUpperCase()}`;
+  $('#tactical-options').textContent = `${inspection.legalDestinations.length} ช่องเดิน · ${inspection.captureDestinations.length} ช่องกิน${inspection.ultimate ? ' · อัลติพร้อมใช้' : ''}`;
   panel.classList.toggle("ultimate-preview", game instanceof SpecialChess && !!game.armed);
-  panel.dataset.tone = target?.mate || target?.check ? "check" : target?.controlled ? "danger" : target?.captured ? "capture" : "move";
-  panel.querySelector("span")!.textContent = target
+  panel.dataset.tone = target?.mate || target?.check || !target && inspection.inCheck ? "check" : target?.controlled || !target && inspection.attackers.length ? "danger" : target?.captured ? "capture" : "move";
+  panel.querySelector(".tactical-move")!.textContent = target
     ? `${target.castle ? "เข้าป้อม" : target.captured ? "กิน" + names[target.captured] : target.ultimate ? "อัลติ" : target.piece === "n" ? "กระโดด" : "เดิน"} → ${target.to.toUpperCase()}${target.promotion ? " · ตัวอย่างเลื่อนขั้นเป็น" + names[target.promotion] : ""}${target.mate ? " · รุกฆาต" : target.check ? " · รุกคิง" : ""}${target.controlled && !target.mate ? " · อยู่ในแนวคุมคู่แข่ง" : ""}`
     : game instanceof SpecialChess && game.armed ? "เป้าม่วง = อัลติ · เลือกปลายทางแล้วกดยืนยัน" : "จุดเขียว = เดิน · กรอบชมพู = กินหมาก";
+  const describe = (pieces: TacticalPiece[]) => pieces.map(piece => `${names[piece.type]} ${piece.square.toUpperCase()}`).join(' · ');
+  const attackers = target?.attackers || inspection.attackers, defenders = target?.defenders || inspection.defenders;
+  const location = (target?.to || selected).toUpperCase();
+  $('#tactical-controls').textContent = attackers.length ? `คู่แข่งคุม ${location}: ${describe(attackers)}` : `ยังไม่พบคู่แข่งคุม ${location} ตามรูปเดินปกติ`;
+  $('#tactical-support').textContent = defenders.length ? `ฝ่ายเดียวกันคุม ${location}: ${describe(defenders)}` : `ยังไม่มีหมากฝ่ายเดียวกันคุม ${location}`;
+  $('#tactical-check').hidden = !inspection.inCheck;
+  $('#tactical-check').textContent = inspection.inCheck ? `คิงถูกรุกโดย ${describe(inspection.checkers)} · เลือกทางเดินที่แก้รุกได้${target?.escapesCheck ? ' · ตานี้แก้รุก' : ''}` : '';
+  $('#tactical-scope').textContent = `แนวคุมตามรูปเดินปกติ · รวมหมากที่ถูกตรึง${inspection.ultimate || inspection.variant ? ' · ไม่รวมการขู่อัลติและอีเวนท์' : ''}`;
   if (target) document.querySelector(`[data-square="${target.to}"]`)?.classList.add("preview");
 }
 function rushSessionFinished() {
@@ -843,7 +852,7 @@ function advanceVariant() {
 $("#variant-next").onclick = advanceVariant;
 function updateSpecialHUD() {
   let fieldPanel=document.querySelector<HTMLElement>("#field-hud");
-  if(!fieldPanel){fieldPanel=document.createElement("div");fieldPanel.id="field-hud";fieldPanel.setAttribute("role","status");$("#stage").append(fieldPanel);}
+  if(!fieldPanel){fieldPanel=document.createElement("div");fieldPanel.id="field-hud";fieldPanel.setAttribute("role","status");$("#arena-intel").prepend(fieldPanel);}
   const field=game instanceof SpecialChess?game.field:null;fieldPanel.hidden=!field;
   if(field){fieldPanel.dataset.kind=(field.active||field.forecast).kind;fieldPanel.dataset.state=field.active?"active":"warning";
     const event=field.active||field.forecast;
@@ -2042,6 +2051,7 @@ document.addEventListener("visibilitychange", () => {
 title.show(profile, { special: specialConfig, variant: activeVariant?.options, opponent: mode === "local" ? "local" : "bot", mode: activeContract?.mode || activeVariant?.id || (mode === "online" ? "online" : specialDuel ? "special" : activeDaily ? "daily" : activeTrial ? "campaign" : activeTraining ? "training" : hasSavedLocalGame ? mode : "bot"), side: humanColor, depth: $<HTMLSelectElement>("#difficulty").value, resume: mode === "online" ? !!session : hasSavedLocalGame, training: activeTraining || "pawn", trial: activeTrial || "rescue" });
 
 installDesign();
+installGameHelp();
 player = installPlayer({ offline: OFFLINE,
   onIdentity: () => { if (!menuOpen) updateUI(); },
   getProgression: () => profile,

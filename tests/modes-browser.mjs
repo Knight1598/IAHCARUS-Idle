@@ -40,12 +40,18 @@ try {
   async function saved() { return page.evaluate(() => JSON.parse(localStorage.getItem('special-chess-offline-game'))); }
   async function seed(id, initialFen, history = [], options = {}, saveOptions = {}) {
     const session = { ...newModeSession(id, { seed: 12345 }, 'w'), ...options };
+    // Pause the old Rush clock before replacing its save: an interval can
+    // otherwise rewrite this fixture while reload navigation is starting.
+    if (await page.locator('#game-shell').isVisible()) await openPanel(page, 'pause');
     await page.evaluate(({ initialFen, history, session, saveOptions }) => localStorage.setItem('special-chess-offline-game', JSON.stringify({
       mode: 'local', specialDuel: false, humanColor: 'w', initialFen, history,
       matchId: `mode-${session.id}-${Date.now()}`, activeVariant: session, ...saveOptions,
     })), { initialFen, history, session, saveOptions });
     await page.reload(); await enterGame(page);
-    assert.equal((await saved()).activeVariant.id, id);
+    const restored = (await saved()).activeVariant;
+    assert.equal(restored.id, id);
+    assert.equal(restored.rushFailures, session.rushFailures);
+    assert.equal(restored.rushSolved, session.rushSolved);
   }
   async function setup(id) {
     await chooseMode(page, id);

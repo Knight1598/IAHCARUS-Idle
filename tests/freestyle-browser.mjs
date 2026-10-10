@@ -19,9 +19,10 @@ try {
   });
   await page.goto(url);await enterMenu(page);
   await page.locator('[data-menu-go="armory"]').click();
-  assert.equal(await page.locator('[data-piece-skin-option]').count(),8);
+  assert.deepEqual((await page.locator('[data-piece-skin-option]').evaluateAll(buttons=>buttons.map(button=>button.dataset.pieceSkinOption))).sort(),
+    ['astral','classic','dragon','ember','frost','nova','phantom','prism','royal','storm','void']);
   await page.locator('#piece-skin-filter').selectOption('5');
-  assert.equal(await page.locator('[data-piece-skin-option]:visible').count(),1);
+  assert.deepEqual((await page.locator('[data-piece-skin-option]:visible').evaluateAll(buttons=>buttons.map(button=>button.dataset.pieceSkinOption))).sort(),['dragon','prism']);
   await page.locator('#piece-skin-filter').selectOption('all');
   for(const skin of ['storm','void','prism']){
     await page.locator(`[data-piece-skin-option="${skin}"]`).click();

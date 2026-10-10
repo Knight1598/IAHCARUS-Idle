@@ -1,0 +1,21 @@
+IAHCARUS open-source UI positioning attribution
+
+Package                    Version    License
+@floating-ui/dom            1.8.0     MIT
+@floating-ui/core           1.8.0     MIT
+@floating-ui/utils          0.2.12    MIT
+
+Copyright (c) 2021-present Floating UI contributors
+
+All three installed package LICENSE files were inspected and are identical.
+Their complete shared license text is retained verbatim as LICENSE in this
+directory. All three names and their license texts are also embedded in the
+standalone offline HTML distribution.
+
+Upstream source: https://github.com/floating-ui/floating-ui
+Published packages: https://www.npmjs.com/package/@floating-ui/dom
+Package pinning and integrity hashes are retained in package-lock.json.
+
+The game uses published DOM positioning APIs without modifying upstream code.
+This notice was prepared by the IAHCARUS project; it does not change the
+license of the IAHCARUS game.

@@ -1,0 +1,16 @@
+IAHCARUS open-source UI animation attribution
+
+Package: animejs 4.5.0
+License: MIT
+Copyright (c) 2025 Julian Garnier
+
+The published package's LICENSE.md is retained verbatim as LICENSE in this
+directory. This release has no runtime package dependencies.
+
+Upstream source: https://github.com/juliangarnier/anime
+Exact published package: https://registry.npmjs.org/animejs/-/animejs-4.5.0.tgz
+Package pinning and integrity hashes are retained in package-lock.json.
+
+The game's UI uses the published WAAPI API without modifying upstream code.
+The game-specific geometry, UI design and animation integration are separate
+from the library. This notice was prepared by the IAHCARUS project.

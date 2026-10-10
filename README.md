@@ -209,3 +209,11 @@ skins have their own source scores. Choose cinematic, focused or dry audio in
 settings; the existing mixer, offline play and single AudioContext are retained.
 See [provenance and licenses](docs/OPEN-SOURCE-AUDIO.md). Verify with
 `npm run test:audio-addon` (add `AUDIO_ADDON_OFFLINE_TEST=1` for the built game).
+
+### Open-source interface and tactical composition
+
+MIT-licensed Anime.js and Floating UI support brief game-menu transitions and
+contextual details that stay inside the viewport. The custom geometric theme,
+procedural board and existing chess.js rules remain in place. These libraries
+are bundled into the standalone game, including their license notices; no
+runtime CDN is required. See [integration and attribution](docs/OPEN-SOURCE-UI.md).

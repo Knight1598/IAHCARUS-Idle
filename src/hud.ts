@@ -1,3 +1,4 @@
+import { icon } from './design';
 type Panel = "pause" | "settings" | "training" | "history" | "missions" | "room";
 /** Reuses existing game controls; drawers never resize or move the board. */
 export class ArenaHUD {
@@ -36,9 +37,18 @@ export class ArenaHUD {
     stage.querySelector(".arena-bottom")!.append(objective);
     const readout = document.createElement("section");
     readout.id = "tactical-readout"; readout.hidden = true;
-    readout.setAttribute("aria-label", "พรีวิวการเดิน");
-    readout.innerHTML = '<strong></strong><span></span>';
-    stage.append(readout);
+    readout.setAttribute("aria-label", "อ่านกระดานและพรีวิวการเดิน");
+    readout.innerHTML = `<div class="tactical-head"><strong></strong><button id="tactics-expand" type="button" aria-expanded="false" aria-controls="tactical-detail" aria-label="ขยายข้อมูลอ่านกระดาน">${icon('target')}</button></div><span class="tactical-move"></span><small id="tactical-options"></small><div id="tactical-detail" hidden><p id="tactical-controls"></p><p id="tactical-support"></p><p id="tactical-check" hidden></p><small id="tactical-scope"></small><button class="game-help-trigger" data-help-title="อ่านแนวคุม ก่อนเลือกตาเดิน" data-help-body="หมากที่คุมช่องคำนวณจากรูปเดินปกติ รวมหมากที่ถูกตรึงอยู่ด้วย จึงไม่ใช่การรับประกันว่าจะกินได้จริง หรือว่าช่องที่ไม่มีผู้คุมจะปลอดภัย ในโหมดพิเศษต้องอ่านสกิลและอีเวนท์สนามประกอบ แนวเดินที่เรืองแสงคือทางที่กติกาอนุญาต ณ ตานี้" aria-label="คำอธิบายการอ่านกระดาน">${icon('help')}</button></div>`;
+    const intel = document.createElement('section');
+    intel.id = 'arena-intel'; intel.setAttribute('aria-label', 'ข้อมูลวางแผนข้างกระดาน');
+    intel.append(readout); stage.append(intel);
+    readout.querySelector<HTMLButtonElement>('#tactics-expand')!.onclick = () => {
+      const button = readout.querySelector<HTMLButtonElement>('#tactics-expand')!;
+      const expanded = button.getAttribute('aria-expanded') !== 'true';
+      button.setAttribute('aria-expanded', String(expanded));
+      button.setAttribute('aria-label', expanded ? 'ย่อข้อมูลอ่านกระดาน' : 'ขยายข้อมูลอ่านกระดาน');
+      readout.querySelector<HTMLElement>('#tactical-detail')!.hidden = !expanded;
+    };
     stage.append(children.find((el) => el.id === "notice")!);
     const groups: Record<Panel, string[]> = {
       pause: [],

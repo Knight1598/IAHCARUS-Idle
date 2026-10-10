@@ -12,6 +12,7 @@ import { icon, geometricPiece, logo } from "./design";
 import { modeDefinitions, draftBudget, draftCosts, defaultDraft, validateDraft, variantInitialFen, encodeChallenge, decodeChallenge, type VariantId } from "./variants";
 import { economicModes, economicDefinition, isEconomicMode, type EconomicMode, shopCatalog, type ShopItem } from "../shared/economy.js";
 import { lootCard, treasuryHTML, shopName, type EconomyAction } from "./economy-ui";
+import { GameMotion } from "./game-motion";
 import "./lobby.css";
 import "./special.css";
 import "./royal-ui.css";
@@ -48,6 +49,7 @@ const rivalCards = Object.entries(rivals).map(([depth, rival]) => ({ ...rival, d
 
 export class TitleScreen {
   readonly root: HTMLElement;
+  private readonly motion: GameMotion;
   private selected: TitleMode = "bot";
   private skin: SkinId = "classic";
   private profile: Profile | undefined;
@@ -75,6 +77,7 @@ export class TitleScreen {
     this.root = document.createElement("section");
     this.root.id = "title-screen";
     this.root.setAttribute("aria-label", "เมนูเกม Special Chess");
+    this.motion = new GameMotion(this.root);
     this.root.innerHTML = `
       <header class="lobby-top"><div class="lobby-brand"><span>${icon("knight")}</span><div><strong>SPECIAL CHESS</strong><small>อ่านเกมให้ขาด · ชนะด้วยฝีมือ</small></div></div><span class="lobby-edition">${offline ? "TACTICAL ARENA" : "THE ROYAL DUEL"}</span><div class="commander-card"><div class="commander-emblem">${icon("profile")}</div><div><small id="commander-level"></small><strong id="commander-rank"></strong></div><span id="commander-record"></span></div></header>
       <div class="lobby-layout">
@@ -471,6 +474,7 @@ export class TitleScreen {
       index > 0 ? journey[index - 1] : index === 0 ? "menu" : "title");
   }
   private go(view: MenuView) {
+    this.motion.cancelAll();
     if (view === "menu") { this.dailyDay = utcDay(); this.refreshDaily(); }
     this.callbacks.settings?.(view === "settings" ? this.get("#title-settings-slot") : null);
     this.view = view; this.root.dataset.menuView = view; this.armory = view === "armory";
@@ -494,7 +498,12 @@ export class TitleScreen {
     this.renderSpecial(); this.renderSkins(); this.updateBrief(); this.renderVariant(); this.preview();
     this.renderTreasury();
     const current = this.get<HTMLElement>(`[data-menu-view="${view}"]`);
-    current.classList.remove("menu-enter"); void current.offsetWidth; current.classList.add("menu-enter");
+    const cards = [...current.querySelectorAll<HTMLElement>(
+      ".main-game-menu > button, [data-title-mode], .rival-options > button, " +
+      ".skill-loadout-card, [data-skin-option], [data-arena-option], " +
+      "[data-piece-skin-option], .banner-tabs > button, .shop-card, .title-logo, #title-enter"
+    )];
+    this.motion.enter(current, cards);
     [...current.querySelectorAll<HTMLElement>("button:not(:disabled), select")].find((el) => el.getClientRects().length)?.focus({ preventScroll: true });
   }
   private updateBrief() {
@@ -675,21 +684,25 @@ export class TitleScreen {
   }
   private showLoot(count:number){
     let dialog=this.root.querySelector<HTMLDialogElement>('#capsule-reveal');
-    if(!dialog){dialog=document.createElement('dialog');dialog.id='capsule-reveal';this.root.append(dialog);}
+    if(!dialog){dialog=document.createElement('dialog');dialog.id='capsule-reveal';this.root.append(dialog);dialog.addEventListener('close',()=>this.motion.cancel(dialog!));}
+    this.motion.cancel(dialog);
     dialog.innerHTML=`<small>RELIQUARY / SAVED TO INVENTORY</small><h2>คลังผนึกเปิดแล้ว</h2><p>รางวัลบันทึกเข้าคลังแล้ว · ปิดหน้าต่างได้ทันที</p><div class="loot-grid">${this.profile!.economy.lootHistory.slice(-count).map(reward=>lootCard(reward)).join('')}</div><button id="loot-close" class="primary">รับรางวัลและกลับร้าน</button>`;
     dialog.querySelector<HTMLButtonElement>('#loot-close')!.onclick=()=>dialog!.close();
     dialog.querySelectorAll<HTMLButtonElement>('[data-reward-equip]').forEach(button=>button.onclick=()=>{this.economyMessage=this.callbacks.economy?.({type:'equip',product:button.dataset.rewardEquip!})||'';button.textContent=this.economyMessage;});
     dialog.showModal();
+    this.motion.enter(dialog, [...dialog.querySelectorAll<HTMLElement>('.loot-card')], true);
   }
   private openShopItem(item:ShopItem,trial:boolean) {
     if(!this.profile)return;
     let dialog=this.root.querySelector<HTMLDialogElement>('#shop-item-dialog');
-    if(!dialog){dialog=document.createElement('dialog');dialog.id='shop-item-dialog';this.root.append(dialog);dialog.addEventListener('close',()=>{this.callbacks.shopPreview?.(null);this.previewKey='';this.preview();});}
+    if(!dialog){dialog=document.createElement('dialog');dialog.id='shop-item-dialog';this.root.append(dialog);dialog.addEventListener('close',()=>{this.motion.cancel(dialog!);this.callbacks.shopPreview?.(null);this.previewKey='';this.preview();});}
+    this.motion.cancel(dialog);
     const wallet=this.profile.economy,owned=item.cosmetic?wallet.inventory.includes(item.id):!!item.skin&&isSkinUnlocked(this.profile,item.skin);
     dialog.innerHTML=`<small>${trial?'TRY BEFORE YOU BUY':'CONFIRM PURCHASE'} / TRIAL SHOP</small><h2>${shopName(item)}</h2>${item.skin?`<div id="shop-preview-stage" aria-label="พรีวิวสกิน 3D"></div><label>ทดลองหมาก<select id="shop-preview-piece">${(['p','n','b','r','q','k'] as PieceSymbol[]).map(p=>`<option value="${p}" ${p==='n'?'selected':''}>${pieceNames[p]}</option>`).join('')}</select></label><button id="shop-preview-attack">ทดลองท่าโจมตีและเสียง</button>`:item.cosmetic?`<div class="shop-cosmetic-preview">${cosmeticArt(item)}</div><p>${item.description}</p>`:''}<p>ราคา ${item.price} ${item.currency==='premium'?'พรีเมียม':'เครดิต'}${item.shards?` · พร้อม ${item.shards} เศษพลังงาน`:''}</p><p>ยอดคงเหลือ ${wallet[item.currency]} → ${wallet[item.currency]>=item.price?wallet[item.currency]-item.price:"เงินไม่พอ"} ${item.currency==='premium'?'พรีเมียม':'เครดิต'}</p><p class="economy-note">ทดลองไม่หักเงินหรือเปลี่ยนสกินที่สวม · สกินไม่เพิ่มความสามารถหมาก · ร้านนี้ไม่มีการชำระเงินจริง</p><div class="shop-dialog-actions"><button id="shop-confirm-buy" ${owned||wallet[item.currency]<item.price?'disabled':''}>${owned?'มีสินค้าแล้ว':'ยืนยันซื้อ'}</button><button id="shop-dialog-close">${trial?'ปิดพรีวิว':'ยกเลิก'}</button></div>`;
     dialog.querySelector<HTMLButtonElement>('#shop-confirm-buy')!.onclick=()=>{if(performance.now()<this.economyBusyUntil)return;this.economyBusyUntil=performance.now()+500;this.economyMessage=this.callbacks.economy?.({type:'buy',product:item.id})||'ยังไม่พร้อมใช้งาน';dialog!.close();this.renderTreasury();setTimeout(()=>this.renderTreasury(),510);};
     dialog.querySelector<HTMLButtonElement>('#shop-dialog-close')!.onclick=()=>dialog!.close();dialog.showModal();
     if(item.skin){const piece=dialog.querySelector<HTMLSelectElement>('#shop-preview-piece')!;const preview=()=>this.callbacks.shopPreview?.(dialog!.querySelector('#shop-preview-stage')!,item.skin,piece.value as PieceSymbol);piece.onchange=preview;preview();dialog.querySelector<HTMLButtonElement>('#shop-preview-attack')!.onclick=()=>this.callbacks.audition?.(piece.value as PieceSymbol,item.skin!);}
+    this.motion.enter(dialog);
   }
   show(profile: Profile, settings: { mode: TitleMode; side: string; depth: string; resume: boolean; training?: string; trial?: string; view?: "title" | "menu"; special?: SpecialConfig; variant?: { seed: number; draft?: PieceSymbol[]; round?: number }; opponent?: "bot" | "local" }) {
     this.get<HTMLSelectElement>("#launch-side").value = settings.side;
@@ -713,5 +726,5 @@ export class TitleScreen {
     this.root.hidden = false;
     this.go(settings.view || "title");
   }
-  hide() { this.root.hidden = true; this.callbacks.settings?.(null); this.previewKey = ""; this.callbacks.preview?.(null, this.color); }
+  hide() { this.motion.cancelAll(); this.root.hidden = true; this.callbacks.settings?.(null); this.previewKey = ""; this.callbacks.preview?.(null, this.color); }
 }

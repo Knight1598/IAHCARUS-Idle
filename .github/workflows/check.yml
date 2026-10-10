@@ -24,6 +24,7 @@ jobs:
       - run: npm run test:title
       - run: npm run test:daily
       - run: npm run test:tactics
+      - run: npm run test:ui-addons
       - run: npm run test:special
       - run: npm run test:modes
       - run: npm run test:player

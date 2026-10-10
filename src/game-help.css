@@ -1,0 +1,43 @@
+.game-help-trigger { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; vertical-align: middle; width: 34px; height: 34px; min-height: 34px; margin-left: 12px; padding: 6px; color: #95dbed; border: 1px solid #6083a566; border-radius: 8px; background: #112840; cursor: pointer; }
+.game-help-trigger .iah-icon { width: 19px; height: 19px; }
+.game-help-trigger[aria-expanded="true"] { color: #effaff; border-color: #85e9ff; background: #214b65; }
+#title-screen .skill-loadout-card header { height: auto; min-height: 38px; padding: 0; background: none; border: 0; }
+#title-screen .skill-loadout-card header .game-help-trigger { width: 32px; height: 32px; min-height: 32px; padding: 6px; margin: 0 0 0 auto; display: flex; align-items: center; justify-content: center; }
+#title-screen .skill-loadout-card header .game-help-trigger svg { width: 18px; height: 18px; }
+.game-context-help { position: fixed; z-index: 80; width: min(310px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: auto; padding: 17px; border: 1px solid #81b7d588; border-radius: 4px 14px 4px 14px; color: #d7edfb; background: linear-gradient(135deg, #1b354ffb, #151f37fc); box-shadow: 0 12px 36px #0007; }
+.game-context-help header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0; height: auto; min-height: 0; background: none; border: 0; }
+.game-context-help header small { font-size: 8px; letter-spacing: 1.8px; color: #8abed2; }
+.game-context-help header button { display: grid; place-items: center; width: 30px; height: 30px; padding: 5px; border-color: #60799766; }
+.game-context-help header button svg { width: 16px; height: 16px; }
+.game-context-help h2 { margin: 12px 0 9px; font-size: 16px; color: #d5f7ff; }
+.game-context-help p { margin: 0; font-size: 12px; line-height: 1.85; white-space: pre-line; color: #b6cbdf; }
+.game-context-help .help-rule { width: 65px; height: 3px; margin-top: 14px; background: linear-gradient(90deg, #82ddf6, #b596ff); }
+#title-screen[data-motion-engine='animejs'] .loot-card { animation: none; }
+
+/* One bounded rail keeps field forecasts and selected-piece information apart. */
+#arena-intel { position: absolute; z-index: 7; top: 106px; right: 16px; width: min(278px, 32%); max-height: calc(100% - 240px); display: grid; gap: 9px; overflow: auto; scrollbar-width: thin; pointer-events: none; }
+#arena-intel #field-hud, #arena-intel #tactical-readout, #arena-intel #variant-hud { position: relative; top: auto; right: auto; left: auto; width: 100%; max-width: none; margin: 0; pointer-events: auto; }
+#arena-intel #variant-hud { order: -1; padding: 10px 12px; border-radius: 10px; }
+#arena-intel:has(#field-hud[hidden]):has(#variant-hud[hidden]):has(#tactical-readout[hidden]) { display: none; }
+#arena-intel .tactical-head { display: flex; align-items: center; gap: 8px; }
+#arena-intel .tactical-head strong { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+#arena-intel .tactical-head strong .iah-icon { width: 21px; height: 24px; flex-shrink: 0; }
+#tactics-expand { display: grid; place-items: center; width: 32px; height: 32px; padding: 6px; flex-shrink: 0; border-color: #6796b266; }
+#tactics-expand svg { width: 18px; height: 18px; }
+#tactics-expand[aria-expanded='true'] { border-color: #85e9ff; color: #bbf5ff; background: #21445b; }
+#tactical-options { display: block; color: #8edfcf; font-size: 10px; margin-top: 5px; }
+#tactical-detail { margin-top: 9px; padding-top: 8px; border-top: 1px solid #6592af44; }
+#tactical-detail p { margin: 0 0 7px; color: #c2d3e7; font-size: 11px; line-height: 1.6; }
+#tactical-detail #tactical-controls { color: #e7be9b; }
+#tactical-scope { display: block; color: #8ca7bf; font-size: 9px; line-height: 1.6; }
+#tactical-detail .game-help-trigger { margin: 8px 0 0; width: 30px; height: 30px; min-height: 30px; }
+#stage.cinematic #arena-intel, #stage:has(#arena-drawer:not([hidden])) #arena-intel { visibility: hidden; }
+@media (max-width: 760px) {
+  #arena-intel { top: 117px; right: 10px; width: min(186px, 46%); max-height: calc(100% - 250px); gap: 7px; }
+  #tactical-options { font-size: 9px; }
+  #tactical-detail p { font-size: 10px; }
+}
+@media (max-height: 540px) and (min-width: 600px) {
+  #arena-intel { top: 90px; width: 236px; max-height: calc(100% - 186px); }
+  #arena-intel #tactical-readout { padding: 7px 10px; }
+}

@@ -30,6 +30,7 @@
     "test:economy": "node tests/economy-browser.mjs",
     "test:daily": "node tests/daily-browser.mjs",
     "test:tactics": "node tests/tactics-browser.mjs",
+    "test:ui-addons": "node tests/ui-addons-browser.mjs",
     "test:freestyle": "node tests/freestyle-browser.mjs",
     "test:special": "node tests/special-browser.mjs",
     "test:modes": "node tests/modes-browser.mjs",
@@ -43,7 +44,9 @@
     "test:friend-deploy": "node scripts/test-friend-deploy.mjs"
   },
   "dependencies": {
+    "@floating-ui/dom": "1.8.0",
     "@thi.ng/dsp": "4.7.123",
+    "animejs": "4.5.0",
     "chess.js": "^1.4.0",
     "three": "^0.180.0",
     "ws": "^8.18.3"
