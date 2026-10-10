@@ -32,8 +32,8 @@ try {
   page.on("pageerror", error => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/audio-addon-test`);
   const result = await page.evaluate(async () => {
-    const [{ SpaceAudio, combatSoundRecipe }, { renderSoundRecipe, audioSeed }, { processEffectPCM, AUDIO_DSP_ADDON }] = await Promise.all([
-      import("/src/sound.ts"), import("/src/audio-synthesis.ts"), import("/src/audio-processing.ts"),
+    const [{ SpaceAudio, combatSoundRecipe }, { renderSoundRecipe, audioSeed }, { processEffectPCM, AUDIO_DSP_ADDON }, { combatCueDuration }] = await Promise.all([
+      import("/src/sound.ts"), import("/src/audio-synthesis.ts"), import("/src/audio-processing.ts"), import('/src/combat-audio.ts'),
     ]);
     function metrics(left, right = left, offset = 0) {
       let peak = 0, power = 0, finite = true;
@@ -99,10 +99,11 @@ try {
     const warmed = engine.diagnostics;
     const cues = ["draw", "charge", "release", "clash", "counter", "finisher", "impact", "armor", "disintegrate"];
     const workerComparisons = prepared.map((buffer, i) => {
-      const cue = cues[i], duration = cue === "charge" ? .55 : cue === "finisher" ? .35 : .3;
-      const key = `combat:n:phantom:${cue}:1:${duration}:false`;
-      const expected = renderSoundRecipe(combatSoundRecipe("n", "phantom", cue, 1, duration), 24000, audioSeed(key), "cinematic", key);
-      return { cue, samples: buffer.length, expectedSamples: expected.left.length,
+      const cue = cues[Math.floor(i / 4)], variant = i % 4;
+      const duration = Math.round(combatCueDuration(cue) * 20) / 20;
+      const key = `combat:n:phantom:${cue}:${variant}:${duration}:false`;
+      const expected = renderSoundRecipe(combatSoundRecipe("n", "phantom", cue, variant, duration), 24000, audioSeed(key), "cinematic", key);
+      return { cue, variant, samples: buffer.length, expectedSamples: expected.left.length,
         difference: difference(expected.left, buffer.getChannelData(0)),
         rightDifference: difference(expected.right, buffer.getChannelData(1)) };
     });
@@ -121,7 +122,7 @@ try {
     const disposed = engine.diagnostics;
 
     // A switch during preparation must neither cache the old take under the new
-    // mode nor start an obsolete effect. The new mode must prepare all nine cues.
+    // mode nor start an obsolete effect. The new mode must prepare all four takes.
     const queueContext = new OfflineAudioContext(2, 44100, 44100), queued = new SpaceAudio(queueContext, () => .25);
     const obsolete = queued.prepareCombat("q", "astral");
     queued.setProcessingMode("focused");
@@ -167,20 +168,20 @@ try {
     }
   }
   assert.equal(result.warmed.worker, true, "combat preparation did not use the bundled worker");
-  assert.equal(result.warmed.cacheEntries, 9); assert.equal(result.warmed.voices, 0);
-  assert.equal(result.workerComparisons.length, 9);
+  assert.equal(result.warmed.cacheEntries, 36); assert.equal(result.warmed.voices, 0);
+  assert.equal(result.workerComparisons.length, 36);
   for (const cue of result.workerComparisons) {
     assert.equal(cue.samples, cue.expectedSamples, `${cue.cue}: worker uses different processing`);
     assert.ok(cue.difference < 1e-6 && cue.rightDifference < 1e-6, `${cue.cue}: worker/main DSP samples disagree`);
   }
   assert.equal(result.afterCachedPlay.voices, 1, "one PCM source must own the entire processed cue");
-  assert.equal(result.afterCachedPlay.cacheEntries, 9);
-  assert.equal(result.afterFocused.processing, "focused"); assert.equal(result.afterFocused.cacheEntries, 18);
-  assert.equal(result.afterDry.processing, "dry"); assert.equal(result.afterDry.cacheEntries, 27);
-  assert.equal(result.afterReturn.processing, "cinematic"); assert.equal(result.afterReturn.cacheEntries, 27, "returning to a warmed mode needlessly regenerates takes");
+  assert.equal(result.afterCachedPlay.cacheEntries, 36);
+  assert.equal(result.afterFocused.processing, "focused"); assert.equal(result.afterFocused.cacheEntries, 72);
+  assert.equal(result.afterDry.processing, "dry"); assert.equal(result.afterDry.cacheEntries, 108);
+  assert.equal(result.afterReturn.processing, "cinematic"); assert.equal(result.afterReturn.cacheEntries, 108, "returning to a warmed mode needlessly regenerates takes");
   assert.equal(result.disposed.voices, 0); assert.equal(result.disposed.cacheBytes, 0);
   assert.equal(result.afterObsolete.processing, "focused");
-  assert.equal(result.afterObsolete.cacheEntries, 9, "mode switch failed to prepare every new-mode cue or cached an obsolete take");
+  assert.equal(result.afterObsolete.cacheEntries, 36, "mode switch failed to prepare every new-mode cue or cached an obsolete take");
   assert.equal(result.afterObsolete.voices, 0, "obsolete preparation unexpectedly played an effect");
   assert.equal(result.cancellation.voices, 0);
   assert.ok(result.cancellation.tail.peak < .0001, "processed echo survives cancellation");

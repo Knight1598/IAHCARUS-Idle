@@ -5,6 +5,7 @@ import { defaultSkillTeam,skillSpend,normalizeTeam,botDraft,botBan } from '../sr
 import { fieldState } from '../src/field-events.ts';
 import { battleMVP } from '../src/progression.ts';
 import { executionFrame } from '../src/skin-execution.ts';
+import { CAPTURE_CONTACT, CAPTURE_RELEASE } from '../src/combat.ts';
 const config=extra=>readSpecialConfig({fieldEvents:true,seed:2,charges:3,...extra});
 function at(fen,plies,remaining={w:3,b:3},extra={}){
   const g=new SpecialChess(fen,undefined,config(extra)),s=g.snapshot();s.plies=plies;s.remaining=remaining;
@@ -50,9 +51,9 @@ test('portals forbid own pieces, kings, exposure and stale event actions',()=>{
   const zero=at('7k/8/8/8/8/2N5/8/K7 w - - 0 1',4,{w:0,b:0},{charges:0});assert.equal(zero.isInsufficientMaterial(),true);
 });
 test('three premium executions retain contact clock and different visual signatures',()=>{
-  const anticipation=1.75/2.6,impact=1.85/2.6;
+  const anticipation=CAPTURE_RELEASE+.005,impact=CAPTURE_CONTACT;
   for(const skin of ['storm','void','prism']){assert.equal(executionFrame(skin,anticipation).quiet,true);assert.equal(executionFrame(skin,impact).quiet,false);assert.equal(executionFrame(skin,1).strength,0);}
-  assert.ok(executionFrame('prism',1.65/2.6).echo>0);assert.equal(executionFrame('storm',1.65/2.6).echo,0);
+  assert.ok(executionFrame('prism',3.45/5).echo>0);assert.equal(executionFrame('storm',3.45/5).echo,0);
   assert.ok(executionFrame('void',.9).collapse>0);assert.equal(executionFrame('prism',.9).collapse,0);
   assert.equal(executionFrame('classic',anticipation).quiet,false);
 });
@@ -62,7 +63,7 @@ test('premium execution effects have bounded batches and releasable independent 
   const from=new THREE.Vector3(-1,0,0),target=new THREE.Vector3(1,0,0);
   for(const skin of ['storm','void','prism','nova','phantom','dragon']){
     const fx=new ExecutionVFX(skin);assert.ok(fx.group.children.length<=3);
-    fx.update(1.75/2.6,from,target);assert.equal(fx.group.visible,true);
+    fx.update(CAPTURE_RELEASE+.005,from,target);assert.equal(fx.group.visible,true);
     assert.ok(fx.group.children.every(p=>Number.isFinite(p.position.x+p.position.y+p.position.z)));
     fx.update(1,from,target);assert.equal(fx.group.visible,false);
     const materials=new Set();for(const mesh of fx.group.children){mesh.geometry.dispose();materials.add(mesh.material);}materials.forEach(m=>m.dispose());
@@ -77,9 +78,9 @@ test('premium execution effects have bounded batches and releasable independent 
   assert.equal(new Set(geometrySignatures).size,3,'each execution needs different geometry, not only a tint');
   for(const fx of effects){
     const states=[];
-    for(const t of [.62,.69,.72,.82]){fx.update(t,from,target);states.push(fx.group.children.map(mesh=>[...mesh.position.toArray(),...mesh.scale.toArray(),...mesh.rotation.toArray().slice(0,3)]));}
+    for(const t of [.65,.735,CAPTURE_CONTACT+.01,.88]){fx.update(t,from,target);states.push(fx.group.children.map(mesh=>[...mesh.position.toArray(),...mesh.scale.toArray(),...mesh.rotation.toArray().slice(0,3)]));}
     assert.notDeepEqual(states[0],states[2],'charge must release into a different spatial pose');
-    fx.update(.72,from,target);
+    fx.update(CAPTURE_CONTACT+.01,from,target);
     assert.ok(fx.group.children.every(mesh=>mesh.geometry.type!=='PlaneGeometry'),'a flat panel cannot substitute for the volume');
     fx.update(1,from,target);assert.equal(fx.group.visible,false);
     for(const mesh of fx.group.children){mesh.geometry.dispose();mesh.material.dispose();}

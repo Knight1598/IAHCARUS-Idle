@@ -33,8 +33,10 @@ export class BattleOverlay {
   readonly canvas = document.createElement("canvas");
   private ctx: CanvasRenderingContext2D;
   private stage: HTMLElement;
+  private surface: HTMLElement;
   constructor(stage: HTMLElement) {
     this.stage = stage;
+    this.surface = stage;
     this.canvas.className = "battle-overlay";
     this.canvas.setAttribute("aria-hidden", "true");
     this.ctx = this.canvas.getContext("2d")!;
@@ -44,9 +46,10 @@ export class BattleOverlay {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     delete this.stage.dataset.battlePhase;
   }
+  setSurface(surface: HTMLElement) { this.surface=surface; }
   /** Reuse the same overlay; its soft contact flash follows the final strike. */
   drawCapture(t: number, type: string, color: "w" | "b", title: string) {
-    const opening = 0.4 / 2.6, contactEnd = CAPTURE_CONTACT + 0.045;
+    const opening = .45 / 5, contactEnd = CAPTURE_CONTACT + .025;
     const progress = t < opening ? t / opening * 0.3
       : t < CAPTURE_CONTACT ? 0.3 + (t - opening) / (CAPTURE_CONTACT - opening) * 0.22
       : t < contactEnd ? 0.52 + (t - CAPTURE_CONTACT) / (contactEnd - CAPTURE_CONTACT) * 0.08
@@ -55,8 +58,8 @@ export class BattleOverlay {
     this.draw(progress, type, color, title);
   }
   draw(t: number, type: string, color: "w" | "b", _title: string) {
-    const w = this.stage.clientWidth,
-      h = this.stage.clientHeight;
+    const w = this.surface.clientWidth,
+      h = this.surface.clientHeight;
     if (this.canvas.width !== w || this.canvas.height !== h) {
       this.canvas.width = w;
       this.canvas.height = h;

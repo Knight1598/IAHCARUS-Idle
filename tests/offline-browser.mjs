@@ -42,12 +42,12 @@ try {
   });
   const url = pathToFileURL(resolve("offline/Special-Chess-Offline.html")).href;
   const memory = process.env.OFFLINE_TEST_TRANSPORT === "memory";
-  const documentUrl = memory
-    ? "http://localhost:31460/offline-test?room=ABCDEF"
-    : url + "?room=ABCDEF";
+  // Solo/offline verification uses the plain game URL. Room invitations now
+  // intentionally select friend-duel mode and have their own browser suite.
+  const documentUrl = memory ? "http://localhost:31460/offline-test" : url;
   if (memory) {
     await page.route(
-      "http://localhost:31460/offline-test?room=ABCDEF",
+      documentUrl,
       (route) =>
         route.fulfill({
           contentType: "text/html",
@@ -140,13 +140,14 @@ try {
   await openPanel(page, "settings"); await page.locator("#human-side").selectOption("w"); await closePanel(page);
   await page.waitForTimeout(400);
   assert.equal(await page.locator("#moves .san").count(), 0);
-  // Every enabled capture, including a pawn in Key Moments mode, uses the v2 score.
+  // Every enabled capture, including a pawn in Key Moments mode, uses the full five-second duel.
   await openPanel(page, "training");
   await page.locator("#training-panel summary").click();
   await openPanel(page, "training");
   await page.locator("#training-select").selectOption("pawn");
   await openPanel(page, "settings");
   await page.locator("#reduced").uncheck();
+  assert.equal(await page.locator("#capture-duration").inputValue(), "5000");
   await closePanel(page);
   await page.locator('[data-square="c4"]').click();
   await closePanel(page);
@@ -154,17 +155,21 @@ try {
     const stage = document.querySelector("#stage"); window.captureSnapshots = [];
     window.captureObserver = new MutationObserver(() => window.captureSnapshots.push({
       cinematic: stage.classList.contains("cinematic"), duration: stage.dataset.cinematicDuration, phase: stage.dataset.battlePhase,
+      dimension: stage.dataset.combatDimension, exchange: stage.dataset.duelExchange,
     }));
     window.captureObserver.observe(stage, { attributes: true });
   });
   await page.locator('[data-square="d5"]').click();
-  await page.waitForFunction(() => window.captureSnapshots.some(sample => sample.cinematic && sample.duration === "2600" && sample.phase));
+  await page.waitForFunction(() => window.captureSnapshots.some(sample => sample.cinematic && sample.duration === "5000" && sample.phase && sample.dimension));
   const capturePlayed = await page.evaluate(() => {
     window.captureObserver.disconnect();
-    return window.captureSnapshots.some(sample => sample.cinematic && sample.duration === "2600" && sample.phase);
+    return window.captureSnapshots.some(sample => sample.cinematic && sample.duration === "5000" && sample.phase && sample.dimension);
   });
-  assert.equal(capturePlayed, true, "pawn capture enters a full v2 cinematic even in Key Moments mode");
-  await page.waitForFunction(() => !document.querySelector("#event").classList.contains("visible"));
+  assert.equal(capturePlayed, true, "pawn capture enters a five-second isolated duel even in Key Moments mode");
+  await page.waitForFunction(() => {
+    const stage = document.querySelector("#stage");
+    return !stage.dataset.cinematicDuration && !stage.dataset.combatDimension && !stage.classList.contains("cinematic");
+  }, {}, { timeout: 10000 });
   assert.equal(await page.locator('#white-captured svg[data-piece="p"][data-color="b"]').count(), 1);
   assert.equal(await page.locator("#white-material").innerText(), "+1");
   await page.locator("#undo").click();
@@ -213,15 +218,20 @@ try {
   // Observe the actual stage before input: software WebGL can delay the click
   // response until after a short phase has already appeared and disappeared.
   await page.evaluate(() => {
-    window.__battlePhases = []; window.__combatPhases = [];
+    window.__battlePhases = []; window.__combatPhases = []; window.__duelExchanges = [];
+    window.__duelStarted = 0; window.__duelEnded = 0;
     window.__battleObserver = new MutationObserver(() => {
       const stage = document.querySelector("#stage"), phase = stage.dataset.battlePhase;
       if (phase && window.__battlePhases.at(-1) !== phase) window.__battlePhases.push(phase);
       const combat = stage.dataset.combatPhase;
       if (combat && window.__combatPhases.at(-1) !== combat) window.__combatPhases.push(combat);
+      const exchange = stage.dataset.duelExchange;
+      if (exchange && window.__duelExchanges.at(-1) !== exchange) window.__duelExchanges.push(exchange);
+      if (stage.dataset.cinematicDuration && !window.__duelStarted) window.__duelStarted = performance.now();
+      if (window.__duelStarted && !stage.dataset.cinematicDuration && !window.__duelEnded) window.__duelEnded = performance.now();
     });
     window.__battleObserver.observe(document.querySelector("#stage"), {
-      attributes: true, attributeFilter: ["data-battle-phase", "data-combat-phase"],
+      attributes: true, attributeFilter: ["data-battle-phase", "data-combat-phase", "data-duel-exchange", "data-cinematic-duration"],
     });
   });
   await page.locator('[data-square="c3"]').click();
@@ -246,9 +256,14 @@ try {
   const phases = await page.evaluate(() => {
     window.__battleObserver.disconnect(); return window.__battlePhases;
   });
-  assert.deepEqual(await page.evaluate(() => window.__combatPhases), ["faceoff", "opening", "defense", "finisher", "defeat"]);
-  // The 117 ms overlay contact accent can fall between software WebGL frames;
-  // the five actual combat phases and once-only contact are covered separately.
+  assert.deepEqual(await page.evaluate(() => window.__combatPhases), ["faceoff", "opening", "defense", "opening", "finisher", "defeat"]);
+  const duel = await page.evaluate(() => ({ exchanges: window.__duelExchanges, elapsed: window.__duelEnded - window.__duelStarted }));
+  for (const exchange of ["opening", "counter", "combo", "finisher-charge", "finisher", "impact", "defeat"])
+    assert.ok(duel.exchanges.includes(exchange), `offline capture must visibly play ${exchange}`);
+  assert.ok(duel.elapsed >= 4700 && duel.elapsed < 10000, `full capture ended after ${duel.elapsed}ms`);
+  assert.equal(await page.locator("#stage").getAttribute("data-combat-dimension"), null);
+  // The 125 ms overlay contact accent can fall between software WebGL frames;
+  // the complete exchange score and once-only contact are covered by renderer fixtures.
   assert.equal(phases[0], "charge"); assert.equal(phases.at(-1), "return");
   assert.match(await page.locator("#moves").innerText(), /Nxd5/);
   assert.equal(await page.locator('[data-square="d5"] svg[data-piece="n"][data-color="w"]').count(), 1);
@@ -354,10 +369,19 @@ try {
   await closePanel(page);
   await page.locator('[data-square="d5"]').click();
   assert.equal(await page.locator("#stage").getAttribute("data-battle-moment"), "comeback");
-  assert.match(await page.locator("#event strong").innerText(), /TURNING POINT/);
+  // The board event ribbon is deliberately hidden inside the duel dimension;
+  // its underlying event title and mission award must still be correct.
+  assert.match(await page.locator("#event strong").textContent(), /TURNING POINT/);
   assert.equal(await page.locator("#mission-list .complete").count(), 1);
-  await page.waitForFunction(() => document.querySelector("#stage").dataset.battlePhase === "aftermath");
+  await page.waitForFunction(() => document.querySelector("#stage").dataset.battlePhase === "aftermath", {}, { timeout: 10000 });
+  assert.equal(await page.locator("#event").isVisible(), false);
+  assert.equal(await page.locator("#undo").isVisible(), false);
   await page.screenshot({ path: "test-results/comeback-event.png" });
+  // Undo belongs to the board HUD, so explicitly return from the dimension
+  // before using it instead of waiting for a hidden control to become clickable.
+  await page.locator("#skip").click();
+  await page.waitForFunction(() => !document.querySelector("#stage").dataset.combatDimension, {}, { timeout: 10000 });
+  assert.equal(await page.locator("#undo").isVisible(), true);
   await page.locator("#undo").click();
   assert.equal(await page.locator("#mission-list .complete").count(), 0);
   assert.equal(await page.locator("#moves .san").count(), 0);

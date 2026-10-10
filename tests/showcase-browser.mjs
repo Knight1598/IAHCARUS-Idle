@@ -23,7 +23,7 @@ try {
   await page.locator('[data-menu-go="settings"]').click();
   await page.locator("#graphics-quality").selectOption("low");
   await page.locator("#audio-music").evaluate(input => { input.value = "47"; input.dispatchEvent(new Event("input", { bubbles: true })); });
-  await page.locator("#capture-duration").selectOption("2600");
+  await page.locator("#capture-duration").selectOption("5000");
   await page.keyboard.press("Escape");
   await enterGame(page, "local");
   await page.locator("#pause-game").click(); await page.locator("#title-return").click();
@@ -47,10 +47,11 @@ try {
     SpaceAudio.prototype.setMusicState = function(...args) { window.lastEngine = this; return state.apply(this, args); };
   });
   await page.locator("#open-showcase").click();
-  await page.locator("#showcase-preview canvas").waitFor();
+  await page.locator("#showcase-preview canvas[data-engine]").waitFor();
   assert.equal(await page.evaluate(() => audioContexts), 0);
-  assert.equal(await page.locator("#showcase-attacker-skin option").count(), 8);
-  assert.equal(await page.locator("#showcase-defender-skin option").count(), 8);
+  const skinIds = await page.evaluate(async () => Object.keys((await import("/src/profile.ts")).skins));
+  assert.equal(await page.locator("#showcase-attacker-skin option").count(), skinIds.length);
+  assert.equal(await page.locator("#showcase-defender-skin option").count(), skinIds.length);
   assert.equal(await page.locator("#showcase-arena option").count(), 8);
   await page.locator("#showcase-enable-sound").click();
   assert.equal(await page.evaluate(() => audioContexts), 1);
@@ -71,11 +72,16 @@ try {
   await page.screenshot({ path: "test-results/combat-v2-desktop.png" });
   await page.waitForFunction(() => !document.querySelector("#showcase-play").disabled);
   const sequence = await page.evaluate(() => window.cues);
-  assert.deepEqual(sequence.map(c => c.cue), ["draw", "charge", "release", "clash", "counter", "finisher", "impact", "armor", "disintegrate"]);
-  assert.deepEqual(sequence.filter(c => ["clash", "counter", "armor", "disintegrate"].includes(c.cue)).map(c => [c.piece,c.skin]), Array(4).fill(["r", "frost"]));
+  const expectedScore = await page.evaluate(async () => {
+    const { captureCuePoints } = await import("/src/combat.ts");
+    return captureCuePoints.map(({cue,actor}) => ({cue,piece:actor === "defender" ? "r" : "n",skin:actor === "defender" ? "frost" : "astral"}));
+  });
+  assert.deepEqual(sequence.map(({cue,piece,skin}) => ({cue,piece,skin})), expectedScore);
+  assert.equal(sequence.filter(c => c.cue === "impact").length, 1);
+  assert.equal(sequence.filter(c => c.cue === "disintegrate").length, 1);
   assert.ok(sequence.find(c => c.cue === "impact").time > sequence.find(c => c.cue === "counter").time);
   // Exercise every class/skin resolution and immediate repeated Skip without committing a move.
-  for (const piece of ["p", "n", "b", "r", "q", "k"]) for (const skin of ["classic", "ember", "frost", "astral", "royal", "storm", "void", "prism"]) {
+  for (const piece of ["p", "n", "b", "r", "q", "k"]) for (const skin of skinIds) {
     await page.locator(`[data-showcase-role="attacker"][data-showcase-piece="${piece}"]`).click();
     await page.locator("#showcase-attacker-skin").selectOption(skin);
     await page.locator("#showcase-play").click();
@@ -120,6 +126,6 @@ try {
   assert.equal(await page.locator("#audio-music").inputValue(), "47");
   assert.equal(await page.evaluate(() => audioContexts), 0, "reload requires a new explicit sound gesture");
   assert.deepEqual(errors, []);
-  writeFileSync("test-results/showcase-v2.json", JSON.stringify({ sequence, diagnostics, classes: 6, skins: 8, realDevice: false }, null, 2));
-  console.log("Showcase passed: 48 class/skin pairs, reactive synchronized cues, repeated Skip, viewport bounds, A/B, saved mix, one opt-in context, unchanged match and XP.");
+  writeFileSync("test-results/showcase-v2.json", JSON.stringify({ sequence, diagnostics, classes: 6, skins: skinIds.length, realDevice: false }, null, 2));
+  console.log(`Showcase passed: ${6 * skinIds.length} class/skin pairs, reactive synchronized cues, repeated Skip, viewport bounds, A/B, saved mix, one opt-in context, unchanged match and XP.`);
 } finally { await browser?.close(); await vite.close(); }

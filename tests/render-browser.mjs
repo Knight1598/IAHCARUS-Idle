@@ -37,6 +37,13 @@ try {
     window.fixtureChess = Chess;
     window.fixture = new ChessScene(document.querySelector("#stage"));
     window.fixture.renderBoard(new Chess());
+    // The reusable dimension retains five GPU geometries after its first reveal.
+    // Warm that finite stage before checking that transient captures release theirs.
+    const THREE = await import("/node_modules/three/build/three.module.js");
+    fixture.combatDimension.update(.2,new THREE.Vector3(),"nebula");
+    fixture.combatDimension.root.visible=true;
+    fixture.renderer.render(fixture.scene,fixture.camera);
+    fixture.combatDimension.root.visible=false;
     window.picks = [];
     window.fixture.onPick = (square) => window.picks.push(square);
   });
@@ -143,6 +150,7 @@ try {
     assert.deepEqual(await page.evaluate(() => fixture.camera.position.toArray()), after.camera);
     await page.evaluate(async () => {
       const { analyzeMove } = await import("/shared/events.js");
+      const { CAPTURE_DEATH } = await import("/src/combat.ts");
       const before = new fixtureChess("7k/8/7p/3r4/8/2N5/8/K7 w - - 0 1");
       const game = new fixtureChess(before.fen());
       const move = game.move("Nxd5");
@@ -150,7 +158,7 @@ try {
       fixture.play(before, game, move, analyzeMove(before, game, move));
       const now = performance.now();
       fixture.animation.duration = 10000;
-      fixture.animation.start = now - 8400;
+      fixture.animation.start = now - (CAPTURE_DEATH + .015) * fixture.animation.duration;
       fixture.frame(now); fixture.setPaused(true);
     });
     assert.equal(await page.evaluate(() => fixture.animation.died), true);
@@ -297,6 +305,7 @@ try {
     const executions = await page.evaluate(async () => {
       const { training } = await import("/src/training.ts");
       const { analyzeMove } = await import("/shared/events.js");
+      const { CAPTURE_CONTACT, CAPTURE_DEATH, captureCuePoints } = await import("/src/combat.ts");
       const memory = [];
       fixture.cinematic = false; fixture.reduced = false;
       for (let cycle = 0; cycle < 3; cycle++) {
@@ -319,13 +328,13 @@ try {
           frame(0.4);
           if (animation.object.position.distanceTo(animation.to) < 0.7) throw Error("Attacker overlaps during windup");
           if (impact || death) throw Error("Execution contacts before its strike");
-          frame(0.73);
+          frame(CAPTURE_CONTACT + .01);
           if (impact !== 1 || death !== 0 || !animation.victim.visible) throw Error("Defender vanished at contact");
-          frame(0.85); frame(0.86);
+          frame(CAPTURE_DEATH); frame(CAPTURE_DEATH + .01);
           if (impact !== 1 || death !== 1) throw Error("Execution callbacks are repeated or missing");
           frame(0.99);
           if (animation.object.position.distanceTo(animation.to) > 0.01) throw Error("Attacker failed to occupy final square");
-          if (cues.map(point => point.cue).join() !== "draw,charge,release,clash,counter,finisher,impact,armor,disintegrate") throw Error("Actual-frame cinematic cues repeated or skipped");
+          if (JSON.stringify(cues.map(({cue,actor}) => ({cue,actor}))) !== JSON.stringify(captureCuePoints.map(({cue,actor}) => ({cue,actor})))) throw Error("Actual-frame cinematic cues repeated or skipped");
           if (cues.some(point => point.skin !== (point.actor === "defender" ? "frost" : "ember"))) throw Error("Cinematic audio lost the actor's equipped skin");
           if (!animation.reaction || animation.profile.id !== `${move.piece}:ember` || animation.defenderProfile.skin !== "frost") throw Error("Capture has no class/skin reactive profile");
           fixture.finish();
@@ -427,7 +436,8 @@ try {
               }
             }
           }
-          const now = performance.now(); fixture.setPaused(false); a.start = now - 0.54 * a.duration; fixture.frame(now); fixture.setPaused(true);
+          // Compare class windups, before contact IK aligns weapons towards the target.
+          const now = performance.now(); fixture.setPaused(false); a.start = now - (3.45 / 5) * a.duration; fixture.frame(now); fixture.setPaused(true);
           const signature = a.avatar.userData.arms.map((arm) => arm.rotation.toArray().slice(0, 3));
           window.combatSavedCamera = saved;
           return { signature: JSON.stringify(signature), drawCalls };
@@ -436,7 +446,7 @@ try {
         await page.locator("#stage").screenshot({ path: `test-results/combat-${key}-${aspect < 1 ? "portrait" : "wide"}.png` });
         await page.evaluate(() => {
           const a = fixture.animation, now = performance.now(); fixture.setPaused(false);
-          a.start = now - .73 * a.duration; fixture.frame(now); fixture.setPaused(true);
+          a.start = now - .78 * a.duration; fixture.frame(now); fixture.setPaused(true);
           fixture.renderer.render(fixture.scene, fixture.camera);
         });
         await page.locator("#stage").screenshot({ path: `test-results/combat-${key}-impact-${aspect < 1 ? "portrait" : "wide"}.png` });
@@ -472,15 +482,15 @@ try {
 
     const skipSafety = await page.evaluate(async () => {
       const { analyzeMove } = await import("/shared/events.js");
-      const { captureCuePoints } = await import("/src/combat.ts");
+      const { CAPTURE_DURATION, clampCaptureDuration, captureCuePoints } = await import("/src/combat.ts");
       const before = new fixtureChess("7k/8/8/3r4/8/2N5/8/K7 w - - 0 1");
       const after = new fixtureChess(before.fen()), move = after.move("Nxd5"), event = analyzeMove(before, after, move);
       fixture.captureDuration = 9999;
-      if (fixture.captureDuration !== 3000) throw Error("Capture duration exceeded its ceiling");
+      if (fixture.captureDuration !== clampCaptureDuration(9999)) throw Error("Capture duration exceeded its ceiling");
       fixture.captureDuration = 0;
-      if (fixture.captureDuration !== 2000) throw Error("Capture duration fell below its floor");
+      if (fixture.captureDuration !== clampCaptureDuration(0)) throw Error("Capture duration fell below its floor");
       fixture.captureDuration = NaN;
-      if (fixture.captureDuration !== 2600) throw Error("Invalid timing lost the 2.6-second default");
+      if (fixture.captureDuration !== CAPTURE_DURATION || CAPTURE_DURATION !== 5000) throw Error("Invalid timing lost the five-second default");
       const records = [];
       for (const progress of [0.05, 0.46, 0.74, 0.86]) {
         fixture.setPaused(false); fixture.cinematic = true;
@@ -510,7 +520,7 @@ try {
       fixture.renderBoard(new fixtureChess()); fixture.setPaused(true);
       return { records, expectedCues: captureCuePoints.length, canceledCues, finishes };
     });
-    console.log("PASS: v2 duration clamps, nine actual-frame cues, repeated skip at four combat phases, smooth camera return, authoritative capture once and reentrant cancellation", JSON.stringify(skipSafety));
+    console.log("PASS: five-second duration clamps, actual-frame cue score, repeated skip at four combat phases, smooth camera return, authoritative capture once and reentrant cancellation", JSON.stringify(skipSafety));
 
     const hiddenUpdate = await page.evaluate(async () => {
       const { analyzeMove } = await import("/shared/events.js");

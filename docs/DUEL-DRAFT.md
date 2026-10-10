@@ -19,7 +19,7 @@ Undo, reload and the bot worker retain event progress, reserves, piece identitie
 
 ## Executions
 
-Storm creates a lightning binding and branching discharge. Void creates an eclipse with spiralling energy, drawing the defeated avatar into collapse. Prism splits into two procedural fighter silhouettes that converge at the final strike. Existing class-specific poses, defense reactions, framing and distinct sound recipes still apply. Premium effects add at most three small draw batches; reduced effects omit them. Capture duration remains 2–3 seconds, with impact at the existing timeline position. Anticipation cuts effect tails and ducks music briefly; skip/pause cancels the duck and pending effects.
+Storm creates a lightning binding and branching discharge. Void creates an eclipse with spiralling energy, drawing the defeated avatar into collapse. Prism splits into two procedural fighter silhouettes that converge at the final strike. Existing class-specific poses, defense reactions, framing and distinct sound recipes still apply. Premium effects add at most three small draw batches; reduced effects omit them. Capture now defaults to a five-second dimensional duel with compact 2–3 second presets; the final impact is at 3.85 seconds and defeat at 4.25 seconds on the full score. Anticipation cuts effect tails and ducks music briefly; skip/pause cancels the duck and pending effects.
 
 ## Verification
 

@@ -16,14 +16,14 @@ try{
   await page.waitForTimeout(150);
   for(const skin of ['storm','void','prism','nova','phantom','dragon']){
    const result=await page.evaluate(async skin=>{
-    const {analyzeMove}=await import('/shared/events.js');const before=new Chess('7k/8/8/3q4/8/2N5/7P/K7 w - - 0 1'),after=new Chess(before.fen()),move=after.move('Nxd5');
+    const [{analyzeMove},{CAPTURE_CONTACT,CAPTURE_DEATH,CAPTURE_RELEASE}]=await Promise.all([import('/shared/events.js'),import('/src/combat.ts')]);const before=new Chess('7k/8/8/3q4/8/2N5/7P/K7 w - - 0 1'),after=new Chess(before.fen()),move=after.move('Nxd5');
     fixture.resetPacing();fixture.setAppearances({c3:skin,d5:'frost'},{d5:skin});fixture.setPaused(false);fixture.play(before,after,move,analyzeMove(before,after,move));fixture.setPaused(true);
     let quiet=0;fixture.onAnticipation=()=>quiet++;const a=fixture.animation,calls=[];
-    for(const t of [.62,.673,.72,.86]){const now=performance.now();fixture.setPaused(false);a.duration=100000;a.start=now-t*a.duration;fixture.frame(now);fixture.setPaused(true);fixture.renderer.render(fixture.scene,fixture.camera);calls.push(fixture.renderer.info.render.calls);}
+    for(const t of [.69,CAPTURE_RELEASE+.001,CAPTURE_CONTACT+.005,CAPTURE_DEATH+.055]){const now=performance.now();fixture.setPaused(false);a.duration=100000;a.start=now-t*a.duration;fixture.frame(now);fixture.setPaused(true);fixture.renderer.render(fixture.scene,fixture.camera);calls.push(fixture.renderer.info.render.calls);}
     return {quiet,calls,collapse:fixture.animation.defenderAvatar.scale.x,effectChildren:a.execution.group.children.length,skin:document.querySelector('#stage').dataset.skinExecution};
    },skin);
    assert.equal(result.quiet,1);assert.ok(result.calls.every(n=>n<190));assert.ok(result.effectChildren<=3);assert.match(result.skin,new RegExp(`^${skin}:`));if(skin==='void')assert.ok(result.collapse<.5);
-   await page.evaluate(()=>{const a=fixture.animation,now=performance.now();fixture.setPaused(false);a.start=now-.66*a.duration;fixture.frame(now);fixture.setPaused(true);fixture.renderer.render(fixture.scene,fixture.camera);});
+   await page.evaluate(()=>{const a=fixture.animation,now=performance.now();fixture.setPaused(false);a.start=now-.735*a.duration;fixture.frame(now);fixture.setPaused(true);fixture.renderer.render(fixture.scene,fixture.camera);});
    await page.screenshot({path:`test-results/execution-${skin}-${width}.png`});
    await page.evaluate(()=>{fixture.setPaused(false);fixture.finish();fixture.setPaused(true);if(fixture.animation||document.querySelector('#stage').dataset.skinExecution||fixture.fx.children.length)throw Error('Execution resources survived finish');});
   }

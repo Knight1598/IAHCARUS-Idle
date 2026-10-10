@@ -1,6 +1,7 @@
 import type { PieceSymbol } from "chess.js";
 import { combatProfile, type CombatProfile, type DefenseReaction } from "./combat-profiles.ts";
 import type { SkinId } from "./profile";
+import { CAPTURE_DURATION, CAPTURE_CONTACT, CAPTURE_DEATH, captureFrame } from "./combat.ts";
 
 export type MotionVector = [number, number, number];
 export interface MotionContext {
@@ -8,6 +9,9 @@ export interface MotionContext {
   /** Capture-only choreography shares the same authoritative timeline as sound and VFX. */
   combat?: boolean; profile?: CombatProfile; skin?: SkinId; reaction?: DefenseReaction;
   opening?: number; counter?: number; clash?: number; finisher?: number;
+  /** Local swing progress resets for every exchange; scene-owned choreography supplies it. */
+  actionProgress?: number; actionCharge?: number; guard?: number; recoil?: number; aimWeight?: number;
+  seconds?: number; exchange?: string;
   /** World-space opponent chest point, used only by the visual hand/weapon aiming rig. */
   contactTarget?: MotionVector;
 }
@@ -145,17 +149,19 @@ const mixVector = (a: MotionVector, b: MotionVector, amount: number): MotionVect
   a.map((value, index) => value + (b[index] - value) * amount) as MotionVector;
 
 function sampleCombat(context: MotionContext, time: number) {
-  // Pose time remains normalized to the 2.6 s score when the player changes sequence length.
-  // It never integrates previous frames, so pause, seek and slow devices cannot cause drift.
-  const seconds = context.progress === undefined ? Math.max(0, time) : clamp(context.progress) * 2.6;
+  // Every exchange reads one absolute score. Seeking and paused tabs cannot integrate drift.
+  const duration = CAPTURE_DURATION / 1000;
+  const seconds = context.seconds ?? (context.progress === undefined ? Math.max(0, time) : clamp(context.progress) * duration);
+  const score = captureFrame(seconds / duration);
   return {
     seconds,
-    opening: clamp(context.opening ?? ease((seconds - 0.4) / 0.6)),
-    counter: clamp(context.counter ?? ease((seconds - 1) / 0.5)),
-    finisher: clamp(context.finisher ?? ease((seconds - 1.5) / 0.35)),
-    recovery: ease(context.recovery ?? (seconds - 2.1) / 0.5),
-    guard: ease((seconds - 0.72) / 0.26) * (1 - ease((seconds - 1.47) / 0.32)),
-    finalKick: pulse((seconds - 1.85) / 0.25),
+    opening: clamp(context.opening ?? score.opening),
+    counter: clamp(context.counter ?? score.counter),
+    finisher: clamp(context.finisher ?? score.finisher),
+    recovery: ease(context.recovery ?? score.recovery),
+    guard: clamp(context.guard ?? score.defenderGuard),
+    finalKick: pulse((seconds - CAPTURE_CONTACT * duration) / .3),
+    score,
   };
 }
 
@@ -300,16 +306,34 @@ function signatureGesture(pose: FighterPose, type: PieceSymbol, skin: SkinId, dr
   }
   if(skin !== "classic") {
     // Weapon discipline stays visible inside each skin's stance.
-    if(type === "p") { pose.rightArm[0] -= s*.22; pose.leftArm[2] += s*.2; }
-    else if(type === "n") { pose.hips[1] += s*.45; pose.leftArm[2] -= s*.3; pose.offset[1] += Math.sin(stroke*Math.PI)*active*.12; }
-    else if(type === "b") { pose.leftArm[0] -= s*.2; pose.leftElbow[0] += s*.25; pose.offset[1] += c*.08; }
-    else if(type === "r") { pose.offset[1] -= c*.12; pose.leftKnee[0] += c*.2; pose.leftArm[2] *= .65; }
-    else if(type === "q") { pose.leftArm[2] -= c*.35+s*.2; pose.hips[1] += s*.3; }
-    else { pose.leftElbow[0] -= c*.25; pose.leftKnee[0] += s*.2; pose.torso[0] += s*.12; }
+    if(type === "p") {
+      pose.rightArm[0] -= c*.18+s*.22; pose.rightArm[1] -= c*.12;
+      pose.leftArm[2] += c*.14+s*.2;
+    } else if(type === "n") {
+      pose.hips[1] += s*.45; pose.leftArm[2] -= c*.3+s*.3;
+      pose.rightArm[1] += c*.25; pose.rightArm[2] += c*.18;
+      pose.offset[1] += Math.sin(stroke*Math.PI)*active*.12;
+    } else if(type === "b") {
+      pose.leftArm[0] -= c*.12+s*.2; pose.rightArm[0] -= c*.12;
+      pose.leftArm[2] -= c*.24; pose.rightArm[2] += c*.24;
+      pose.leftElbow[0] += s*.25; pose.offset[1] += c*.08;
+    } else if(type === "r") {
+      pose.offset[1] -= c*.12; pose.leftKnee[0] += c*.2;
+      pose.leftArm[0] -= c*.35; pose.rightArm[0] -= c*.35;
+      pose.leftArm[1] -= c*.1; pose.rightArm[1] += c*.1;
+      pose.leftArm[2] *= .65; pose.rightArm[2] *= .65;
+    } else if(type === "q") {
+      pose.leftArm[2] -= c*.35+s*.2; pose.rightArm[1] -= c*.22;
+      pose.hips[1] += s*.3;
+    } else {
+      pose.leftArm[0] -= c*.32; pose.rightArm[0] -= c*.32;
+      pose.leftArm[2] += c*.08; pose.rightArm[2] -= c*.08;
+      pose.leftElbow[0] -= c*.25; pose.leftKnee[0] += s*.2; pose.torso[0] += s*.12;
+    }
   }
 }
 
-/** Shared class building blocks produce a first strike, a parried recoil and a decisive finish. */
+/** Every local swing has a fresh class-specific windup, contact and follow-through. */
 export function fighterPose(type: PieceSymbol, charge: number, strike: number, time: number, context: MotionContext = {}): FighterPose {
   if (!context.combat) {
     const pose = quietFighterPose(type, charge, strike, time, context);
@@ -318,63 +342,77 @@ export function fighterPose(type: PieceSymbol, charge: number, strike: number, t
     return pose;
   }
   const profile = context.profile ?? combatProfile(type, context.skin ?? "classic");
-  const motion = profile.motion;
-  const frame = sampleCombat(context, time);
-  const { seconds, finisher } = frame;
-  const recovery = Math.pow(frame.recovery, Math.max(0.7, Math.min(1.5, motion.followThrough)));
+  const motion = profile.motion, frame = sampleCombat(context, time);
+  const recovery = Math.pow(frame.recovery, Math.max(.7, Math.min(1.5, motion.followThrough)));
   const active = 1 - recovery;
-  const draw = Math.max(ease((seconds - 0.16) / 0.36) * (1 - ease((seconds - 0.58) / 0.22)),
-    ease((seconds - 1.2) / 0.3) * (1 - ease((seconds - 1.61) / 0.24)));
-  const opening = ease((seconds - 0.53) / 0.21) * (1 - ease((seconds - 1.02) / 0.2));
-  const counter = pulse((seconds - 1.02) / 0.46);
-  const attack = Math.max(opening * 0.72, finisher);
-  const pose = quietFighterPose(type, clamp(draw * (0.65 + motion.anticipation * 0.65)), attack, time,
+  const explicitAction = context.actionProgress !== undefined;
+  const attack = clamp(context.actionProgress ?? frame.score.attackerStrike);
+  const draw = clamp(explicitAction ? charge : frame.score.attackerCharge);
+  const guard = clamp(context.guard ?? (.28 + frame.score.defenderStrike * .57)) * active;
+  const recoil = clamp(context.recoil ?? frame.score.attackerRecoil) * active;
+  const pose = quietFighterPose(type, draw * (.65 + motion.anticipation * .65), attack, time,
     { approach: context.approach, recovery });
-  // The first attack is a class-specific gesture; every final stroke reaches the shared hit time.
+  const guardPose = quietDefenderPose(type, 0, time);
+  const guarding = guard * (1 - attack) * .72;
+  for (const name of ["leftArm", "rightArm", "leftElbow", "rightElbow", "weapon", "weaponOffset"] as const)
+    pose[name] = mixVector(pose[name], guardPose[name], guarding);
+  const reverse = 1 - 2 * ease((frame.seconds - 2.61) / .1) * (1 - ease((frame.seconds - 3.01) / .11));
+  const stroke = ease(attack) * active;
+  const arc = pulse(attack) * active;
+  // Each second exchange changes the weapon path rather than repeating the first shot.
   if (type === "p") {
-    const jab = Math.sin(frame.opening * Math.PI * (3 + motion.tempo)) * opening * 0.12 * active;
-    pose.rightArm[0] -= jab; pose.rightElbow[0] += jab;
-    pose.weaponOffset[2] -= jab * 0.7;
-    pose.leftLeg[0] -= finisher * 0.12 * active;
-    pose.body[0] += frame.finalKick * 0.06;
+    pose.rightArm[0] -= stroke * .18;
+    pose.rightElbow[0] += stroke * .14;
+    pose.hips[1] += reverse * arc * .2;
+    pose.leftLeg[0] -= stroke * .14;
+    pose.weaponOffset[2] -= stroke * .14;
   } else if (type === "n") {
-    const flank = pulse(frame.opening) * active;
-    pose.offset[0] += flank * 0.17;
-    pose.hips[1] += flank * 0.6;
-    pose.torso[1] -= flank * 0.35;
-    pose.rightArm[2] -= finisher * 0.3 * active;
-    pose.mantle[1] += flank * 0.5;
+    pose.offset[0] += reverse * arc * .18;
+    pose.offset[1] += arc * .18;
+    pose.hips[1] += reverse * stroke * .65;
+    pose.torso[1] -= reverse * arc * .3;
+    pose.rightArm[2] -= reverse * stroke * .35;
+    pose.mantle[1] += reverse * arc * .45;
   } else if (type === "b") {
-    const seal = pulse(frame.opening) * active;
-    pose.leftArm[2] -= seal * 0.38;
-    pose.rightElbow[0] -= seal * 0.35;
-    pose.weapon[1] += seal * 0.4;
-    pose.offset[1] += seal * 0.08;
-    pose.leftArm[0] -= finisher * 0.18 * active;
+    pose.leftArm[2] -= arc * .38;
+    pose.rightElbow[0] -= draw * .3;
+    pose.weapon[1] += reverse * arc * .45;
+    pose.offset[1] += draw * .09 + arc * .08;
+    pose.leftArm[0] -= stroke * .24;
   } else if (type === "r") {
-    pose.leftArm[0] -= draw * 0.12;
-    pose.leftArm[2] -= opening * 0.2 * active;
-    pose.offset[2] += frame.finalKick * 0.08 * motion.recoil;
-    pose.torso[0] -= frame.finalKick * 0.1;
-    pose.leftKnee[0] += finisher * 0.1 * active;
+    pose.leftArm[0] -= draw * .16;
+    pose.offset[1] -= draw * .08;
+    pose.offset[2] += arc * .11 * motion.recoil;
+    pose.torso[0] -= arc * .12;
+    pose.leftKnee[0] += stroke * .15;
   } else if (type === "q") {
-    const orbit = pulse(frame.opening) * active;
-    pose.leftArm[2] -= orbit * 0.3;
-    pose.rightArm[2] += orbit * 0.3;
-    pose.hips[1] += orbit * 0.3;
-    pose.weapon[1] -= orbit * 0.5;
-    pose.offset[1] += orbit * 0.06;
+    pose.leftArm[2] -= reverse * arc * .38;
+    pose.rightArm[2] += reverse * arc * .35;
+    pose.hips[1] += reverse * stroke * .4;
+    pose.weapon[1] -= reverse * arc * .55;
+    pose.offset[1] += arc * .08;
   } else {
-    pose.leftArm[0] -= draw * 0.18;
-    pose.weapon[2] += opening * 0.22 * active;
-    pose.torso[0] += finisher * 0.1 * active;
-    pose.rightKnee[0] += finisher * 0.12 * active;
-    pose.body[0] += frame.finalKick * 0.06;
+    pose.leftArm[0] -= draw * .22;
+    pose.weapon[2] += reverse * arc * .3;
+    pose.torso[0] += stroke * .14;
+    pose.rightKnee[0] += stroke * .18;
+    pose.body[0] += arc * .08;
   }
-  skinAttack(pose, type, profile, draw * active, opening, finisher, counter * active, recovery);
-  signatureGesture(pose, type, profile.skin, draw, attack, recovery);
-  // Hand attachment supplies most of the reach. Small local adjustments keep the weapon graspable.
-  pose.weaponOffset = pose.weaponOffset.map((value) => Math.max(-0.22, Math.min(0.22, value * 0.25))) as MotionVector;
+  const stance = Math.max(draw, guard * .42);
+  skinAttack(pose, type, profile, stance * active, arc, stroke, recoil, recovery);
+  signatureGesture(pose, type, profile.skin, stance, attack, recovery);
+  // A blocked counter visibly rocks the attacker; both actors retain their footing until defeat.
+  pose.torso[0] -= recoil * .22 / motion.weight;
+  pose.head[0] += recoil * .15;
+  pose.offset[2] += recoil * .12 * motion.recoil;
+  pose.leftKnee[0] += guard * .12;
+  pose.rightKnee[0] += guard * .1;
+  pose.mantle[0] -= recoil * .2;
+  if (context.reaction === "dodge") { pose.hips[1] += guard * .28; pose.offset[0] -= guard * .12; }
+  if (context.reaction === "barrier") { pose.leftArm[2] -= guard * .25; pose.rightArm[2] += guard * .25; }
+  if (context.reaction === "brace") { pose.offset[1] -= guard * .07; pose.leftLeg[2] -= guard * .09; }
+  // The scene owns root travel. The hand joint supplies reach while keeping the grip attached.
+  pose.weaponOffset = pose.weaponOffset.map((value) => Math.max(-.22, Math.min(.22, value * .25))) as MotionVector;
   return pose;
 }
 
@@ -384,6 +422,18 @@ export function defenderPose(type: PieceSymbol, hit: number, time: number, conte
   const profile = context.profile ?? combatProfile(type, context.skin ?? "classic");
   const motion = profile.motion;
   const frame = sampleCombat(context, time);
+  if (context.actionProgress !== undefined) {
+    // Continue the very same stance at the fatal contact, then surrender balance smoothly.
+    const pose = fighterPose(type, context.actionCharge ?? 0, context.actionProgress, time, context);
+    const defeated = quietDefenderPose(type, hit, time);
+    const loseBalance = ease((frame.seconds - CAPTURE_CONTACT * (CAPTURE_DURATION / 1000)) /
+      ((CAPTURE_DEATH - CAPTURE_CONTACT) * (CAPTURE_DURATION / 1000)));
+    for (const name of Object.keys(pose) as (keyof FighterPose)[])
+      pose[name] = mixVector(pose[name], defeated[name], loseBalance);
+    pose.body[0] -= frame.finalKick * .12 / motion.weight;
+    pose.offset[2] += frame.finalKick * .07 * motion.recoil;
+    return pose;
+  }
   const reaction = context.reaction ?? (type === "b" || type === "q" ? "barrier" : type === "r" ? "brace" : "parry");
   const guard = frame.guard;
   const counter = pulse(frame.counter) * (1 - frame.recovery);
@@ -420,7 +470,7 @@ export function defenderPose(type: PieceSymbol, hit: number, time: number, conte
     pose.rightArm[0] -= counter * 0.3;
     pose.weapon[1] += counter * 0.3;
   } else if (reaction === "dodge") {
-    const dodge = pulse((frame.seconds - 0.86) / 0.6);
+    const dodge = Math.max(pulse((frame.seconds - .9) / .4), pulse((frame.seconds - 2.3) / .65));
     pose.offset[0] += dodge * 0.24 * motion.counterReach;
     pose.offset[2] += dodge * 0.12;
     pose.hips[1] -= dodge * 0.35;
@@ -460,7 +510,8 @@ export function defenderPose(type: PieceSymbol, hit: number, time: number, conte
     pose.offset[1] -= guard*.12; pose.torso[0] += counter*.25;
   }
   const defeated = quietDefenderPose(type, hit, time);
-  const loseBalance = ease((frame.seconds - 1.83) / 0.28);
+  const loseBalance = ease((frame.seconds - CAPTURE_CONTACT * (CAPTURE_DURATION / 1000)) /
+    ((CAPTURE_DEATH - CAPTURE_CONTACT) * (CAPTURE_DURATION / 1000)));
   for (const name of Object.keys(pose) as (keyof FighterPose)[]) pose[name] = mixVector(pose[name], defeated[name], loseBalance);
   pose.body[0] -= frame.finalKick * 0.12 / motion.weight;
   pose.torso[0] -= frame.finalKick * 0.16 / motion.weight;

@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { PieceSymbol } from "chess.js";
 import { skins, type SkinId } from "./profile.ts";
 import { combatProfile, type DefenseReaction } from "./combat-profiles.ts";
-import { CAPTURE_CLASH, CAPTURE_CONTACT, CAPTURE_DEATH } from "./combat.ts";
+import { CAPTURE_DURATION, CAPTURE_CLASH, CAPTURE_CONTACT, CAPTURE_DEATH, captureFrame } from "./combat.ts";
 
 export type CombatVFXQuality = "auto" | "low" | "high";
 export interface CombatVFXConfig {
@@ -36,6 +36,9 @@ export interface CombatVFXFrame {
   clash?: number;
   finisher?: number;
   recovery?: number;
+  attackerCharge?: number; attackerStrike?: number; attackerGuard?: number;
+  defenderCharge?: number; defenderStrike?: number; defenderGuard?: number;
+  contactPulse?: number; contactWave?: number; block?: number; exchange?: string;
   /** Dramatic quiet moves contact at .52; ordinary moves at .62. */
   contactAt?: number;
 }
@@ -57,6 +60,7 @@ const clamp = (value: number) => Math.max(0, Math.min(1, Number.isFinite(value) 
 const smooth = (start: number, end: number, value: number) => {
   const t = clamp((value - start) / (end - start)); return t * t * (3 - 2 * t);
 };
+const duelContacts = [1.08, 1.86, 2.48, 2.83, 3.85] as const;
 const seed = (index: number, salt: number) => {
   const n = Math.sin(index * 127.1 + salt * 311.7) * 43758.5453; return n - Math.floor(n);
 };
@@ -723,33 +727,53 @@ export class CombatVFX {
   update(frame: CombatVFXFrame) {
     const progress = clamp(frame.progress), captured = this.config.captured;
     const cinematicCapture = captured && frame.opening !== undefined;
+    const score = cinematicCapture && (frame.attackerStrike === undefined || frame.attackerCharge === undefined ||
+      frame.defenderStrike === undefined || frame.defenderGuard === undefined) ? captureFrame(progress) : undefined;
+    const seconds = progress * CAPTURE_DURATION / 1000;
     const impactStart = frame.contactAt === undefined ? captured ? CAPTURE_CONTACT : .62 : clamp(frame.contactAt);
-    const holdEnd = Math.min(.94, impactStart + (cinematicCapture ? .06 : impactStart < .6 ? .08 : .1));
-    const frozenDuration = Math.max(0, Math.min(progress, holdEnd) - impactStart);
-    this.uniforms.uTime.value = (progress - frozenDuration) * 5;
+    const holdEnd = Math.min(.94, impactStart + (cinematicCapture ? .12 / (CAPTURE_DURATION / 1000) : impactStart < .6 ? .08 : .1));
+    let frozenDuration = Math.max(0, Math.min(progress, holdEnd) - impactStart);
+    let latestContact = -1;
+    if (cinematicCapture) {
+      frozenDuration = 0;
+      for (const contact of duelContacts) {
+        frozenDuration += Math.max(0, Math.min(seconds - contact, contact === 3.85 ? .12 : .08));
+        if (seconds >= contact - 1e-8) latestContact = contact;
+      }
+    }
+    this.uniforms.uTime.value = cinematicCapture ? seconds - frozenDuration : (progress - frozenDuration) * 5;
     this.uniforms.uProgress.value = progress;
     const opening = clamp(frame.opening ?? 0), counter = clamp(frame.counter ?? 0);
     const finisher = clamp(frame.finisher ?? 0), recovery = clamp(frame.recovery ?? 0);
+    const attack = clamp(frame.attackerStrike ?? score?.attackerStrike ?? frame.strike);
+    const counterStrike = clamp(frame.defenderStrike ?? score?.defenderStrike ?? Math.sin(counter * Math.PI));
+    const defenderGuard = clamp(frame.defenderGuard ?? score?.defenderGuard ?? 0);
     this.uniforms.uOpening.value = opening;
-    this.uniforms.uCounter.value = Math.sin(counter * Math.PI);
-    this.uniforms.uClash.value = captured ? clamp(frame.clash ?? 0) : 0;
+    this.uniforms.uCounter.value = Math.max(counterStrike, defenderGuard * .2);
+    this.uniforms.uClash.value = captured ? clamp(frame.clash ?? score?.clash ?? frame.contactPulse ?? 0) : 0;
     this.uniforms.uFinisher.value = finisher;
     this.uniforms.uRecovery.value = recovery;
-    this.uniforms.uClashWave.value = clamp((progress - CAPTURE_CLASH) / .085);
+    this.uniforms.uClashWave.value = cinematicCapture ? clamp(frame.contactWave ??
+      (latestContact < 0 ? 0 : (seconds - latestContact) / .28)) : clamp((progress - CAPTURE_CLASH) / .085);
     this.uniforms.uContact.value = frame.contact ? 1 : 0;
-    const charge = cinematicCapture ? Math.max(clamp(frame.charge), Math.sin(finisher * Math.PI) * .42 * (frame.contact ? 0 : 1)) : clamp(frame.charge);
+    const charge = cinematicCapture ? Math.max(clamp(frame.attackerCharge ?? score?.attackerCharge ?? frame.charge),
+      Math.sin(finisher * Math.PI) * .32 * (frame.contact ? 0 : 1)) : clamp(frame.charge);
     this.uniforms.uCharge.value = charge * (1 - smooth(impactStart - .03, holdEnd + .08, progress));
-    this.uniforms.uDash.value = smooth(cinematicCapture ? .24 / 2.6 : captured ? .18 : .22, cinematicCapture ? .65 / 2.6 : captured ? .28 : .34, progress) *
-      (1 - smooth(cinematicCapture ? 1 / 2.6 : captured ? .43 : .52, cinematicCapture ? 1.2 / 2.6 : holdEnd, progress));
+    this.uniforms.uDash.value = cinematicCapture ? Math.max(
+      smooth(.45, .86, seconds) * (1 - smooth(1.08, 1.24, seconds)),
+      attack * (seconds > 2.15 && seconds < 3 ? .8 : .35)) * (1 - recovery) :
+      smooth(captured ? .18 : .22, captured ? .28 : .34, progress) *
+      (1 - smooth(captured ? .43 : .52, holdEnd, progress));
     this.uniforms.uAttack.value = cinematicCapture ?
-      Math.max(Math.sin(opening * Math.PI) * .8, smooth(0, .55, finisher)) * (1 - smooth(holdEnd + .04, .93, progress)) :
+      attack * (1 - recovery) :
       smooth(captured ? .4 : .38, impactStart - .01, progress) * (1 - smooth(holdEnd + .04, .91, progress));
     this.uniforms.uStrike.value = clamp(frame.strike);
     this.uniforms.uDefeat.value = captured ? clamp(frame.defeat) : 0;
     this.uniforms.uWave.value = clamp((progress - holdEnd) / (1 - holdEnd));
-    this.uniforms.uImpact.value = frame.contact ? 1 - smooth(holdEnd + .05, .97, progress) : 0;
+    this.uniforms.uImpact.value = frame.contact ? Math.max(clamp(frame.contactPulse ?? 0),
+      1 - smooth(holdEnd + .05, .97, progress)) : 0;
     this.uniforms.uDeath.value = captured && (frame.dead || frame.defeat > 0) ?
-      cinematicCapture ? clamp(frame.defeat) : clamp((progress - CAPTURE_DEATH) / ((2.38 / 2.6) - CAPTURE_DEATH)) : 0;
+      cinematicCapture ? clamp(frame.defeat) : clamp((progress - CAPTURE_DEATH) / Math.max(.01, .96 - CAPTURE_DEATH)) : 0;
     this.uniforms.uFade.value = 1 - smooth(.86, 1, progress);
     (this.uniforms.uActor.value as THREE.Vector3).copy(frame.actor);
     (this.uniforms.uTarget.value as THREE.Vector3).copy(frame.target);

@@ -3,6 +3,7 @@ import type { PieceSymbol } from "chess.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { skins, type SkinId } from "./profile.ts";
 import { fighterPose, defenderPose, type FighterPose, type MotionContext } from "./motion.ts";
+import { CAPTURE_DURATION } from "./combat.ts";
 
 type BoneName = "hips" | "torso" | "head" | "mantle" | "leftArm" | "rightArm" | "leftElbow" | "rightElbow" | "leftLeg" | "rightLeg" | "leftKnee" | "rightKnee";
 
@@ -218,11 +219,10 @@ const smoothAim = (value: number) => { const t = Math.max(0, Math.min(1, value))
 /** A contact-directed two-joint reach keeps melee blades on the visible opponent at the hit. */
 function aimAtContact(group: THREE.Group, context: MotionContext, time: number, defender = false) {
   if (!context.combat) return;
-  const seconds = context.progress === undefined ? time : context.progress * 2.6;
-  const opening = smoothAim((seconds - 0.7) / 0.23) * (1 - smoothAim((seconds - 1.14) / 0.14));
-  const final = smoothAim((seconds - 1.57) / 0.26) * (1 - smoothAim((seconds - 2.14) / 0.3));
-  const counter = Math.sin(Math.max(0, Math.min(1, context.counter ?? (seconds - 1) / 0.5)) * Math.PI);
-  const weight = defender ? counter * 0.9 : Math.max(opening * 0.9, final);
+  const seconds = context.seconds ?? (context.progress === undefined ? time : context.progress * CAPTURE_DURATION / 1000);
+  const reach = (at: number) => smoothAim((seconds - at + .18) / .18) * (1 - smoothAim((seconds - at - .08) / .15));
+  const fallback = defender ? reach(1.86) : Math.max(reach(1.08), reach(2.48), reach(2.83), reach(3.85));
+  const weight = Math.max(0, Math.min(1, context.aimWeight ?? fallback)) * (1 - (context.recovery ?? 0));
   if (weight < 0.001) return;
   group.updateMatrixWorld(true);
   if (context.contactTarget) aimTarget.set(...context.contactTarget);

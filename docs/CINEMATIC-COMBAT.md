@@ -1,147 +1,116 @@
-# Anime Cinematic Combat v2
+# Anime dimensional duels
 
-The combat presentation uses the existing `ChessScene`, renderer, avatar rig and
-audio engine. A capture is committed by the game before its presentation starts.
-The defender's block, retreat or counter is visual: it cannot change the captured
-piece, legal destination, turn, score or ultimate rules.
+A capture is committed by the chess rules before its cinematic starts. The two
+procedural avatars enter an isolated battle dimension, exchange attacks, guards
+and a counter, then resolve the already committed capture with a finisher and
+return to the board. Cosmetic defense never changes the legal destination,
+captured piece, turn, score, ultimate reserve or online result.
 
-## Playback
+## One five-second score
 
-Captures use a 2.6-second score by default. Settings offer 2, 2.6 and 3 seconds;
-the scene clamps custom durations to 2–3 seconds. The same normalized clock drives
-poses, camera, effects and cue dispatch. Reduced effects uses a 180 ms settlement.
-The cinematic toggle controls the dramatic camera and overlay; capture avatars
-still follow the combat score when reduced effects is off.
+The default full presentation lasts 5,000 ms. Compact settings remain available;
+custom timings are bounded to 2,000–5,000 ms. Reduced effects settles the move in
+180 ms and keeps the board visible. The cinematic preference continues to control
+dramatic presentation. Poses, camera, effects and cue dispatch sample the same
+normalized scene clock rather than independent timers.
 
-| Phase | Time at the default duration | Presentation |
-| --- | --- | --- |
-| Faceoff | 0–0.4 s | Reveal both actors and enter the combat framing |
-| Opening | 0.4–1.0 s | First class-specific attack and approach |
-| Defense | 1.0–1.5 s | Seeded guard, parry, barrier, dodge or brace; visual counter |
-| Finisher | 1.5–2.1 s | Final windup, decisive strike at 1.85 s and recoil |
-| Defeat | 2.1–2.6 s | Disintegration and return to the saved camera |
+| Full-duel time | Presentation |
+| --- | --- |
+| 0.00–0.45 s | Enter the dimension and establish two opposing silhouettes |
+| 0.45–1.40 s | Class-specific opening attack; defender guards the first clash |
+| 1.40–2.12 s | Defender counters; attacker absorbs or deflects the counter |
+| 2.12–3.12 s | Attacker answers with two distinct combination contacts |
+| 3.12–3.85 s | Charge and release the finishing skill |
+| 3.85–4.25 s | Decisive impact and visible recoil |
+| 4.25–4.65 s | Defeated avatar disintegrates |
+| 4.65–5.00 s | Return to the board and complete legal square occupation |
 
-The attacker stops outside the defender. Legal board occupation starts at 2.33 s,
-after the defender's fade is mostly complete, and ends at 2.55 s. This avoids
-sliding the board mesh through the victim during the fight. En passant uses the
-event's captured square for the victim rather than assuming it is the destination.
+The first clash occurs at 1.08 s, counter clash at 1.86 s, and combination clashes
+at 2.48 and 2.83 s. Contact poses and particles hold briefly to make the impacts
+readable. The final impact remains a single callback at 3.85 s; defeat remains a
+single callback at 4.25 s. The attacker occupies its chess destination only after
+the defender has almost fully faded. En passant uses the actual captured square
+for its victim, independently of the attacker's empty destination square.
 
-## Class and skin identities
+## Open-source choreography and rendering
 
-`src/combat-profiles.ts` caches all 48 actual class/skin profiles. Their nested
-motion, VFX, sound and camera data is immutable. Motion uses class building blocks
-and additional skin gestures; effects use the same existing shader batches.
+[Open-source combat provenance](OPEN-SOURCE-COMBAT.md) records the verified
+Anime.js and Three.js packages, licenses and manual-playback contract. They are
+bundled into the game, including the standalone HTML; no animation model,
+downloaded character pack or remote runtime script is required.
+
+The procedural rig, class weapons and skin geometry remain project code. The
+six classes have 11 skin families, giving 66 class/skin profile identities. Their
+cached motion, VFX, sound and camera settings are immutable.
 
 | Piece | Choreography identity | VFX signature |
 | --- | --- | --- |
-| Pawn | Plasma spear combination and planted thrust | Piercing lance |
-| Knight | Flanking warp gesture and diagonal sword slash | Crossing crescents |
-| Bishop | Gathering seal gesture and two-handed spell release | Spiral seal and beam |
-| Rook | Wide brace, cannon release and recoil | Reactor cannon |
-| Queen | Orbiting blade/crystal gathering and sweeping release | Orbital vortex |
-| King | Heavy overhead blade windup and downward cleave | Crown judgement |
+| Pawn | Planted spear jabs and finishing thrust | Piercing lance |
+| Knight | Flanking warp and diagonal sword combination | Crossing crescents |
+| Bishop | Seal gathering and two-handed spell release | Spiral seal and beam |
+| Rook | Heavy brace, cannon burst and recoil | Reactor cannon |
+| Queen | Orbiting blades and sweeping crystal release | Orbital vortex |
+| King | Heavy blade anticipation and overhead cleave | Crown judgement |
 
-| Existing skin | Motion style | Shape/flourish identity |
-| --- | --- | --- |
-| Royal Origin (`classic`) | Disciplined stance and controlled stroke | Clean energy paths |
-| Ember Knights (`ember`) | Lower anticipation and explosive follow-through | Combustion, broader trails and sparks |
-| Frost Guard (`frost`) | Precise stance and crystalline guard | Fracture facets, extra shards and seals |
-| Astral Order (`astral`) | Lateral phase gesture and turning mantle | Dimensional rifts, additional rings and reverse orbit |
-| Golden Sovereign (`royal`) | Ceremonial raised guard and weighty finish | Judgement rings and royal wave shapes |
-| Storm Circuit (`storm`) | Fast plasma cadence and conductive weapons | Zigzag paths and pulsed lightning runes |
-| Void Reaper (`void`) | Deliberate phase recoil and eclipse weapons | Inward collapse, eclipse rings and contraction |
-| Prism Ascendant (`prism`) | Precise crystal follow-through and triple crown | Refracted hexagonal paths and shifting spectrum |
+Classic, Ember, Frost, Astral, Royal, Storm, Void, Prism, Nova, Phantom and Dragon
+retain their individual silhouettes, material gestures, aura patterns and effect
+shapes. Rarity adds bounded ornament and effect detail without granting stronger
+chess rules. `resolveDefense(attacker, defender, seed)` chooses a replay-stable
+visual response from the defender's class and skin.
 
-`resolveDefense(attacker, defender, seed)` considers attack type, defender class
-and defender skin. For example, casters answer spell/storm attacks with barriers;
-rooks keep a shield or braced silhouette; an Astral defender can retreat through
-a phase gesture. The seed makes a replay deterministic. No random choice enters
-the chess result.
+## Synchronized cues and cancellation
 
-## Shared contact and sound landmarks
+`captureCuePoints` in `src/combat.ts` is the ordered 18-cue score. Additional
+releases and clashes accompany the opening, counter and combination rather than
+playing only one attack sound. Each point records its actor; the sound engine
+uses that actor's piece class and equipped skin. Impact and disintegration each
+appear once. Cue dispatch uses a per-sequence cursor and occurs when actual render
+frames cross a landmark, avoiding independent timeout queues.
 
-`captureCuePoints` in `src/combat.ts` is the single ordered cue list. The scene
-dispatches a cue when a rendered frame first crosses its normalized position.
-It retains a per-sequence cursor so repeated frames cannot repeat that cue.
+The existing renderer draws the alternate set. Board geometry, board pieces,
+markers, ground effects and the original arena are hidden while the dimension
+is active; their saved visibility, background and fog return afterward. Both
+fighters, weapons and auras contribute to camera-fit bounds on desktop and
+portrait screens. The full pair remains the framing reference during attacks.
 
-| Cue | Default time | Actor |
-| --- | --- | --- |
-| Draw | 0.09 s | Attacker |
-| Charge | 0.23 s | Attacker |
-| Release | 0.76 s | Attacker |
-| Clash | 1.12 s | Defender |
-| Counter | 1.34 s | Defender |
-| Finisher | 1.57 s | Attacker |
-| Impact | 1.85 s | Attacker |
-| Armor | 1.91 s | Defender |
-| Disintegrate | 2.10 s | Defender |
+`skip()` immediately renders the authoritative result and uses the existing
+150 ms camera return. Repeated skip calls cannot capture or finish twice. Cue and
+impact callbacks check sequence identity so a reentrant reset or skip invalidates
+the remaining frame. Cancel, finish, superseding online updates and mode changes
+restore dimension state and remove temporary avatars, effects and voices.
+The online server's rules and clocks remain authoritative throughout the visual
+duel; a newer revision rebuilds its board even during an unfinished cinematic.
 
-At other sequence lengths these positions scale with the sequence. The first
-clash and final impact have short particle holds; pose progress remains based on
-elapsed time. Sound synthesis and mix controls are described separately by the
-audio implementation.
+Hidden tabs and pause freeze the scene clock. Resume retains the current phase;
+a new online presentation received while hidden starts immediately on return
+without inheriting the full earlier pause. Showcase/replay use disposable boards
+and do not alter the live match, saved history, XP or economy. A showcased king
+defeat is an illustration; ordinary chess still ends by checkmate.
 
-## Camera, cancellation and resources
+## Resources and verification
 
-Both actors, their weapons and auras contribute to the camera fit bounds. The
-camera tracks their current positions, uses a class-weighted contact shake, and
-returns to the saved camera/target during the defeat phase. Portrait framing uses
-the actual camera aspect ratio rather than a fixed desktop shot.
+Combat retains one WebGL context and bounded effect batches. Avatar templates
+cache the finite class/skin geometry data; live geometry wrappers and fading
+materials remain independently disposable. Low/compact quality reduces shader
+motes and instanced shards. Adaptive resolution never changes move outcomes or
+imposes an additional motion frame-rate gate.
 
-`skip()` settles the already committed board immediately and uses a 150 ms camera
-return. `finish()` first invalidates the active animation through board rendering;
-calling skip repeatedly therefore cannot capture or finish a second time. The
-scene checks sequence identity after cue and impact callbacks, including reentrant
-skip/reset. Cancellation clears active actors, temporary effects, overlay state
-and all current effect voices (including event SFX); a new sequence owns its own cue cursor.
-Hand-bound melee weapons are guided toward the current opponent at contact.
-Native geometry checks verify intersection for pawn, knight and king across all eight skins.
-Hidden tabs freeze the same timeline, including menu previews. Resume preserves
-the current phase; a fresh online presentation received while hidden starts
-immediately on return without inheriting the entire earlier pause.
-
-The showcase moves the existing renderer into its preview host. Its attacker,
-defender, two skins and arena operate on disposable presentation boards and do
-not update the active match, XP or save history. Previewing a king's defeat in
-this room is an illustration; ordinary chess still ends by checkmate.
-
-| VFX quality | Shader batches | Motes | Instanced shards |
-| --- | ---: | ---: | ---: |
-| Low | 4 | 32 | 0 |
-| Auto | 5 | 64 | 16 |
-| High | 5 | 96 | 24 |
-
-These budgets cover the `CombatVFX` group, not total scene draw calls. Avatars,
-their aura batches, optional guard and the bounded defeat burst are separate.
-Compact effects use the low budget. Automatic quality can also reduce pixel ratio
-without changing the timeline or imposing a second motion frame-rate gate.
-Avatar templates cache CPU vertex data for the finite 48 profiles; live geometry
-wrappers and fading materials remain independently disposable. `avatarResourceStats()`
-reports template counts and stored vertex bytes.
-
-## Verification and limits
-
-The native core checks cover all 48 profile identities, immutable caching,
-deterministic defense choices, the nine cue landmarks, bounded monotonic progress,
-and duration clamps:
+Relevant regression checks:
 
 ```sh
-node --test tests/combat.test.mjs tests/combat-profiles.test.mjs
-```
-
-The rendering suite exercises camera framing, actual-frame cues, capture phase
-progression, reduced effects, repeat-capture resource cleanup and repeated/reentrant
-skip, plus hidden-tab preview resume and fresh online updates during a pause.
-The offline and Pages suites exercise the packaged game entry points.
-
-```sh
+node --test tests/combat.test.mjs tests/combat-profiles.test.mjs tests/motion.test.mjs tests/duel-draft.test.mjs
+npm run test:cinematic-duel
 npm run test:render
-npm run build:offline
-OFFLINE_TEST_TRANSPORT=memory npm run test:offline
+npm run test:dimension
+npm run test:execution
+npm run test:showcase
+npm run build:pages
 npm run test:pages
 ```
 
-Viewport emulation and software Chromium rendering are useful regression checks;
-they do not establish real iPhone 13 Pro Max frame rate, Safari audio latency or
-subjective cinematic quality. Poses, contacts and silhouettes remain stylized
-procedural animation, with no imported animation clips or physical combat solver.
+Native checks cover timed contacts, actor identities, cue ordering and procedural
+poses. Browser checks cover framing, isolated scene state, skip/cancel/finish,
+actual-frame cue delivery, en passant, resource cleanup, pause/resume and preview
+save immutability. Packaged-game checks exercise the Pages subpath and offline
+bot play. Software Chromium and viewport emulation are regression tools; they
+do not measure a physical phone's frame rate or Safari audio latency.

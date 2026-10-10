@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { captureFrame, CAPTURE_CONTACT } from "../src/combat.ts";
+import { captureFrame, CAPTURE_DURATION, CAPTURE_CONTACT, CAPTURE_DEATH } from "../src/combat.ts";
 import { combatProfile } from "../src/combat-profiles.ts";
+import { DuelChoreography } from "../src/duel-choreography.ts";
 import { fighterPose, defenderPose } from "../src/motion.ts";
 import { createAvatar, animateAvatar, animateDefender, avatarResourceStats } from "../src/avatar.ts";
 
@@ -10,7 +11,7 @@ const classes = ["p", "n", "b", "r", "q", "k"];
 const skins = ["classic", "ember", "frost", "astral", "royal", "storm", "void", "prism", "nova", "phantom", "dragon"];
 const sample = (type, progress, skin = "classic") => {
   const frame = captureFrame(progress);
-  return fighterPose(type, frame.charge, frame.strike, progress * 2.6,
+  return fighterPose(type, frame.charge, frame.strike, progress * CAPTURE_DURATION / 1000,
     { ...frame, combat: true, progress, profile: combatProfile(type, skin) });
 };
 const values = (pose) => Object.values(pose).flat();
@@ -26,11 +27,27 @@ test("all six fighters have distinct windups, finishing gestures and guards", ()
   assert.equal(new Set(classes.map((type) => JSON.stringify(defenderPose(type, 0.75, 1.2)))).size, 6);
 });
 
+test("every skin retains six different actual arm windups while the local strike is zero", () => {
+  for (const skin of skins) {
+    const signatures = classes.map((type) => {
+      const avatar = createAvatar(type, "w", skin), profile = combatProfile(type, skin);
+      animateAvatar(avatar, type, 1, 0, 1, 3.45, {
+        combat: true, progress: 3.45 / 5, profile, actionProgress: 0,
+        actionCharge: 1, guard: 0, recoil: 0, aimWeight: 0,
+      });
+      const signature = JSON.stringify(avatar.userData.arms.map((arm) => arm.rotation.toArray().slice(0, 3)));
+      releaseAvatar(avatar);
+      return signature;
+    });
+    assert.equal(new Set(signatures).size, 6, `${skin} replaces class-specific charged arm stances`);
+  }
+});
+
 test("capture choreography is bounded and continuous through phase boundaries", () => {
   for (const type of classes) for (const skin of skins) {
     let previous = values(sample(type, 0, skin));
-    for (let i = 1; i <= 1000; i++) {
-      const current = values(sample(type, i / 1000, skin));
+    for (let i = 1; i <= 4000; i++) {
+      const current = values(sample(type, i / 4000, skin));
       for (let j = 0; j < current.length; j++) {
         assert.ok(Number.isFinite(current[j]) && Math.abs(current[j]) < 4, `${type}:${skin} pose out of bounds at ${i}`);
         assert.ok(Math.abs(current[j] - previous[j]) < 0.15, `${type}:${skin} snapped at ${i}`);
@@ -42,7 +59,7 @@ test("capture choreography is bounded and continuous through phase boundaries", 
 
 test("attacks shift weight and recover rather than holding their strike forever", () => {
   for (const type of classes) {
-    const charged = sample(type, 1.45 / 2.6), strike = sample(type, CAPTURE_CONTACT), recovery = sample(type, 0.97);
+    const charged = sample(type, 3.5 / 5), strike = sample(type, CAPTURE_CONTACT), recovery = sample(type, 0.97);
     assert.notDeepEqual(charged.torso, strike.torso);
     assert.notDeepEqual(charged.leftLeg, recovery.leftLeg);
     assert.notDeepEqual([strike.weapon, strike.weaponOffset], [recovery.weapon, recovery.weaponOffset]);
@@ -56,19 +73,19 @@ test("all sixty-six class/skin combinations change actual kinematics, including 
     const attacks = skins.map((skin) => JSON.stringify([sample(type, 0.28, skin), sample(type, 0.65, skin)]));
     assert.equal(new Set(attacks).size, 11, `${type} skin attack kinematics repeat`);
     const defenses = skins.map((skin) => JSON.stringify(defenderPose(type, 0, 1.25,
-      { combat: true, progress: 1.25 / 2.6, profile: combatProfile(type, skin), reaction: "parry" })));
+      { combat: true, progress: 1.25 / 5, profile: combatProfile(type, skin), reaction: "parry" })));
     assert.equal(new Set(defenses).size, 11, `${type} skin defense kinematics repeat`);
   }
 });
 
 test("reactive defense produces a visible counter and recovers continuously into defeat", () => {
   for (const type of classes) for (const reaction of ["parry", "shield", "barrier", "dodge", "brace"]) {
-    const poseAt = (seconds) => defenderPose(type, Math.max(0, Math.min(1, (seconds - 1.85) / 0.24)), seconds,
-      { ...captureFrame(seconds / 2.6), progress: seconds / 2.6, combat: true, reaction, profile: combatProfile(type, "astral") });
+    const poseAt = (seconds) => defenderPose(type, Math.max(0, Math.min(1, (seconds - CAPTURE_CONTACT * 5) / .4)), seconds,
+      { ...captureFrame(seconds / 5), progress: seconds / 5, combat: true, reaction, profile: combatProfile(type, "astral") });
     assert.notDeepEqual(poseAt(0.4), poseAt(1.25), `${type} ${reaction} must visibly respond`);
     let previous = values(poseAt(0));
     for (let i = 1; i <= 1000; i++) {
-      const current = values(poseAt(i * 2.6 / 1000));
+      const current = values(poseAt(i * 5 / 1000));
       current.forEach((value, index) => {
         assert.ok(Number.isFinite(value) && Math.abs(value) < 4);
         assert.ok(Math.abs(value - previous[index]) < 0.08, `${type} ${reaction} jumped at ${i}`);
@@ -96,7 +113,7 @@ test("hand-directed melee weapons reach the actual chest point for every skin at
   for (const type of ["p", "n", "k"]) for (const skin of skins) {
     const avatar = createAvatar(type, "w", skin); avatar.scale.setScalar(1.165);
     const context = { ...frame, progress: CAPTURE_CONTACT, combat: true, contactTarget: target.toArray(), profile: combatProfile(type, skin) };
-    animateAvatar(avatar, type, frame.charge, frame.strike, 1, 1.85, context); avatar.updateMatrixWorld(true);
+    animateAvatar(avatar, type, frame.charge, frame.strike, 1, 3.85, context); avatar.updateMatrixWorld(true);
     const weapon = avatar.userData.weapon;
     assert.equal(weapon.parent, avatar.userData.bones.rightElbow, "weapon must have a real hand pivot");
     const axis = new THREE.Vector3(0, 1, 0).applyQuaternion(weapon.getWorldQuaternion(new THREE.Quaternion()));
@@ -105,8 +122,63 @@ test("hand-directed melee weapons reach the actual chest point for every skin at
     assert.ok(new THREE.Box3().setFromObject(weapon, true).intersectsBox(chest), `${type}:${skin} blade misses the visible torso`);
     // Re-sampling a frame cannot integrate aim transforms or change the legal actor's root.
     const quaternion = weapon.quaternion.toArray(), position = avatar.position.toArray();
-    animateAvatar(avatar, type, frame.charge, frame.strike, 1, 1.85, context);
+    animateAvatar(avatar, type, frame.charge, frame.strike, 1, 3.85, context);
     assert.deepEqual(weapon.quaternion.toArray(), quaternion); assert.deepEqual(avatar.position.toArray(), position);
+    releaseAvatar(avatar);
+  }
+});
+
+test("both fighters reuse their class rig for every exchange and retain the guard at fatal contact", () => {
+  for (const type of classes) for (const skin of skins) {
+    const profile = combatProfile(type, skin), enemy = combatProfile(classes[(classes.indexOf(type) + 1) % classes.length], skin);
+    const duel = new DuelChoreography(profile, enemy);
+    const previous = new Map();
+    for (let step = 0; step <= 4000; step++) {
+      const progress = step / 4000, score = captureFrame(progress), actors = duel.sample(progress);
+      for (const [role, rig] of [["attacker", profile], ["defender", enemy]]) {
+        const actor = actors[role];
+        const context = { ...score, combat: true, progress, profile: rig, skin,
+          actionProgress: actor.strike, actionCharge: actor.charge, guard: actor.guard, recoil: actor.recoil, aimWeight: actor.aimWeight };
+        const pose = role === "defender" && progress >= CAPTURE_CONTACT ?
+          defenderPose(rig.piece, Math.min(1, (score.seconds - CAPTURE_CONTACT * 5) / .4), score.seconds, context) :
+          fighterPose(rig.piece, actor.charge, actor.strike, score.seconds, context);
+        const current = values(pose), prior = previous.get(role);
+        current.forEach((value, index) => {
+          assert.ok(Number.isFinite(value) && Math.abs(value) < 4, `${rig.id} ${role} explicit exchange exceeds its rig`);
+          if (prior) assert.ok(Math.abs(value - prior[index]) < .15, `${rig.id} ${role} explicit exchange snapped at ${score.seconds}`);
+        });
+        previous.set(role, current);
+      }
+    }
+    const progress = CAPTURE_CONTACT, score = captureFrame(progress), actor = duel.sample(progress).defender;
+    const context = { ...score, combat: true, progress, profile: enemy, skin,
+      actionProgress: actor.strike, actionCharge: actor.charge, guard: actor.guard, recoil: actor.recoil, aimWeight: actor.aimWeight };
+    const fatalGuard = values(defenderPose(enemy.piece, 0, score.seconds, context));
+    const fightingGuard = values(fighterPose(enemy.piece, actor.charge, actor.strike, score.seconds, context));
+    assert.ok(fatalGuard.every((value, index) => Math.abs(value - fightingGuard[index]) < 1e-10),
+      "fatal hit must continue the counter fighter's current guard rather than teleport to a different rig pose");
+    duel.dispose();
+  }
+});
+
+test("each of the five contacts aims a hand-held weapon at the visible opposing chest", () => {
+  const target = new THREE.Vector3(0, 1.38, -1.34);
+  const chest = new THREE.Box3(new THREE.Vector3(-.31, .9, -1.64), new THREE.Vector3(.31, 1.75, -1.04));
+  for (const type of ["p", "n", "k"]) for (const skin of skins) {
+    const profile = combatProfile(type, skin), avatar = createAvatar(type, "w", skin);
+    avatar.scale.setScalar(1.165);
+    for (const seconds of [1.08, 1.86, 2.48, 2.83, 3.85]) {
+      const progress = seconds / 5, score = captureFrame(progress);
+      const context = { ...score, progress, combat: true, profile, actionProgress: 1,
+        actionCharge: 0, guard: 0, recoil: 0, aimWeight: 1, contactTarget: target.toArray() };
+      animateAvatar(avatar, type, 0, 1, 1, seconds, context); avatar.updateMatrixWorld(true);
+      const weapon = avatar.userData.weapon;
+      const axis = new THREE.Vector3(0, 1, 0).applyQuaternion(weapon.getWorldQuaternion(new THREE.Quaternion()));
+      assert.ok(axis.dot(target.clone().sub(weapon.getWorldPosition(new THREE.Vector3())).normalize()) > .999,
+        `${type}:${skin} points away during the exchange at ${seconds}s`);
+      assert.ok(new THREE.Box3().setFromObject(weapon, true).intersectsBox(chest),
+        `${type}:${skin} weapon does not touch the chest at ${seconds}s`);
+    }
     releaseAvatar(avatar);
   }
 });
@@ -123,7 +195,7 @@ test("procedural geometry is cached on CPU with independent GPU wrappers and fad
       assert.equal(first[i].geometry.attributes.position.array, second[i].geometry.attributes.position.array, "reuse immutable generated vertex arrays");
       assert.notEqual(first[i].material, second[i].material, "one defender fading must not fade its opponent");
     }
-    animateDefender(b, type, 0, 0.25, 1.25, { combat: true, progress: 1.25 / 2.6, reaction: "shield" });
+    animateDefender(b, type, 0, 0.25, 1.25, { combat: true, progress: 1.25 / 5, reaction: "shield" });
     assert.equal(a.userData.materials[0].opacity, 0.96);
     releaseAvatar(a); releaseAvatar(b);
   }
@@ -150,8 +222,8 @@ test("heavy defenders keep their footing longer and guard transitions remain smo
   for (const [skin, former] of [["nova","storm"],["phantom","void"],["dragon","ember"]]) {
     for (const type of classes) {
       for (const combat of [true,false]) {
-        const a=fighterPose(type,.8,.15,.7,{combat,skin,progress:.28});
-        const b=fighterPose(type,.8,.15,.7,{combat,skin:former,progress:.28});
+        const a=fighterPose(type,.8,.15,.7,{combat,skin,progress:combat ? .69 : .28});
+        const b=fighterPose(type,.8,.15,.7,{combat,skin:former,progress:combat ? .69 : .28});
         const distance=Math.hypot(...a.leftArm.map((v,i)=>v-b.leftArm[i]),...a.rightArm.map((v,i)=>v-b.rightArm[i]));
         assert.ok(distance>.4, `${skin}:${type} retains a recoloured ${former} stance`);
       }

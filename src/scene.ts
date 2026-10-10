@@ -18,6 +18,7 @@ import { arenas, type ArenaId } from "./arenas";
 import { frameCombat } from "./framing";
 import { ExecutionVFX } from "./execution-vfx";
 import { executionFrame } from "./skin-execution";
+import { DuelChoreography, type DuelFrame } from "./duel-choreography";
 import { CombatVFX } from "./vfx";
 import { previewMove, type MovePreview } from "./tactics";
 import { SpecialChess, ultimates, type UltimateMove } from "./special";
@@ -266,6 +267,11 @@ interface Animation {
   victimOrigin?: THREE.Vector3;
   victimRotation?: THREE.Euler;
   execution?:ExecutionVFX;
+  duel?: DuelChoreography;
+  duelFrame?: DuelFrame;
+  duelDirection?: THREE.Vector3;
+  duelSide?: THREE.Vector3;
+  duelCentre?: THREE.Vector3;
   quieted?:boolean;
   vfx?: CombatVFX;
   skillFx?:SkillCosmetic;
@@ -298,6 +304,10 @@ export class ChessScene {
   private dimensionSaved?:{visibility:[THREE.Object3D,boolean][];background:THREE.Scene['background'];fog:THREE.Scene['fog']};
   private dimensionCurtain?:HTMLElement;
   private dimensionLabel?:HTMLElement;
+  private duelHUD?: HTMLElement;
+  private duelPhase?: HTMLElement;
+  private duelProgress?: HTMLElement;
+  private duelSkill?: HTMLElement;
   private customBoardTexture?:THREE.Texture;
   private customBoardId?:string;
   setPresentation(equipped:Partial<Record<'dimension'|'finisher'|'frame'|'board'|'skill',string>>){this.presentation={...equipped};this.applyBoardCosmetic();}
@@ -321,6 +331,10 @@ export class ChessScene {
       if(this.scene.fog instanceof THREE.Fog){const distance=this.camera.position.distanceTo(this.controls.target);this.scene.fog.near=distance+6;this.scene.fog.far=distance+24;}
       this.onDimension(false);}
     this.combatDimension.root.visible=false;delete this.stage.dataset.combatDimension;
+    if(this.showcaseHost)delete this.showcaseHost.dataset.combatDimension;
+    delete this.stage.dataset.duelExchange;
+    if(this.duelHUD)this.duelHUD.hidden=true;
+    if(this.duelSkill){this.duelSkill.hidden=true;delete this.duelSkill.dataset.active;}
     if(this.dimensionCurtain)this.dimensionCurtain.style.opacity='0';
   }
   private updateDimension(a:Animation,t:number){
@@ -336,8 +350,16 @@ export class ChessScene {
         const equipped=shopCatalog.find(item=>item.id===this.presentation.dimension),finish=shopCatalog.find(item=>item.id===this.presentation.finisher);
         const theme=equipped?.cosmetic||({nova:'solar',phantom:'veil',dragon:'wyrm',frost:'glacier',storm:'machine',royal:'sanctum',void:'abyss'} as Record<string,string>)[a.skin]||'nebula';
         this.stage.dataset.combatDimension=theme;this.dimensionLabel!.textContent=equipped?.label||'BATTLE DOMAIN / IAHCARUS';
-        const centre=a.stop.clone().lerp(a.victimOrigin||a.to,.5);
-        this.combatDimension.root.visible=true;this.combatDimension.update(t,centre,theme,finish?.cosmetic);
+        if(this.showcaseHost)this.showcaseHost.dataset.combatDimension=theme;
+        this.combatDimension.root.visible=true;this.combatDimension.update(t,a.duelCentre!,theme,finish?.cosmetic);
+        const frame=captureFrame(t);
+        this.stage.dataset.duelExchange=frame.exchange;
+        this.duelHUD!.hidden=false;
+        const labels:Record<string,string>={faceoff:'ตั้งท่า',opening:'เปิดฉาก',guard:'ปัด · รับท่า',counter:'สวนกลับ','counter-clash':'รับแรงสวน',combo:'คอมโบต่อเนื่อง','combo-clash':'ปะทะ','finisher-charge':'ชาร์จท่าปิดฉาก',finisher:'ท่าปิดฉาก',impact:'ปะทะตัดสิน',defeat:'ยุติการต่อสู้',return:'คืนกระดาน'};
+        this.duelPhase!.textContent=labels[frame.exchange]||'ประลอง';
+        this.duelProgress!.style.transform=`scaleX(${1-t})`;
+        this.duelSkill!.hidden=frame.exchange!=='finisher'&&frame.exchange!=='finisher-charge';
+        this.duelSkill!.dataset.active=String(frame.exchange==='finisher'||frame.exchange==='finisher-charge');
       }
     }
   }
@@ -412,8 +434,13 @@ export class ChessScene {
     if (this.environment.id !== id) this.environment.setArena(id);
     const theme = arenas[id];
     this.stage.dataset.arena = id;
-    this.scene.background = new THREE.Color(theme.background);
-    if (this.scene.fog instanceof THREE.Fog) this.scene.fog.color.setHex(theme.background);
+    if(this.dimensionSaved){
+      this.dimensionSaved.background=new THREE.Color(theme.background);
+      if(this.dimensionSaved.fog instanceof THREE.Fog)this.dimensionSaved.fog.color.setHex(theme.background);
+    }else{
+      this.scene.background = new THREE.Color(theme.background);
+      if (this.scene.fog instanceof THREE.Fog) this.scene.fog.color.setHex(theme.background);
+    }
     for (const tile of this.board.children) {
       if (tile instanceof THREE.InstancedMesh) (tile.material as THREE.MeshStandardMaterial).color.setHex(tile.userData.parity ? theme.dark : theme.light);
     }
@@ -572,6 +599,11 @@ export class ChessScene {
     this.scene.add(this.combatDimension.root);
     this.dimensionCurtain=document.createElement('div');this.dimensionCurtain.className='dimension-transition';this.dimensionCurtain.setAttribute('aria-hidden','true');this.stage.append(this.dimensionCurtain);
     this.dimensionLabel=document.createElement('div');this.dimensionLabel.className='dimension-label';this.dimensionLabel.setAttribute('aria-hidden','true');this.stage.append(this.dimensionLabel);
+    this.duelHUD=document.createElement('div');this.duelHUD.className='dimension-duel';this.duelHUD.hidden=true;this.duelHUD.setAttribute('aria-hidden','true');
+    this.duelHUD.innerHTML='<div class="duel-fighter" data-side="attacker"><small>ATTACKER</small><strong></strong><span></span></div><div class="duel-versus">VS</div><div class="duel-fighter" data-side="defender"><small>DEFENDER</small><strong></strong><span></span></div><div class="duel-phase"></div><div class="duel-progress"><i></i></div>';
+    this.duelPhase=this.duelHUD.querySelector('.duel-phase')!;this.duelProgress=this.duelHUD.querySelector('.duel-progress i')!;
+    this.duelSkill=document.createElement('div');this.duelSkill.className='duel-skill';this.duelSkill.setAttribute('aria-hidden','true');this.duelSkill.hidden=true;
+    this.stage.append(this.duelHUD,this.duelSkill);
     this.scene.add(this.board, this.pieces, this.markers, this.aim, this.fx, this.groundAuras, this.groundScars, this.environment.root);
     const tileGeometry = new THREE.BoxGeometry(0.98, 0.16, 0.98);
     const plate = document.createElement("canvas"); plate.width = plate.height = 256;
@@ -716,6 +748,9 @@ export class ChessScene {
     this.showcaseFocus = null;
     this.controls.minDistance = host ? 3 : 7;
     (host || this.stage).prepend(this.renderer.domElement);
+    const surface=host||this.stage;
+    for(const element of [this.dimensionCurtain,this.dimensionLabel,this.duelHUD,this.duelSkill,this.overlay.canvas])if(element)surface.append(element);
+    this.overlay.setSurface(surface);
     if (host) this.resizeObserver.observe(host);
     this.refreshPause(wasPaused);
     this.markers.visible = !host;
@@ -1077,6 +1112,7 @@ export class ChessScene {
       this.scene.fog.near = distance + 6; this.scene.fog.far = distance + 18;
     }
     this.leaveDimension();
+    this.animation?.duel?.dispose();
     this.animation = null;
     if (!preserveField) this.environment.resetReaction();
     this.overlay.clear();
@@ -1191,6 +1227,24 @@ export class ChessScene {
       victimOrigin: victim?.position.clone(),
       victimRotation: victim?.rotation.clone(),
     };
+    if(victim&&defenderProfile&&!this.reduced){
+      this.animation.duel=new DuelChoreography(profile,defenderProfile);
+      const incoming=(this.animation.victimOrigin||to).clone().sub(stop);incoming.y=0;
+      if(incoming.lengthSq()<.0001)incoming.copy(direction);
+      this.animation.duelDirection=incoming.normalize();
+      this.animation.duelSide=new THREE.Vector3(-incoming.z,0,incoming.x);
+      this.animation.duelCentre=dramatic?new THREE.Vector3():stop.clone().lerp(this.animation.victimOrigin||to,.5);
+      const names:Record<PieceSymbol,string>={p:'เบี้ย',n:'ม้า',b:'บิชอป',r:'เรือ',q:'ควีน',k:'คิง'};
+      const attacker=this.duelHUD!.querySelector('[data-side="attacker"]')!;
+      const defender=this.duelHUD!.querySelector('[data-side="defender"]')!;
+      attacker.querySelector('small')!.textContent=move.color==='w'?'WHITE / ATTACKER':'BLACK / ATTACKER';
+      defender.querySelector('small')!.textContent=move.color==='w'?'BLACK / DEFENDER':'WHITE / DEFENDER';
+      attacker.querySelector('strong')!.textContent=names[move.piece];
+      attacker.querySelector('span')!.textContent=skins[skin].name;
+      defender.querySelector('strong')!.textContent=names[defenderProfile.piece];
+      defender.querySelector('span')!.textContent=skins[defenderProfile.skin].name;
+      this.duelSkill!.textContent=event.title;
+    }
     this.controls.enabled = false;
     if (move.captured) this.stage.dataset.cinematicDuration = String(this.animation.duration);
     if (this.animation.reaction) this.stage.dataset.defenseReaction = this.animation.reaction;
@@ -1308,40 +1362,33 @@ export class ChessScene {
     const execution=executionFrame(a.skin,t);
     this.stage.dataset.skinExecution=`${a.skin}:${execution.phase}`;
     if(execution.quiet&&!a.quieted){a.quieted=true;this.onAnticipation();}
-    const direction = a.to.clone().sub(a.from).normalize();
-    const side = new THREE.Vector3(-direction.z, 0, direction.x);
-    const defenderPosition = a.victimOrigin?.clone().addScaledVector(direction, 0.28 + frame.defeat * 0.35);
-    const reaction = Math.sin(frame.counter * Math.PI);
-    if (defenderPosition) {
-      if (a.reaction === "dodge") defenderPosition.addScaledVector(side, reaction * 0.4).addScaledVector(direction, reaction * 0.14);
-      if (a.reaction === "brace") defenderPosition.addScaledVector(direction, reaction * 0.08);
-      if (a.reaction === "parry") defenderPosition.addScaledVector(side, -reaction * 0.1);
-    }
+    const direction = a.duelDirection||a.to.clone().sub(a.from).normalize();
+    const side = a.duelSide||new THREE.Vector3(-direction.z, 0, direction.x);
+    const duel=a.duel?.sample(t);
+    a.duelFrame=duel;
+    const defenderPosition=duel?a.duelCentre!.clone().addScaledVector(direction,duel.defender.x).addScaledVector(side,duel.defender.z):a.victimOrigin?.clone();
+    if(defenderPosition&&duel)defenderPosition.y=duel.defender.lift;
+    const reaction=duel?.defender.guard||0;
     const facing = direction.clone();
     const seconds = t * a.duration / 1000;
     const context = { combat: true, progress: t, approach: frame.approach, opening: frame.opening,
-      counter: frame.counter, clash: frame.clash, finisher: frame.finisher, recovery: frame.recovery };
+      counter: frame.counter, clash: frame.clash, finisher: frame.finisher, recovery: frame.recovery,
+      seconds:frame.seconds,exchange:frame.exchange };
     if (a.avatar) {
-      a.avatar.position.lerpVectors(a.from, a.stop, frame.approach);
-      // Anticipation, first strike, defender contact and final follow-through share
-      // one timeline and one pair of positions, including en passant's offset victim.
-      const openingLunge = Math.sin(frame.opening * Math.PI) * 0.11;
-      const counterRecoil = frame.clash * a.profile.motion.recoil * 0.13;
-      a.avatar.position.addScaledVector(direction, -0.38 + openingLunge + frame.finisher * 0.18 - counterRecoil);
-      a.avatar.position.y = a.move.piece === "n" ? Math.sin(frame.approach * Math.PI) * (0.8 + a.profile.motion.lift * 0.3)
-        : a.move.piece === "q" || a.move.piece === "b" ? 0.15 : 0;
+      if(duel){a.avatar.position.copy(a.duelCentre!).addScaledVector(direction,duel.attacker.x).addScaledVector(side,duel.attacker.z);a.avatar.position.y=duel.attacker.lift;}
+      else a.avatar.position.lerpVectors(a.from,a.stop,frame.approach);
       if (defenderPosition) { facing.copy(defenderPosition).sub(a.avatar.position); facing.y = 0; facing.normalize(); }
       a.avatar.rotation.y = Math.atan2(-facing.x, -facing.z);
-      const fade = Math.min(1, t / (0.25 / 2.6)) * (1 - frame.recovery);
+      const fade = a.dramatic?(this.dimensionSaved?Math.min(1,Math.max(0,(t-.07)/.025))*(1-frame.recovery):0):Math.min(1,t/.08)*(1-frame.recovery);
       a.avatar.scale.setScalar(1.12 + skins[a.skin].tier * 0.045);
-      animateAvatar(a.avatar, a.move.piece, frame.charge, frame.strike, fade, seconds,
-        { ...context, profile: a.profile, skin: a.skin, contactTarget: defenderPosition
+      animateAvatar(a.avatar, a.move.piece,duel?.attacker.charge??frame.charge,duel?.attacker.strike??frame.strike,fade,seconds,
+        { ...context,profile:a.profile,skin:a.skin,actionCharge:duel?.attacker.charge,actionProgress:duel?.attacker.strike,guard:duel?.attacker.guard,recoil:duel?.attacker.recoil,aimWeight:duel?.attacker.aimWeight,contactTarget: defenderPosition
           ? [defenderPosition.x, defenderPosition.y + 1.38, defenderPosition.z] : undefined });
-      if (a.avatarAura) animateAvatarAura(a.avatarAura, a.avatar, frame.charge, fade, seconds);
+      if (a.avatarAura) animateAvatarAura(a.avatarAura,a.avatar,duel?.attacker.charge??frame.charge,fade,seconds);
     }
     if (a.defenderAvatar && defenderPosition) {
       const defender = a.defenderAvatar;
-      const fade = Math.min(1, t / (0.2 / 2.6)) * (1 - frame.defeat);
+      const fade = a.dramatic?(this.dimensionSaved?Math.min(1,Math.max(0,(t-.07)/.025))*(1-frame.defeat):0):Math.min(1,t/.08)*(1-frame.defeat);
       defender.position.copy(defenderPosition);
       // Face the opponent's current location throughout lateral dodges/counters.
       const incoming = (a.avatar?.position || a.stop).clone().sub(defender.position); incoming.y = 0;
@@ -1349,16 +1396,18 @@ export class ChessScene {
       defender.scale.setScalar((1.06 - frame.defeat * 0.25)*(1-execution.collapse*.85));
       if(a.skin==="void")defender.position.y-=execution.collapse*.5;
       const hit = a.impacted ? Math.min(1, Math.max(0, (t - CAPTURE_CONTACT) / 0.09)) : 0;
-      animateDefender(defender, defender.userData.piece, hit, fade, seconds,
-        { ...context, profile: a.defenderProfile, skin: a.defenderProfile?.skin, reaction: a.reaction,
-          contactTarget: a.avatar ? [a.avatar.position.x, a.avatar.position.y + 1.4, a.avatar.position.z] : undefined });
+      const defenderContext={...context,profile:a.defenderProfile,skin:a.defenderProfile?.skin,reaction:a.reaction,
+        actionCharge:duel?.defender.charge,actionProgress:duel?.defender.strike,guard:duel?.defender.guard,recoil:duel?.defender.recoil,aimWeight:duel?.defender.aimWeight,
+        contactTarget:a.avatar?[a.avatar.position.x,a.avatar.position.y+1.4,a.avatar.position.z] as [number,number,number]:undefined};
+      if(t<CAPTURE_CONTACT)animateAvatar(defender,defender.userData.piece,duel?.defender.charge||.2,duel?.defender.strike||0,fade,seconds,defenderContext);
+      else animateDefender(defender,defender.userData.piece,hit,fade,seconds,defenderContext);
       if (a.defenderAura) animateAvatarAura(a.defenderAura, defender, 0.25 + reaction * 0.6, fade, seconds);
     }
     if(a.execution)a.execution.update(t,a.avatar?.position||a.from,a.defenderAvatar?.position||a.to);
     if (a.guard) {
       if (a.defenderAvatar) a.guard.position.copy(a.defenderAvatar.position).add(new THREE.Vector3(0, 1.15, 0));
       a.guard.rotation.y = Math.atan2(facing.x, facing.z);
-      a.guard.visible = (a.reaction === "barrier" || a.reaction === "shield" || a.reaction === "brace") && t >= 1 / 2.6 && t < CAPTURE_CONTACT + 0.05;
+      a.guard.visible = (a.reaction === "barrier" || a.reaction === "shield" || a.reaction === "brace") && reaction>.08 && t<CAPTURE_CONTACT+.03 && (!a.dramatic||!!this.dimensionSaved);
       const scale = 0.86 + reaction * 0.18;
       const depth = a.reaction === "barrier" ? 0.7 : a.reaction === "brace" ? 0.38 : 0.25;
       a.guard.scale.set(scale, scale, scale * depth);
@@ -1409,7 +1458,7 @@ export class ChessScene {
     if (this.animation !== a) return;
     if (this.reduced) { if (a.victim) a.victim.visible = false; return; }
     const color = battleColor(a.move.color, a.event.story, a.skin);
-    const origin = a.victimOrigin || a.to;
+    const origin = a.defenderAvatar?.position || a.victimOrigin || a.to;
     const tier = skins[a.skin].tier;
     const count = Math.min(this.compactEffects() ? 24 : this.quality === "high" ? 64 : 44, (a.dramatic ? 32 : 22) + tier * 4);
     this.particleMesh = new THREE.InstancedMesh(
@@ -1443,6 +1492,7 @@ export class ChessScene {
       return;
     }
     this.environment.react(a.victimOrigin || a.to);
+    if(a.duel&&a.dramatic)return;
     for (const target of a.event.targets) {
       this.beam(
         a.to.clone().add(new THREE.Vector3(0, 0.5, 0)),
@@ -1501,7 +1551,7 @@ export class ChessScene {
   }
   private directCamera(a: Animation, t: number) {
     const smooth = (value: number) => { const x = Math.max(0, Math.min(1, value)); return x * x * (3 - 2 * x); };
-    const attack = a.to.clone().sub(a.from).normalize();
+    const attack = a.duelDirection?.clone()||a.to.clone().sub(a.from).normalize();
     const side = new THREE.Vector3(-attack.z, 0, attack.x).multiplyScalar(this.flipped ? -1 : 1);
     const capture = a.move.captured ? captureFrame(t) : null;
     const sweep = Math.sin(Math.min(1, t / (capture ? CAPTURE_CONTACT : 0.52)) * Math.PI) * (a.move.piece === "n" ? 0.17 : 0.09);
@@ -1509,7 +1559,7 @@ export class ChessScene {
     const angle = 0.22 + sweep + (capture ? capture.opening * 0.11 - counterArc * 0.17 : 0);
     const view = side.multiplyScalar(a.profile.camera.side).addScaledVector(attack, angle)
       .add(new THREE.Vector3(0, 0.54 + sweep * 0.3 - (capture?.finisher || 0) * 0.05, 0));
-    this.stage.dataset.cameraShot = capture ? capture.combatPhase === "defeat" ? "return"
+    this.stage.dataset.cameraShot = capture ? t>=.94 ? "return"
       : capture.combatPhase === "finisher" ? "closeup" : capture.combatPhase === "defense" ? "counter"
         : capture.combatPhase === "opening" ? "tracking" : "faceoff" : "tracking";
     const actors = [a.avatar, a.defenderAvatar].filter((actor): actor is THREE.Group => !!actor);
@@ -1533,16 +1583,15 @@ export class ChessScene {
     // their weapons, even when the phone's portrait viewport narrows the frame.
     const dolly = capture ? 1 + 0.045 * Math.sin(capture.opening * Math.PI) + 0.025 * counterArc : 1;
     shot.position.sub(shot.focus).multiplyScalar(dolly).add(shot.focus);
-    const entering = this.dimensionSaved?1:smooth(t / (capture ? (0.4 / 2.6) / a.profile.camera.entry : 0.1));
+    const entering = this.dimensionSaved?1:smooth(t / (capture ? .07 : 0.1));
     const returnAt = capture ? CAPTURE_DEATH : 0.82;
     const returning = this.dimensionSaved?0:smooth((t - returnAt) / (1 - returnAt));
-    const position = a.camera.clone().lerp(shot.position, entering).lerp(a.camera, returning);
-    const focus = a.target.clone().lerp(shot.focus, entering).lerp(a.target, returning);
+    const position = capture&&t>=.94?a.camera.clone():a.camera.clone().lerp(shot.position, entering).lerp(a.camera, returning);
+    const focus = capture&&t>=.94?a.target.clone():a.target.clone().lerp(shot.focus, entering).lerp(a.target, returning);
     const contact = a.move.captured ? CAPTURE_CONTACT : 0.52;
-    const clashShake = capture && t >= CAPTURE_CLASH && t < CAPTURE_CLASH + 0.04;
+    const clashShake = capture && capture.contactPulse>.4 && t<CAPTURE_CONTACT;
     if ((t >= contact && t < contact + 0.05) || clashShake) {
-      const contactTime = clashShake ? CAPTURE_CLASH : contact;
-      const shake = (1 - (t - contactTime) / 0.05) * a.profile.camera.shake * (clashShake ? 0.45 : 1);
+      const shake = (clashShake?capture!.contactPulse:1-(t-contact)/.05)*a.profile.camera.shake*(clashShake?.25:.65);
       position.x += Math.sin(t * 200) * shake;
       position.y += Math.cos(t * 150) * shake * 0.5;
     }
@@ -1601,7 +1650,7 @@ export class ChessScene {
         }
 
       }
-      if (!a.launched && t >= (this.reduced ? 0 : capture ? 0.4 / 2.6 : a.dramatic ? 0.3 : 0.22)) {
+      if (!a.launched && t >= (this.reduced ? 0 : capture ? .45/5 : a.dramatic ? 0.3 : 0.22)) {
         a.launched = true; this.onDash(a.move, a.event);
         if (this.animation !== a) return;
       }
@@ -1637,12 +1686,14 @@ export class ChessScene {
         a.vfx.update({ time: t * a.duration / 1000, progress: t,
           phase: capture?.phase || (a.dramatic ? choreography.phase : short.phase),
           charge: capture?.charge ?? (a.dramatic ? choreography.charge : short.charge),
-          travel, strike: capture?.strike ?? travel, defeat: capture?.defeat ?? 0,
-          from: a.from, to: a.to, actor: a.avatar?.position || a.object.position,
+          travel,strike:a.duelFrame?.attacker.strike??capture?.strike??travel,defeat: capture?.defeat ?? 0,
+          from: this.dimensionSaved&&a.avatar?a.avatar.position:a.from,to:this.dimensionSaved&&a.defenderAvatar?a.defenderAvatar.position:a.to,actor: a.avatar?.position || a.object.position,
           target: a.defenderAvatar?.position || a.victimOrigin || a.to,
           contact: a.impacted, dead: a.died, contactAt: contact,
           opening: capture?.opening, counter: capture?.counter, clash: capture?.clash,
-          finisher: capture?.finisher, recovery: capture?.recovery });
+          finisher: capture?.finisher, recovery: capture?.recovery,
+          attackerCharge:a.duelFrame?.attacker.charge,attackerStrike:a.duelFrame?.attacker.strike,attackerGuard:a.duelFrame?.attacker.guard,
+          defenderCharge:a.duelFrame?.defender.charge,defenderStrike:a.duelFrame?.defender.strike,defenderGuard:a.duelFrame?.defender.guard,contactPulse:capture?.contactPulse });
       }
       if (a.dramatic) {
         this.directCamera(a, t);

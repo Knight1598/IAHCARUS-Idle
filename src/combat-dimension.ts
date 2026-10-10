@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {dimensionThemes,finisherThemes,type CosmeticTheme} from '../shared/presentation.js';
-import {CAPTURE_CONTACT,CAPTURE_DEATH} from './combat';
+import {CAPTURE_CONTACT,CAPTURE_DEATH,CAPTURE_DURATION} from './combat';
 import './combat-dimension.css';
-export function dimensionWindow(t:number,reduced=false){return !reduced&&t>=.12&&t<.9;}
+export const DIMENSION_ENTER = .07;
+export const DIMENSION_EXIT = .94;
+export function dimensionWindow(t:number,reduced=false){return !reduced&&t>=DIMENSION_ENTER&&t<DIMENSION_EXIT;}
 export function dimensionTransition(t:number){
  const tent=(centre:number,width:number)=>Math.max(0,1-Math.abs(t-centre)/width);
- return Math.max(tent(.12,.06),tent(.9,.045));
+ return Math.max(tent(DIMENSION_ENTER,.045),tent(DIMENSION_EXIT,.035));
 }
 const vertex='varying vec3 vPoint; void main(){vPoint=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}';
 const fragment=`varying vec3 vPoint;uniform float uTime,uKind,uSky;uniform vec3 uTint;
@@ -21,15 +23,63 @@ const fragment=`varying vec3 vPoint;uniform float uTime,uKind,uSky;uniform vec3 
  else if(uKind<6.5)shape=line(r-3.0,.03)+line(r-5.0,.03)+line(r-7.0,.03)+pow(max(0.0,cos(a*8.0)),24.0)*.35;
  else shape=line(sin(r*.8+uTime*.6),.03)*(.4+.6*pow(abs(cos(a*2.0)),4.0));
  if(uSky>.5){float stars=pow(max(0.0,sin(vPoint.x*7.7)*sin(vPoint.y*9.3)*sin(vPoint.z*8.1)),48.0);shape=stars*.65+shape*.045;}
- float glow=shape*(uSky>.5?.18:.13);vec3 base=uTint*(uSky>.5?.008:.018);
+ // The fighters keep a quiet centre; scenery and field lines frame their silhouettes.
+ float field=uSky>.5?1.0:mix(.38,1.0,smoothstep(1.4,4.5,r));
+ float glow=shape*field*(uSky>.5?.18:.16);vec3 base=uTint*(uSky>.5?.008:.021);
  gl_FragColor=vec4(base+uTint*glow,1.0);
  #include <colorspace_fragment>
  }`;
-/** Reusable alternate set: floor, sky and twelve instanced monuments. No second renderer. */
+function merged(parts:THREE.BufferGeometry[]){
+ const prepared=parts.map(g=>g.index?g.toNonIndexed():g),geometry=mergeGeometries(prepared)!;
+ new Set([...parts,...prepared]).forEach(g=>g.dispose());return geometry;
+}
+
+/** Different architecture for each domain, built once and reused between captures. */
+function monumentGeometry(kind:number){
+ const parts:THREE.BufferGeometry[]=[];
+ if(kind===0){
+  // Solar instruments: tilted orbital rings around a faceted core.
+  parts.push(new THREE.OctahedronGeometry(.4));
+  for(let i=0;i<3;i++)parts.push(new THREE.TorusGeometry(.65+i*.12,.018,3,24).rotateX(i*Math.PI/3));
+ }else if(kind===1){
+  // Veil: tall portal lintels, leaving an actual empty opening.
+  parts.push(new THREE.BoxGeometry(.12,1.9,.12).translate(-.6,.6,0),new THREE.BoxGeometry(.12,1.9,.12).translate(.6,.6,0),new THREE.BoxGeometry(1.35,.12,.12).translate(0,1.55,0));
+ }else if(kind===2){
+  // Wyrm: three inclined claws rather than generic pillar crystals.
+  for(let i=-1;i<=1;i++)parts.push(new THREE.ConeGeometry(.16,1.8,3).rotateZ(-i*.18-.28).translate(i*.4,.6,0));
+ }else if(kind===3){
+  // Glacier: three hexagonal shafts with staggered pointed crowns.
+  for(let i=-1;i<=1;i++){const h=i===0?1.8:1.1;parts.push(new THREE.CylinderGeometry(.18,.25,h,6).translate(i*.34,h*.5-.25,0),new THREE.ConeGeometry(.18,.4,6).translate(i*.34,h-.05,0));}
+ }else if(kind===4){
+  // Machine: square reactor cages with two separated circuit rings.
+  parts.push(new THREE.BoxGeometry(.55,1.55,.55));
+  for(const y of [-.55,.55])parts.push(new THREE.TorusGeometry(.58,.025,3,4).rotateX(Math.PI/2).rotateY(Math.PI/4).translate(0,y,0));
+ }else if(kind===5){
+  // Nebula: asymmetric orbital triangles around paired star cores.
+  parts.push(new THREE.OctahedronGeometry(.27).translate(-.22,0,0),new THREE.OctahedronGeometry(.13).translate(.35,.4,0),new THREE.TorusGeometry(.95,.018,3,3).rotateZ(Math.PI/6),new THREE.TorusGeometry(.68,.018,3,3).rotateY(Math.PI/3));
+ }else if(kind===6){
+  // Sanctum: an eight-sided plinth crowned by rays and a judgment halo.
+  parts.push(new THREE.CylinderGeometry(.22,.4,1.5,8),new THREE.TorusGeometry(.65,.025,3,24).translate(0,.9,0));
+  for(let i=0;i<5;i++)parts.push(new THREE.ConeGeometry(.065,.55,4).translate((i-2)*.2,1.22,0));
+ }else{
+  // Abyss: broken obelisks surrounded by an off-centre event horizon.
+  parts.push(new THREE.ConeGeometry(.42,2.1,4).rotateZ(.15),new THREE.ConeGeometry(.22,1.1,4).rotateZ(-.18).translate(.55,-.25,0),new THREE.TorusGeometry(.85,.023,3,28,Math.PI*1.6).rotateY(.5).translate(0,.3,0));
+ }
+ return merged(parts);
+}
+
+/** One renderer; floor, sky, three reusable scenery batches and the equipped finisher. */
 export class CombatDimension {
  readonly root=new THREE.Group();
  private mats:THREE.ShaderMaterial[]=[];
  private pillars:THREE.InstancedMesh;
+ private scenery=new THREE.Group();
+ private perimeter:THREE.Mesh<THREE.BufferGeometry,THREE.MeshBasicMaterial>;
+ private rifts:THREE.InstancedMesh<THREE.BufferGeometry,THREE.MeshBasicMaterial>;
+ private dummy=new THREE.Object3D();
+ private architecture=new Map<number,THREE.BufferGeometry>();
+ private themes=new Map(dimensionThemes.map(theme=>[theme.id,theme]));
+ private themeId='';
  private final?:THREE.Mesh;
  private finalId='';
  constructor(){
@@ -41,17 +91,43 @@ export class CombatDimension {
     mat.vertexShader=vertex.replace('vPoint=position','vPoint=vec3(position.x,0.0,position.y)');}
    this.mats.push(mat);this.root.add(mesh);
   }
-  this.pillars=new THREE.InstancedMesh(new THREE.OctahedronGeometry(.6),new THREE.MeshBasicMaterial({color:'#c5a3ff',wireframe:true,transparent:true,opacity:.25,toneMapped:false}),12);
-  this.root.add(this.pillars);
+  const geometry=monumentGeometry(5);this.architecture.set(5,geometry);
+  this.pillars=new THREE.InstancedMesh(geometry,new THREE.MeshBasicMaterial({color:'#c5a3ff',wireframe:true,transparent:true,opacity:.24,depthWrite:false,toneMapped:false}),12);
+  this.pillars.instanceMatrix.setUsage(THREE.DynamicDrawUsage);this.pillars.frustumCulled=false;
+  const railParts:THREE.BufferGeometry[]=[new THREE.TorusGeometry(5.9,.024,3,48).rotateX(Math.PI/2),new THREE.TorusGeometry(6.1,.012,3,48).rotateX(Math.PI/2)];
+  for(let i=0;i<12;i++){const a=i*Math.PI/6;railParts.push(new THREE.BoxGeometry(.04,.035,.6).translate(0,0,6.05).rotateY(a));}
+  this.perimeter=new THREE.Mesh(merged(railParts),new THREE.MeshBasicMaterial({color:'#c5a3ff',transparent:true,opacity:.23,depthWrite:false,toneMapped:false}));this.perimeter.position.y=-.08;
+  this.rifts=new THREE.InstancedMesh(new THREE.TorusGeometry(1.15,.025,3,36,Math.PI*1.65),new THREE.MeshBasicMaterial({color:'#c5a3ff',transparent:true,opacity:.15,depthWrite:false,toneMapped:false}),3);
+  this.rifts.instanceMatrix.setUsage(THREE.DynamicDrawUsage);this.rifts.frustumCulled=false;
+  this.scenery.add(this.pillars,this.perimeter,this.rifts);this.root.add(this.scenery);
  }
  update(t:number,centre:THREE.Vector3,themeId:string,finishId?:string){
-  const theme=dimensionThemes.find(v=>v.id===themeId)||dimensionThemes[5];
+  const theme=this.themes.get(themeId)||dimensionThemes[5];
   this.root.position.set(centre.x,0,centre.z);
-  for(const mat of this.mats){mat.uniforms.uTime.value=t*2.6;mat.uniforms.uKind.value=theme.pattern;mat.uniforms.uTint.value.set(theme.color);}
-  (this.pillars.material as THREE.MeshBasicMaterial).color.set(theme.color);
-  const dummy=new THREE.Object3D();
-  for(let i=0;i<12;i++){const a=i*Math.PI/6;dummy.position.set(Math.cos(a)*9,1.1+Math.sin(i*1.7+t)*.3,Math.sin(a)*9);dummy.rotation.set(0,a+t*.3,theme.pattern%2?Math.PI/4:0);dummy.scale.set(theme.pattern===4?.45:.7,theme.pattern===2?3:1.8,1);dummy.updateMatrix();this.pillars.setMatrixAt(i,dummy.matrix);}
+  const seconds=t*CAPTURE_DURATION/1000,kind=Number(theme.pattern),dummy=this.dummy;
+  if(this.themeId!==theme.id){
+   this.themeId=theme.id;
+   if(!this.architecture.has(kind))this.architecture.set(kind,monumentGeometry(kind));
+   this.pillars.geometry=this.architecture.get(kind)!;
+   for(const mat of this.mats){mat.uniforms.uKind.value=kind;mat.uniforms.uTint.value.set(theme.color);}
+   (this.pillars.material as THREE.MeshBasicMaterial).color.set(theme.color);this.perimeter.material.color.set(theme.color);this.rifts.material.color.set(theme.color);
+   this.rifts.visible=kind===0||kind===1||kind===5||kind===7;
+  }
+  for(const mat of this.mats)mat.uniforms.uTime.value=seconds;
+  for(let i=0;i<12;i++){
+   const a=i*Math.PI/6,radius=kind===1?9.5:8.5;
+   dummy.position.set(Math.cos(a)*radius,kind===4?1.1:1.35+Math.sin(i*1.7+seconds*.65)*.13,Math.sin(a)*radius);
+   dummy.rotation.set(0,kind===0||kind===5?a+seconds*.12:a+Math.PI/2,0);dummy.scale.setScalar(kind===1?1.1:kind===3?.85:1);
+   dummy.updateMatrix();this.pillars.setMatrixAt(i,dummy.matrix);
+  }
   this.pillars.instanceMatrix.needsUpdate=true;
+  for(let i=0;i<3;i++){
+   const a=(i*2/3+.18)*Math.PI;dummy.position.set(Math.cos(a)*9.5,kind===0?3.8:3,Math.sin(a)*9.5);
+   dummy.rotation.set(kind===0?Math.PI/2:.1,a+Math.PI/2,seconds*.09+i*.7);dummy.scale.setScalar(kind===7?1.65:1.2);
+   dummy.updateMatrix();this.rifts.setMatrixAt(i,dummy.matrix);
+  }
+  this.rifts.instanceMatrix.needsUpdate=true;
+  this.perimeter.material.opacity=.22+Math.sin(seconds*1.8)*.025;
   if(this.finalId!==(finishId||'')){this.finalId=finishId||'';this.setFinisher(finisherThemes.find(v=>v.id===finishId));}
   if(this.final){const p=Math.max(0,Math.min(1,(t-CAPTURE_CONTACT)/(CAPTURE_DEATH-CAPTURE_CONTACT+.06)));
    this.final.visible=p>0&&p<1;this.final.scale.setScalar(this.final.userData.pattern===11?2.4-p*1.8:.6+p*2.0);

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { SoundVariantBag, SOUND_VARIANTS, pieceSoundRecipe, eventSoundRecipe, combatSoundRecipe, SpaceAudio, AUDIO_VOICE_LIMIT, AUDIO_CACHE_LIMIT } from "../src/sound.ts";
+import { combatCueDuration } from '../src/combat-audio.ts';
 
 const pieces = ["p", "n", "b", "r", "q", "k"];
 const phases = ["lock", "charge", "dash", "impact", "death", "check"];
@@ -145,9 +146,79 @@ test("a cold frame racing worker preparation keeps one cache entry per take", as
   const warming = sound.prepareCombat("n", "astral");
   sound.playCombatCue("n", "astral", "impact");
   await warming;
-  assert.equal(sound.diagnostics.cacheEntries, 9);
+  assert.equal(sound.diagnostics.cacheEntries, 9 * SOUND_VARIANTS);
   assert.equal(sound.diagnostics.cacheBytes, sound.diagnostics.residentBytes, "in-flight preparation must not count or retain a duplicate buffer");
   sound.dispose();
+});
+
+test('duel cue durations stay punchy at five seconds and shorten only charge-ups in compact mode', () => {
+  assert.equal(combatCueDuration('charge'), .53);
+  assert.equal(combatCueDuration('finisher'), .33);
+  for (const duration of [2000, 3000, 5000, 15000, NaN, Infinity, -1]) {
+    const charge = combatCueDuration('charge', duration), finisher = combatCueDuration('finisher', duration);
+    assert.ok(charge >= .18 && charge <= .53);
+    assert.ok(finisher >= .16 && finisher <= .33);
+    for (const cue of ['draw', 'release', 'clash', 'counter', 'impact', 'armor', 'disintegrate']) {
+      assert.equal(combatCueDuration(cue, duration), .3);
+    }
+  }
+  assert.ok(combatCueDuration('charge', 2000) < combatCueDuration('charge', 5000));
+});
+
+test('preparation covers every repeated duel take at the same durations used by playback', async () => {
+  for (const duration of [2000, 5000]) {
+    const context = audioContext(), sound = new SpaceAudio(context, () => .25);
+    await sound.prepareCombat('n', 'astral', duration, true);
+    const entries = sound.diagnostics.cacheEntries, bytes = sound.diagnostics.cacheBytes;
+    assert.equal(entries, 9 * SOUND_VARIANTS);
+    assert.equal(sound.activeVoices, 0, 'warming never starts a voice');
+    for (const cue of ['draw', 'charge', 'release', 'clash', 'counter', 'finisher', 'impact', 'armor', 'disintegrate']) {
+      const takes = [];
+      for (let i = 0; i < SOUND_VARIANTS; i++) {
+        takes.push(sound.playCombatCue('n', 'astral', cue, combatCueDuration(cue, duration), .4, true));
+        context.scheduled.at(-1).onended();
+      }
+      assert.equal(new Set(takes).size, SOUND_VARIANTS, `${cue} rotates its prepared takes`);
+    }
+    assert.equal(sound.diagnostics.cacheEntries, entries, 'no cold playback cache misses');
+    assert.equal(sound.diagnostics.cacheBytes, bytes, 'all playback buffers were prepared');
+    assert.equal(sound.diagnostics.maxSynthesisMs, 0, 'no main-thread PCM render during exchanges');
+    sound.dispose();
+  }
+});
+
+test('two complete fighter scores coexist with music and ambience within the cache budget', async () => {
+  for (const duration of [2000, 5000]) {
+    const context = audioContext(), sound = new SpaceAudio(context, () => .25);
+    sound.setMusicState('normal');
+    await sound.prepareMusic(['normal']);
+    // Heavy armor scores have longer resonances than the fast release gestures.
+    await Promise.all([
+      sound.prepareCombat('r', 'classic', duration),
+      sound.prepareCombat('k', 'classic', duration),
+    ]);
+    const warmed = sound.diagnostics;
+    assert.equal(warmed.cacheEntries, 72 + 2, 'both fighters and the two independent beds remain resident');
+    assert.ok(warmed.cacheBytes < AUDIO_CACHE_LIMIT);
+    for (const piece of ['r', 'k']) {
+      for (const cue of ['draw', 'charge', 'release', 'clash', 'counter', 'finisher', 'impact', 'armor', 'disintegrate']) {
+        for (let take = 0; take < SOUND_VARIANTS; take++) {
+          sound.playCombatCue(piece, 'classic', cue, combatCueDuration(cue, duration));
+          const voice = context.scheduled.at(-1);
+          assert.ok(voice.buffer.duration < 1.8, `${piece}:${cue} finite short voice`);
+          for (const channel of [0, 1]) {
+            assert.ok(voice.buffer.getChannelData(channel).every(Number.isFinite), `${piece}:${cue} finite PCM`);
+          }
+          voice.onended();
+        }
+      }
+    }
+    assert.equal(sound.diagnostics.cacheEntries, warmed.cacheEntries);
+    assert.equal(sound.diagnostics.cacheBytes, warmed.cacheBytes, 'no prepared take was evicted or regenerated');
+    assert.equal(sound.diagnostics.maxSynthesisMs, 0, 'both fighter scores play without synchronous synthesis');
+    assert.equal(sound.activeVoices, 2, 'duel effects do not replace music and ambience');
+    sound.dispose();
+  }
 });
 
 

@@ -5,6 +5,7 @@ import type { SkinId } from "./profile";
 import { combatProfile } from "./combat-profiles.ts";
 import { audioSeed, renderAmbience, renderSoundRecipe, type StereoPCM } from "./audio-synthesis.ts";
 import { renderMusic } from "./audio-music.ts";
+import { combatCueDuration } from './combat-audio.ts';
 
 export type SoundPhase = "lock" | "charge" | "dash" | "impact" | "death" | "check" | "move" | "attack";
 type CanonicalPhase = Exclude<SoundPhase, "move" | "attack">;
@@ -502,15 +503,17 @@ export class SpaceAudio {
     this.render(recipe, `${key}:${chosen}:${quantized}:true:false`, "sfx");
     return chosen;
   }
-  /** Queue the next take of every capture cue off the animation thread. Call at face-off. */
-  prepareCombat(piece: PieceSymbol, skin: SkinId, duration = 2600, ultimate = false): Promise<void> {
+  /** Warm all four takes off the animation thread, including repeated exchanges.
+   * Preparation does not advance the shuffle bags used by actual gesture callbacks. */
+  prepareCombat(piece: PieceSymbol, skin: SkinId, duration = 5000, ultimate = false): Promise<void> {
     const cues: CombatSoundCue[] = ["draw", "charge", "release", "clash", "counter", "finisher", "impact", "armor", "disintegrate"];
-    return Promise.all(cues.map((cue) => {
-      const key = `combat:${piece}:${skin}:${cue}`, variant = this.variants.peek(key);
-      const requested = cue === "charge" ? .53 * duration / 2600 : cue === "finisher" ? .33 * duration / 2600 : .3;
-      const quantized = Math.round(requested * 20) / 20;
-      const cacheKey = `${key}:${variant}:${quantized}:${ultimate}`;
-      return this.requestRecipe(cacheKey, combatSoundRecipe(piece, skin, cue, variant, quantized, 0, ultimate));
+    return Promise.all(cues.flatMap((cue) => {
+      const key = `combat:${piece}:${skin}:${cue}`;
+      const quantized = Math.round(combatCueDuration(cue, duration) * 20) / 20;
+      return Array.from({ length: SOUND_VARIANTS }, (_, variant) => {
+        const cacheKey = `${key}:${variant}:${quantized}:${ultimate}`;
+        return this.requestRecipe(cacheKey, combatSoundRecipe(piece, skin, cue, variant, quantized, 0, ultimate));
+      });
     })).then(() => undefined);
   }
   private requestRecipe(key: string, recipe: SoundRecipe): Promise<void> {

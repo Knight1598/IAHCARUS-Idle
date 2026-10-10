@@ -78,7 +78,7 @@ test("the blocked opening, finisher and disintegration use separate choreography
   const blocked = duelFrame(CAPTURE_CLASH);
   vfx.update(blocked);
   assert.equal(uniforms.uClash.value, 1);
-  assert.ok(uniforms.uCounter.value > .4);
+  assert.ok(uniforms.uCounter.value > .1, "guard traces remain visible before the defender counter");
   assert.equal(uniforms.uImpact.value, 0);
   assert.equal(uniforms.uContact.value, 0);
   assert.equal(uniforms.uDeath.value, 0);
@@ -92,7 +92,7 @@ test("the blocked opening, finisher and disintegration use separate choreography
   assert.equal(uniforms.uClash.value, 0);
   assert.equal(uniforms.uDeath.value, 0);
   const held = [];
-  for (const offset of [0, .025, .055]) {
+  for (const offset of [0, .005, .018]) {
     vfx.update(duelFrame(CAPTURE_CONTACT + offset));
     held.push(uniforms.uTime.value);
     assert.equal(uniforms.uContact.value, 1);
@@ -150,10 +150,27 @@ test("every defensive response retains two local counter paths without another d
     assert.equal(Math.max(...ribbons.geometry.attributes.aPath.array), 5);
     assert.equal(vfx.group.children.length, 4);
     vfx.update(duelFrame(CAPTURE_CLASH));
-    assert.ok(u.uCounter.value > .4);
+    assert.ok(u.uCounter.value > .1);
     assert.ok(u.uClashPoint.value.x > frame(0).actor.x && u.uClashPoint.value.x < frame(0).target.x);
     dispose(vfx);
   }
+});
+
+test("clash waves restart at four exchanges and the final hit while preserving five fixed draw batches", () => {
+  const vfx = effect("high"), parts = [...vfx.group.children], u = parts[0].material.uniforms;
+  for (const seconds of [1.08, 1.86, 2.48, 2.83, 3.85]) {
+    vfx.update(duelFrame(seconds / 5));
+    assert.ok(Math.abs(u.uClashWave.value) < 1e-10, `pressure wave did not restart at ${seconds}s`);
+    const frozen = u.uTime.value;
+    vfx.update(duelFrame((seconds + .05) / 5));
+    assert.ok(Math.abs(u.uTime.value - frozen) < 1e-10, "each weapon contact needs its own hitstop");
+    assert.ok(u.uClashWave.value > 0, "the contact pressure should visibly expand after impact");
+    vfx.update(duelFrame((seconds + .19) / 5));
+    assert.ok(u.uTime.value > frozen, "energy must resume after contact instead of freezing the rest of the duel");
+  }
+  assert.deepEqual(vfx.group.children, parts);
+  assert.equal(parts.length, 5);
+  dispose(vfx);
 });
 
 test("repeat captures reuse immutable CPU geometry arrays and own disposable GPU wrappers", () => {

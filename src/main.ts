@@ -18,7 +18,8 @@ import { readAudioPreferences, installAudioControls } from "./audio-controls";
 import "./audio-controls.css";
 import { CombatShowcase, type ShowcaseSettings } from "./showcase";
 import type { CombatCue } from "./combat-profiles";
-import { clampCaptureDuration } from "./combat";
+import { clampCaptureDuration, CAPTURE_DURATION } from "./combat";
+import { combatCueDuration } from "./combat-audio";
 import { ArenaHUD } from "./hud";
 import { readProfile, claimXP, matchXP, levelProgress, skins, isSkinUnlocked, equipArmy, equipPiece, type SkinId, type Profile } from "./profile";
 import { appearanceMap, avatarNames, skillNames, scenarioLoadout } from "./cosmetics";
@@ -1113,9 +1114,8 @@ if (scene) {
   scene.onAnticipation=()=>soundEngine()?.anticipateImpact();
   scene.onCombatCue = (move, _event, cue, actor, skin) => {
     const piece = actor === "defender" ? move.captured || move.piece : move.piece;
-    const speed = (scene!.animation?.duration || 2600) / 2600;
-    soundEngine()?.playCombatCue(piece, skin, cue, (cue === "charge" ? .53 : cue === "finisher" ? .33 : .3) * speed,
-      actor === "defender" ? -soundPan(move) : soundPan(move), !!(move as UltimateMove).ultimate);
+    soundEngine()?.playCombatCue(piece,skin,cue,combatCueDuration(cue,scene!.animation?.duration||CAPTURE_DURATION),
+      actor === "defender" ? -soundPan(move) : soundPan(move),actor==="attacker"&&!!(move as UltimateMove).ultimate);
   };
 }
 function submitMove(from: Square, to: Square, promotion: PieceSymbol = "q") {
@@ -1691,14 +1691,15 @@ installAudioControls($(".settings"), audioPreferences, (bus, value) => {
   else { audioPreferences.levels[bus] = Number(value); spaceAudio?.setBusVolume(bus, Number(value)); }
   saveAudioMix();
 });
-$(".settings").insertAdjacentHTML("beforeend", `<label class="setting-select" for="capture-duration">ความยาวฉากต่อสู้<select id="capture-duration"><option value="2000">กระชับ · 2 วินาที</option><option value="2600">เต็มจังหวะ · 2.6 วินาที</option><option value="3000">ชมท่า · 3 วินาที</option></select></label>`);
+$(".settings").insertAdjacentHTML("beforeend", `<label class="setting-select" for="capture-duration">ฉากดวลในมิติ<select id="capture-duration"><option value="5000">ดวลเต็มฉาก · 5 วินาที</option><option value="3000">เร่งจังหวะ · 3 วินาที</option><option value="2600">กระชับ · 2.6 วินาที</option><option value="2000">รวดเร็ว · 2 วินาที</option></select></label>`);
 const captureDurationInput = $<HTMLSelectElement>("#capture-duration");
-captureDurationInput.value = String(clampCaptureDuration(Number(storage.get("special-chess-capture-duration") || 2600)));
-if (!captureDurationInput.value) captureDurationInput.value = "2600";
+// The new multi-exchange score starts at five seconds; previous single-hit preferences stay saved.
+captureDurationInput.value = String(clampCaptureDuration(Number(storage.get("special-chess-duel-duration-v3") || CAPTURE_DURATION)));
+if (!captureDurationInput.value) captureDurationInput.value = String(CAPTURE_DURATION);
 if (scene) scene.captureDuration = Number(captureDurationInput.value);
 captureDurationInput.onchange = () => {
   scene?.finish(); if (scene) scene.captureDuration = Number(captureDurationInput.value);
-  storage.set("special-chess-capture-duration", captureDurationInput.value);
+  storage.set("special-chess-duel-duration-v3", captureDurationInput.value);
 };
 const scopeInput = $<HTMLSelectElement>("#cinematic-scope");
 scopeInput.value = storage.get("special-chess-cinematic-scope") === "all" ? "all" : "key";

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {skins,type SkinId } from './profile.ts';
 import { executionFrame } from './skin-execution.ts';
+import { CAPTURE_DURATION } from './combat.ts';
 /** At most three procedural draw batches; new families use spatial geometry instead of recoloured panels. */
 export class ExecutionVFX {
   readonly group=new THREE.Group();
@@ -105,7 +106,7 @@ export class ExecutionVFX {
     }
     this.group.position.copy(['prism','dragon'].includes(this.skin)?from:target);this.group.position.y=0;
     this.direction.copy(target).sub(from);this.group.rotation.y=Math.atan2(this.direction.x,this.direction.z);
-    this.shader.uniforms.uTime.value=t*2.6;this.shader.uniforms.uPower.value=f.strength;this.shader.uniforms.uRelease.value=f.release;
+    this.shader.uniforms.uTime.value=t*CAPTURE_DURATION/1000;this.shader.uniforms.uPower.value=f.strength;this.shader.uniforms.uRelease.value=f.release;
     this.group.children.forEach((node,i)=>{if(node===this.seal)return;node.position.y=1.15;if(['prism','dragon'].includes(this.skin))node.position.x=(i?1:-1)*(.9*(1-f.release));});
     this.seal.position.y=.035;this.seal.rotation.z=t*4;this.seal.scale.setScalar(['void','phantom'].includes(this.skin)?1-f.dissolve*.9:1+f.release*.6);
     (this.seal.material as THREE.MeshBasicMaterial).opacity=f.strength*.8;

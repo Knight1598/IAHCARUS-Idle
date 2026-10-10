@@ -19,6 +19,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
       - run: npm run test:render
+      - run: npm run test:cinematic-duel
       - run: npm run build:offline
       - run: npm run test:offline
       - run: npm run test:title
