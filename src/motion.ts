@@ -218,9 +218,105 @@ function skinAttack(pose: FighterPose, type: PieceSymbol, profile: CombatProfile
   pose.rightElbow[0] -= counter * 0.2;
 }
 
+/** Skin choreography replaces the gesture, while class weapons and the contact rig remain intact. */
+function signatureGesture(pose: FighterPose, type: PieceSymbol, skin: SkinId, draw: number, stroke: number, recovery: number) {
+  const active = 1 - recovery, c = draw * active, s = stroke * active;
+  switch (skin) {
+    case "ember":
+      pose.leftArm = [-.3 - c*.5, 0, -.5 - s*.55];
+      pose.rightArm = [-.2 - c*.5 - s*1.8, 0, .3 + c*.8 - s*.65];
+      pose.torso = [-c*.3 + s*.22, -c*.5 + s*.7, 0];
+      pose.offset[1] = -c*.18 + s*.12;
+      break;
+    case "frost":
+      pose.leftArm = [-.4 - c*1.0, 0, -.25 + c*.35];
+      pose.rightArm = [-.2 - c*.6 - s*1.2, 0, .2];
+      pose.torso = [0, -c*.35 + s*.25, 0];
+      pose.offset[0] = -c*.16; pose.offset[1] = -c*.04;
+      break;
+    case "astral":
+      pose.leftArm = [-.2 - c*.7, c*.45, -.3 - c*.9];
+      pose.rightArm = [-.2 - c*.8 - s*.9, -c*.45, .3 + c*.9 - s*1.1];
+      pose.torso = [0, -c*.6 + s*.8, 0];
+      pose.offset[1] = c*.27;
+      break;
+    case "royal":
+      pose.leftArm = [-.15 - c*2.0 - s*.7, 0, -.2];
+      pose.rightArm = [-.15 - c*2.1 - s*.6, 0, .2];
+      pose.torso = [-c*.12 + s*.35, 0, 0];
+      pose.leftKnee[0] += c*.35; pose.offset[1] = -c*.12;
+      break;
+    case "storm":
+      pose.leftArm = [-.2 - c*.9 - s*.55, 0, -.2 - s*.8];
+      pose.rightArm = [-.2 - c*.35 - s*1.3, 0, .2 + c*.6];
+      pose.torso = [c*.1 + s*.18, c*.55 - s*.75, -s*.12];
+      pose.offset[0] = c*.12 - s*.15;
+      break;
+    case "void":
+      pose.leftArm = [-.15 - c*1.15 - s*.65, 0, -.2 - c*.65 + s*.5];
+      pose.rightArm = [-.15 - c*1.15 - s*.65, 0, .2 + c*.65 - s*.5];
+      pose.torso = [-c*.16 + s*.12, 0, 0];
+      pose.offset[1] = c*.16; pose.offset[2] = c*.12;
+      break;
+    case "prism":
+      pose.leftArm = [-.2 - c*.95 - s*.8, c*.25, -.2 + c*.9 - s*.9];
+      pose.rightArm = [-.2 - c*.95 - s*1.0, -c*.25, .2 - c*.9 + s*.7];
+      pose.torso = [0, -c*.25 + s*.45, -s*.08];
+      pose.offset[0] = c*.09; pose.offset[1] = c*.1;
+      break;
+    case "nova":
+      // Raise a miniature sun overhead, brace, then drive both palms forward.
+      pose.leftArm = [-.15 - c * 2.45 - s * 1.25, 0, -.18 - c * .3];
+      pose.rightArm = [-.15 - c * 2.45 - s * 1.25, 0, .18 + c * .3];
+      pose.leftElbow = [-.28 - c * .55 + s * .2, 0, 0];
+      pose.rightElbow = [-.28 - c * .55 + s * .2, 0, 0];
+      pose.torso = [-c * .22 + s * .28, 0, 0];
+      pose.offset = [0, c * .2 - s * .1, s * .12];
+      pose.weapon = [-c * .3 - s * 1.4, 0, 0];
+      break;
+    case "phantom":
+      // Sideways veil step: crossed guard unfolds into a low, horizontal draw cut.
+      pose.leftArm = [-.3 - c * .85, c * .5, -.2 + c * .75 - s * .9];
+      pose.rightArm = [-.3 - c * .95 - s * .9, -c * .6, .2 - c * .9 + s * 1.25];
+      pose.rightElbow = [-.28 - c * .95 + s * .6, 0, 0];
+      pose.offset = [-c * .34 + s * .16, -c * .16, 0];
+      pose.hips[1] = -c * .8 + s * .45;
+      pose.torso = [c * .12, c * .55 - s * .6, c * .14];
+      pose.weapon = [-s * 1.1, c * .8, -c * 1.2 + s * 1.4];
+      pose.mantle[1] = -c * .8 + s * .9;
+      break;
+    case "dragon":
+      // Open wing stance, crouch and spring into an asymmetric claw slam.
+      pose.leftArm = [-.15 - c * .45 - s * 1.7, 0, -.18 - c * 1.15 + s * .45];
+      pose.rightArm = [-.15 - c * .8 - s * 1.1, 0, .18 + c * 1.25 - s * .7];
+      pose.leftElbow = [-.28 - c * .8 + s * .25, 0, 0];
+      pose.rightElbow = [-.28 - c * .9 + s * .3, 0, 0];
+      pose.offset = [0, -c * .25 + Math.sin(stroke * Math.PI) * active * .3, -s * .12];
+      pose.torso = [-c * .3 + s * .5, -c * .35 + s * .65, -s * .15];
+      pose.leftKnee[0] += c * .4; pose.rightKnee[0] += c * .45;
+      pose.weapon = [-c * .55 + s * .8, 0, c * .9 - s * 1.5];
+      pose.mantle[0] = -c * .7 - s * .4;
+      break;
+  }
+  if(skin !== "classic") {
+    // Weapon discipline stays visible inside each skin's stance.
+    if(type === "p") { pose.rightArm[0] -= s*.22; pose.leftArm[2] += s*.2; }
+    else if(type === "n") { pose.hips[1] += s*.45; pose.leftArm[2] -= s*.3; pose.offset[1] += Math.sin(stroke*Math.PI)*active*.12; }
+    else if(type === "b") { pose.leftArm[0] -= s*.2; pose.leftElbow[0] += s*.25; pose.offset[1] += c*.08; }
+    else if(type === "r") { pose.offset[1] -= c*.12; pose.leftKnee[0] += c*.2; pose.leftArm[2] *= .65; }
+    else if(type === "q") { pose.leftArm[2] -= c*.35+s*.2; pose.hips[1] += s*.3; }
+    else { pose.leftElbow[0] -= c*.25; pose.leftKnee[0] += s*.2; pose.torso[0] += s*.12; }
+  }
+}
+
 /** Shared class building blocks produce a first strike, a parried recoil and a decisive finish. */
 export function fighterPose(type: PieceSymbol, charge: number, strike: number, time: number, context: MotionContext = {}): FighterPose {
-  if (!context.combat) return quietFighterPose(type, charge, strike, time, context);
+  if (!context.combat) {
+    const pose = quietFighterPose(type, charge, strike, time, context);
+    const recovery = ease(context.recovery ?? (context.progress === undefined ? 0 : (context.progress - .64) / .2));
+    signatureGesture(pose, type, context.skin ?? context.profile?.skin ?? "classic", clamp(charge), ease(strike), recovery);
+    return pose;
+  }
   const profile = context.profile ?? combatProfile(type, context.skin ?? "classic");
   const motion = profile.motion;
   const frame = sampleCombat(context, time);
@@ -276,6 +372,7 @@ export function fighterPose(type: PieceSymbol, charge: number, strike: number, t
     pose.body[0] += frame.finalKick * 0.06;
   }
   skinAttack(pose, type, profile, draw * active, opening, finisher, counter * active, recovery);
+  signatureGesture(pose, type, profile.skin, draw, attack, recovery);
   // Hand attachment supplies most of the reach. Small local adjustments keep the weapon graspable.
   pose.weaponOffset = pose.weaponOffset.map((value) => Math.max(-0.22, Math.min(0.22, value * 0.25))) as MotionVector;
   return pose;
@@ -351,6 +448,16 @@ export function defenderPose(type: PieceSymbol, hit: number, time: number, conte
     case "precise": pose.leftArm[2] += guard * 0.12; pose.rightElbow[0] -= guard * 0.18; pose.weapon[1] -= counter * 0.2; break;
     case "phase": pose.offset[0] -= counter * 0.12; pose.hips[1] += counter * 0.35; pose.mantle[1] -= guard * 0.2; break;
     case "ceremonial": pose.offset[1] += guard * 0.035; pose.leftArm[2] -= guard * 0.2; pose.head[0] -= guard * 0.08; break;
+  }
+  if(profile.skin === "nova") {
+    pose.leftArm[0] -= guard*.5; pose.leftArm[2] -= guard*.45;
+    pose.rightArm[2] += guard*.45; pose.offset[1] += guard*.08;
+  } else if(profile.skin === "phantom") {
+    pose.offset[0] -= guard*.2; pose.torso[1] += guard*.55;
+    pose.leftArm[2] += guard*.4; pose.mantle[1] -= counter*.5;
+  } else if(profile.skin === "dragon") {
+    pose.leftArm[2] -= guard*.65; pose.rightArm[2] += guard*.55;
+    pose.offset[1] -= guard*.12; pose.torso[0] += counter*.25;
   }
   const defeated = quietDefenderPose(type, hit, time);
   const loseBalance = ease((frame.seconds - 1.83) / 0.28);

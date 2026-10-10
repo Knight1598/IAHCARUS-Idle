@@ -51,7 +51,7 @@ export const combatVFXStyles = {
 } as const satisfies Record<PieceSymbol, string>;
 
 const pieceIndex: Record<PieceSymbol, number> = { p: 0, n: 1, b: 2, r: 3, q: 4, k: 5 };
-const skinIndex: Record<SkinId, number> = { classic: 0, ember: 1, frost: 2, astral: 3, royal: 4, storm: 5, void: 6, prism: 7, nova:5, phantom:6, dragon:1 };
+const skinIndex: Record<SkinId, number> = { classic: 0, ember: 1, frost: 2, astral: 3, royal: 4, storm: 5, void: 6, prism: 7, nova:8, phantom:9, dragon:10 };
 const reactionIndex: Record<DefenseReaction, number> = { parry: 0, shield: 1, barrier: 2, dodge: 3, brace: 4 };
 const clamp = (value: number) => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
 const smooth = (start: number, end: number, value: number) => {
@@ -76,7 +76,7 @@ const shaderCommon = /* glsl */`
   }
   vec3 energy(float glow, float core) {
     vec3 tint = uColor;
-    if (uSkin > 6.5) tint = mix(tint, vec3(.65) + .35 * cos(vec3(0.0,2.1,4.2) + uTime * 1.4 + uProgress * 6.0), .45);
+    if (uSkin > 6.5 && uSkin < 7.5) tint = mix(tint, vec3(.65) + .35 * cos(vec3(0.0,2.1,4.2) + uTime * 1.4 + uProgress * 6.0), .45);
     return tint * glow + uCore * core;
   }
 `;
@@ -115,6 +115,19 @@ const groundFragment = /* glsl */`
       uSkin > 2.5 ? band(r, .94 + sin(angle * 3.0) * .025, .024) :
       uSkin > 1.5 ? band(max(abs(vUv.x), abs(vUv.y)), .61, .017) * .5 :
       uSkin > .5 ? band(r, .92 + sin(angle * 5.0 + uTime * 2.0) * .02, .04) * .5 : 0.0;
+    if(uSkin > 9.5) {
+      outer = 0.0; inner = 0.0;
+      family = band(vUv.y-vUv.x*.4,0.0,.025)*band(abs(vUv.x),.4,.3)
+        + band(vUv.y-vUv.x*.4,.22,.025)*band(abs(vUv.x),.4,.3)
+        + band(vUv.y-vUv.x*.4,-.22,.025)*band(abs(vUv.x),.4,.3);
+    } else if(uSkin > 8.5) {
+      outer *= smoothstep(.15,.5,abs(vUv.x)); inner = 0.0;
+      family = band(length(vUv*vec2(1.8,.8)),.7,.025);
+      rays = 0.0; ticks = 0.0;
+    } else if(uSkin > 7.5) {
+      family = band(r,.94,.015)*pow(max(0.0,cos(angle*12.0-uTime*.5)),8.0);
+      inner = band(r,.4,.015); rays *= 1.5;
+    }
     // A ward follows the defender's class, rather than repainting the attack seal.
     if (vKind > .5 && vKind < 1.5) {
       float wardSectors = uDefenderPiece < 1.5 ? 3.0 : uDefenderPiece < 3.5 ? 4.0 : 6.0;
@@ -245,7 +258,19 @@ const ribbonVertex = /* glsl */`
     }
     width *= clamp(uTrailWidth / .14, .48, 2.2) * finalWeight;
     // Skin styles alter the trajectory and release, not merely its colour.
-    if (uSkin > 6.5) {
+    if (uSkin > 9.5) {
+      // Three broad claw tracks rake down toward the target instead of flame noise.
+      p += uSide * (mod(path,3.0)-1.0) * .24 + up * sin(t*PI) * .38;
+      width *= 1.4; strength *= .6 + .4 * t;
+    } else if (uSkin > 8.5) {
+      // Separated veil segments: clear gaps, a lateral approach and a thin draw cut.
+      p += uSide * sin(t*PI) * (mod(path,2.0)<.5 ? -.4 : .4);
+      strength *= smoothstep(.25,.4,fract(t*4.0)); width *= .55;
+    } else if (uSkin > 7.5) {
+      // Solar paths converge into a straight lance, without lightning zigzags.
+      p = mix(p, mix(uActor+up*1.2,uTarget+up*1.2,t), uAttack);
+      width *= .7 + uAttack*.9;
+    } else if (uSkin > 6.5) {
       p += widthAxis * sin(floor(t * 8.0) * 2.1 + path) * .13;
       width *= .7 + .3 * abs(sin(t * PI * 6.0));
     } else if (uSkin > 5.5) {
@@ -349,7 +374,10 @@ const waveFragment = /* glsl */`
   void main() {
     float radius = length(vUv), angle = atan(vUv.y, vUv.x);
     float shapeRadius = radius;
-    if (uSkin > 1.5 && uSkin < 2.5) shapeRadius *= .9 + .1 * cos(angle * 6.0);
+    if (uSkin > 9.5) shapeRadius = max(abs(vUv.x)*.8,abs(vUv.y-vUv.x*.45));
+    else if (uSkin > 8.5) shapeRadius = length(vUv*vec2(1.7,.65));
+    else if (uSkin > 7.5) shapeRadius = radius;
+    else if (uSkin > 1.5 && uSkin < 2.5) shapeRadius *= .9 + .1 * cos(angle * 6.0);
     else if (uSkin > 2.5 && uSkin < 3.5) shapeRadius += sin(angle * 3.0 + uTime) * .065;
     else if (uSkin > .5 && uSkin < 1.5) shapeRadius += sin(angle * 7.0 - uTime * 2.0) * .024;
     float broken = .4 + .6 * pow(max(0.0, cos(angle * uLobes)), 3.0);
@@ -409,7 +437,15 @@ const moteVertex = /* glsl */`
       float distance = min(2.25, (.08 + wave * (uContact > .5 ? 1.65 : .7)) * speed * uBurstScale);
       vec3 origin = uContact > .5 ? uTarget + vec3(0.0, .9, 0.0) : uClashPoint;
       p = origin + direction * distance;
-      if (uSkin > 6.5) {
+      if (uSkin > 9.5) {
+        p = origin + uSide*(floor(aSeed.x*3.0)-1.0)*.3 + uForward*distance + vec3(0.0,-wave*.5,0.0);
+      } else if (uSkin > 8.5) {
+        p = mix(origin + uSide*(aSeed.x-.5)*1.6, origin, wave);
+        p.y += sin(aSeed.x*TAU)*wave*.4;
+      } else if (uSkin > 7.5) {
+        p = origin + normalize(vec3(cos(angle),.08,sin(angle)))*distance;
+        p.y += aSeed.y*.25;
+      } else if (uSkin > 6.5) {
         float facet = floor(aSeed.x * 6.0) * TAU / 6.0;
         p = origin + vec3(cos(facet), aSeed.y * .7, sin(facet)) * distance;
       } else if (uSkin > 5.5) {
@@ -431,7 +467,13 @@ const moteVertex = /* glsl */`
     if (uDeath > 0.0 && aSeed.w > .65) {
       p = uTarget + vec3((aSeed.x - .5) * .8, .3 + aSeed.y * 1.65 + uDeath * .7, (aSeed.z - .5) * .8);
       p += uSide * sin(uTime + aSeed.x * TAU) * .2;
-      if (uSkin > 6.5) {
+      if (uSkin > 9.5) {
+        p.y -= uDeath*uDeath*1.4; p += uForward*uDeath*.8;
+      } else if (uSkin > 8.5) {
+        p = mix(p,uTarget + vec3(0.0,1.1,0.0),uDeath); p.x += sin(aSeed.x*TAU)*uDeath*.2;
+      } else if (uSkin > 7.5) {
+        p.y += uDeath*1.5; p.xz += vec2(cos(angle),sin(angle))*uDeath*.3;
+      } else if (uSkin > 6.5) {
         float facet = floor(aSeed.x * 6.0) * TAU / 6.0;
         p = uTarget + vec3(cos(facet), .4 + aSeed.y, sin(facet)) * (.3 + uDeath * .7);
       } else if (uSkin > 5.5) {
@@ -467,7 +509,13 @@ const moteFragment = /* glsl */`
     float r = dot(p, p);
     float glow = exp(-r * 4.5), core = exp(-r * 28.0);
     float star = exp(-abs(p.x * p.y) * 50.0) * exp(-r * 8.0) * vCore * .2;
-    if (uSkin > 6.5) {
+    if (uSkin > 9.5) {
+      glow = exp(-abs(p.x-p.y*.4)*12.0)*exp(-r*3.0); core = exp(-r*30.0);
+    } else if (uSkin > 8.5) {
+      glow = exp(-abs(p.x+p.y)*15.0)*exp(-r*5.0); core = 0.0;
+    } else if (uSkin > 7.5) {
+      glow = exp(-r*6.0); core = band(sqrt(r),.45,.055);
+    } else if (uSkin > 6.5) {
       float hex = max(abs(p.x), abs(p.x * .5 + p.y * .866));
       glow = exp(-hex * hex * 9.0); core = band(hex, .3, .05);
     } else if (uSkin > 5.5) {

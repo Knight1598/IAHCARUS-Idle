@@ -339,12 +339,21 @@ const auraFragment = `
       float tip = pow(max(0.0, sin(vUv.x * 6.28318 - uTime * 2.8)), 4.0);
       alpha = (0.12 + tip * 0.5) * energy; core = tip * 0.7;
     }
-    if (uSkin > 6.5) { core = max(core, pow(abs(sin(angle * 3.0 + uTime)), 12.0)); alpha *= .8 + .2 * cos(angle * 6.0 - uTime); }
+    if (uSkin > 9.5) {
+      float rake = band(sin(angle*3.0+vLocal.y*2.0-uTime*1.2),.1);
+      alpha *= .15 + rake; core = rake;
+    } else if (uSkin > 8.5) {
+      float veil = band(sin(angle*2.0+uTime*.7),.12);
+      alpha *= veil*.8; core = veil*.5;
+    } else if (uSkin > 7.5) {
+      float orbit = band(sin(vLocal.y*8.0-uTime*1.5),.08);
+      alpha *= .12+orbit; core = orbit;
+    } else if (uSkin > 6.5) { core = max(core, pow(abs(sin(angle * 3.0 + uTime)), 12.0)); alpha *= .8 + .2 * cos(angle * 6.0 - uTime); }
     else if (uSkin > 5.5) { alpha *= .45 + .55 * pow(abs(sin(vLocal.y * 4.0 - uTime * 1.5)), 3.0); }
     else if (uSkin > 4.5) { alpha *= .35 + .65 * step(.55, sin(angle * 9.0 + vLocal.y * 11.0 - uTime * 7.0)); }
     alpha *= uFade; if (alpha < 0.004) discard;
     vec3 tint = mix(uColor * (0.7 + height * 0.45), uBright, core);
-    if (uSkin > 6.5) tint = mix(tint, vec3(.65) + .35 * cos(vec3(0.0,2.1,4.2) + angle * 2.0 + uTime), .45);
+    if (uSkin > 6.5 && uSkin < 7.5) tint = mix(tint, vec3(.65) + .35 * cos(vec3(0.0,2.1,4.2) + angle * 2.0 + uTime), .45);
     gl_FragColor = vec4(tint, alpha);
     #include <colorspace_fragment>
   }

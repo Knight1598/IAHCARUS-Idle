@@ -7,7 +7,7 @@ import { fighterPose, defenderPose } from "../src/motion.ts";
 import { createAvatar, animateAvatar, animateDefender, avatarResourceStats } from "../src/avatar.ts";
 
 const classes = ["p", "n", "b", "r", "q", "k"];
-const skins = ["classic", "ember", "frost", "astral", "royal", "storm", "void", "prism"];
+const skins = ["classic", "ember", "frost", "astral", "royal", "storm", "void", "prism", "nova", "phantom", "dragon"];
 const sample = (type, progress, skin = "classic") => {
   const frame = captureFrame(progress);
   return fighterPose(type, frame.charge, frame.strike, progress * 2.6,
@@ -51,13 +51,13 @@ test("attacks shift weight and recover rather than holding their strike forever"
   }
 });
 
-test("all forty-eight class/skin combinations change actual kinematics, including defenses", () => {
+test("all sixty-six class/skin combinations change actual kinematics, including defenses", () => {
   for (const type of classes) {
     const attacks = skins.map((skin) => JSON.stringify([sample(type, 0.28, skin), sample(type, 0.65, skin)]));
-    assert.equal(new Set(attacks).size, 8, `${type} skin attack kinematics repeat`);
+    assert.equal(new Set(attacks).size, 11, `${type} skin attack kinematics repeat`);
     const defenses = skins.map((skin) => JSON.stringify(defenderPose(type, 0, 1.25,
       { combat: true, progress: 1.25 / 2.6, profile: combatProfile(type, skin), reaction: "parry" })));
-    assert.equal(new Set(defenses).size, 8, `${type} skin defense kinematics repeat`);
+    assert.equal(new Set(defenses).size, 11, `${type} skin defense kinematics repeat`);
   }
 });
 
@@ -130,8 +130,8 @@ test("procedural geometry is cached on CPU with independent GPU wrappers and fad
   const before = avatarResourceStats();
   for (let i = 0; i < 100; i++) releaseAvatar(createAvatar("n", "w", "astral"));
   assert.deepEqual(avatarResourceStats(), before, "repeat captures must not grow template memory");
-  assert.equal(before.profiles, 48);
-  assert.ok(before.bytes < 3_000_000, `procedural avatar cache unexpectedly large: ${before.bytes}`);
+  assert.equal(before.profiles, classes.length * skins.length);
+  assert.ok(before.bytes < 5_000_000, `procedural avatar cache unexpectedly large: ${before.bytes}`);
 });
 
 test("heavy defenders keep their footing longer and guard transitions remain smooth", () => {
@@ -142,6 +142,19 @@ test("heavy defenders keep their footing longer and guard transitions remain smo
       const current = values(defenderPose(type, i / 200, i / 200));
       current.forEach((value, j) => assert.ok(Number.isFinite(value) && Math.abs(value - previous[j]) < 0.04));
       previous = current;
+    }
+  }
+});
+
+ test("new skin silhouettes differ from their former inherited styles in movement and capture", () => {
+  for (const [skin, former] of [["nova","storm"],["phantom","void"],["dragon","ember"]]) {
+    for (const type of classes) {
+      for (const combat of [true,false]) {
+        const a=fighterPose(type,.8,.15,.7,{combat,skin,progress:.28});
+        const b=fighterPose(type,.8,.15,.7,{combat,skin:former,progress:.28});
+        const distance=Math.hypot(...a.leftArm.map((v,i)=>v-b.leftArm[i]),...a.rightArm.map((v,i)=>v-b.rightArm[i]));
+        assert.ok(distance>.4, `${skin}:${type} retains a recoloured ${former} stance`);
+      }
     }
   }
 });

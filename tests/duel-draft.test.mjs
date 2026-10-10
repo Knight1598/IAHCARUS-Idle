@@ -68,3 +68,20 @@ test('premium execution effects have bounded batches and releasable independent 
     const materials=new Set();for(const mesh of fx.group.children){mesh.geometry.dispose();materials.add(mesh.material);}materials.forEach(m=>m.dispose());
   }
 });
+
+ test('solar, veil and wyrm executions have distinct volumetric geometry and travel',async()=>{
+  const THREE=await import('three'),{ExecutionVFX}=await import('../src/execution-vfx.ts');
+  const from=new THREE.Vector3(0,0,0),target=new THREE.Vector3(0,0,2);
+  const effects=['nova','phantom','dragon'].map(skin=>new ExecutionVFX(skin));
+  const geometrySignatures=effects.map(fx=>fx.group.children.map(mesh=>mesh.geometry.getAttribute('position').count).join(':'));
+  assert.equal(new Set(geometrySignatures).size,3,'each execution needs different geometry, not only a tint');
+  for(const fx of effects){
+    const states=[];
+    for(const t of [.62,.69,.72,.82]){fx.update(t,from,target);states.push(fx.group.children.map(mesh=>[...mesh.position.toArray(),...mesh.scale.toArray(),...mesh.rotation.toArray().slice(0,3)]));}
+    assert.notDeepEqual(states[0],states[2],'charge must release into a different spatial pose');
+    fx.update(.72,from,target);
+    assert.ok(fx.group.children.every(mesh=>mesh.geometry.type!=='PlaneGeometry'),'a flat panel cannot substitute for the volume');
+    fx.update(1,from,target);assert.equal(fx.group.visible,false);
+    for(const mesh of fx.group.children){mesh.geometry.dispose();mesh.material.dispose();}
+  }
+});

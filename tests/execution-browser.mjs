@@ -14,7 +14,7 @@ try{
  for(const width of [1000,390]){
   await page.setViewportSize({width,height:width===390?844:760});
   await page.waitForTimeout(150);
-  for(const skin of ['storm','void','prism']){
+  for(const skin of ['storm','void','prism','nova','phantom','dragon']){
    const result=await page.evaluate(async skin=>{
     const {analyzeMove}=await import('/shared/events.js');const before=new Chess('7k/8/8/3q4/8/2N5/7P/K7 w - - 0 1'),after=new Chess(before.fen()),move=after.move('Nxd5');
     fixture.resetPacing();fixture.setAppearances({c3:skin,d5:'frost'},{d5:skin});fixture.setPaused(false);fixture.play(before,after,move,analyzeMove(before,after,move));fixture.setPaused(true);
