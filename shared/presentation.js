@@ -1,0 +1,20 @@
+// Cosmetic identifiers are shared by save validation and the procedural renderer.
+export const dimensionThemes = [
+ ['solar','Solar Crucible','เบ้าหลอมสุริยะ','#ffd06a',0,'วงโคจรและรังสีสุริยะ'],
+ ['veil','Veil Between Worlds','ม่านระหว่างโลก','#79ffdb',1,'ประตูม่านมิติและเส้นแสงขาดช่วง'],
+ ['wyrm','Wyrm Cathedral','มหาวิหารมังกร','#ff6c91',2,'รอยกรงเล็บและซี่โครงมังกร'],
+ ['glacier','Frozen Infinity','อนันต์เยือกแข็ง','#9bdeff',3,'ผลึกหกเหลี่ยมและพื้นน้ำแข็ง'],
+ ['machine','Machine Heart','หัวใจจักรกล','#ffae67',4,'กริดวงจรและเสาปฏิกรณ์'],
+ ['nebula','Nebula Sea','ทะเลเนบิวลา','#c5a3ff',5,'เกลียวกาแล็กซีและสะพานดวงดาว'],
+ ['sanctum','Royal Sanctum','บัลลังก์พิพากษา','#f4e6a1',6,'วงตราพิพากษาและเสาเรขาคณิต'],
+ ['abyss','Silent Abyss','ห้วงลึกไร้เสียง','#758aff',7,'วงแหวนยุบตัวในความมืด'],
+].map(([id,name,label,color,pattern,description])=>({id,name,label,color,pattern,description}));
+export const finisherThemes = [
+ ['sunburst','Solar Bloom','บุปผาสุริยะ','#ffcd68',0],['rift','Rift Collapse','มิติแตกสลาย','#82ffdc',1],
+ ['claw','Wyrm Verdict','คำพิพากษามังกร','#ff729a',2],['crystal','Crystal Coffin','โลงผลึก','#9bdeff',3],
+ ['grid','System Erasure','ลบจากระบบ','#ffb177',4],['orbit','Starfall Seal','ตราดาวตก','#cfb0ff',5],
+ ['crown','Crownfall','มงกุฎล่มสลาย','#f4e6a1',6],['eclipse','Event Horizon','ขอบฟ้าเหตุการณ์','#93a3ff',7],
+].map(([id,name,label,color,pattern])=>({id,name,label,color,pattern,description:'เอฟเฟกต์ปิดฉากเสริมท่าสังหารของสกิน'}));
+export const profileFrames = ['อัศวินนีออน','ราชันสุริยะ','ม่านวิญญาณ','อสรพิษชาด','ผลึกเหมันต์','วงจรจักรกล','ดาราจักร','ตราพิพากษา','สุริยคราส','นักล่าค่าหัว','ผู้ยึดคลัง','จอมยุทธ์กระดาน'].map((label,pattern)=>({id:`frame-${pattern+1}`,name:`Signature ${pattern+1}`,label,color:['#7ee9ff','#ffd06a','#79ffdb','#ff6c91','#9bdeff','#ffae67','#c5a3ff','#f4e6a1','#758aff','#ef9cff','#8bffc0','#f5bebe'][pattern],pattern,description:'กรอบเรขาคณิตสำหรับตราผู้เล่นและหน้าสร้างตัวละคร'}));
+export const cosmeticGroups = {dimension:dimensionThemes,finisher:finisherThemes,frame:profileFrames};
+export const presentationCatalog = Object.entries(cosmeticGroups).flatMap(([kind,themes])=>themes.map((theme,i)=>({id:`${kind}-${theme.id}`,kind,cosmetic:theme.id,label:theme.label,name:theme.name,color:theme.color,pattern:theme.pattern,description:theme.description,price:kind==='frame'?180+i*60:500+i*150,currency:'credits',shards:0,credits:0})));

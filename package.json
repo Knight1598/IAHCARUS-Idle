@@ -33,6 +33,7 @@
     "test:player": "node tests/player-browser.mjs",
     "test:deploy": "node scripts/test-deploy.mjs",
     "test:duel-draft": "node tests/duel-draft-browser.mjs",
+    "test:dimension": "node tests/dimension-browser.mjs",
     "test:execution": "node tests/execution-browser.mjs",
     "test:duel-expansion": "node tests/duel-expansion-browser.mjs",
     "test:friend-duel": "node tests/friend-duel-browser.mjs",

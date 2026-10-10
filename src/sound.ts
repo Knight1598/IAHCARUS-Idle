@@ -45,8 +45,8 @@ export class SoundVariantBag {
 }
 
 type Envelope = "punch" | "rise" | "swell";
-type Texture = "air" | "metal" | "plasma" | "choir" | "brass";
-type LayerBase = { duration: number; level: number; cutoff: number; pan: number; offset: number; envelope: Envelope; texture?: Texture; partials?: number[] };
+type Texture = "air" | "metal" | "plasma" | "choir" | "brass" | "mechanical" | "glass" | "void";
+type LayerBase = { duration: number; level: number; cutoff: number; pan: number; offset: number; envelope: Envelope; texture?: Texture; partials?: number[]; room?:number };
 export type SoundLayer = LayerBase & (
   { kind: "tone"; from: number; to: number; fm: number; wave: OscillatorType } |
   { kind: "noise"; filter: BiquadFilterType }
@@ -124,12 +124,34 @@ export function pieceSoundRecipe(piece: PieceSymbol, requestedPhase: SoundPhase,
     if (v === 2) t(220, 207.65, .53, .024, .13, .6, 2400, "swell", "choir");
     if (v === 3) n(.05, 2600, .027, .18, "highpass");
   }
+  for(const [i,layer] of layers.entries()) {
+    layer.room=phase==='lock'||phase==='dash'?.05:piece==='r'?.1:piece==='b'||piece==='q'?.32:.18;
+    if(layer.kind==='tone'){
+      if(piece==='p'&&phase==='lock')layer.texture='mechanical';
+      if(piece==='n'&&phase==='dash'){layer.texture='metal';layer.partials=[.22,.11,.04];layer.offset+=i*.009;}
+      if(piece==='r'&&(phase==='lock'||phase==='impact')){layer.texture='mechanical';layer.partials=[.5,.22,.08];}
+      if(piece==='q')layer.texture='glass';
+      if(piece==='b'&&phase==='death')layer.texture='void';
+    }
+  }
   return layers;
 }
 
 export function eventSoundRecipe(event: string, variant: number, pan = 0): SoundRecipe {
   const v = ((Math.floor(variant) % 4) + 4) % 4;
   const { layers, tone: t, noise: n } = composer(pan);
+  const feedback=['ui','ui-hover','ui-select','ui-back','ui-confirm','ui-error','purchase','ready','join','leave','turn','timer-low','portal-enter','portal-exit'];
+  if(feedback.includes(event)) {
+    const warning=event==='ui-error'||event==='timer-low',portal=event.startsWith('portal-');
+    const length=portal?.52:event==='purchase'?.36:event==='ui-hover'?.05:.11;
+    n(length*.7,warning?850:portal?2100:1800,.035+v*.003,0,'bandpass',portal?'swell':'punch');
+    t(portal?90:warning?140:260,portal?(event==='portal-enter'?42:180):warning?105:240,length,.028, [.004,.016,.032,.008][v],.25,portal?1800:1200,portal?'swell':'punch',portal?'void':'mechanical');
+    if(event==='purchase'||event==='ui-confirm'||event==='ready')t(520,510,.17,.018,.07+v*.012,.1,3000,'punch','glass',-.2);
+    else if(v===1||v===3)n(.035,2300,.016,.045+v*.008,'highpass');
+    if(v===2)t(180,150,.08,.016,.03,.1,900,'punch','mechanical');
+    for(const layer of layers)layer.room=portal?.5:.02;
+    return layers;
+  }
   const warning = ["check", "double-check", "discovered-check", "queen-fallen", "defeat"].includes(event);
   const closing = ["mate", "victory", "defeat"].includes(event);
   const short = event === "ui";
@@ -145,6 +167,12 @@ export function eventSoundRecipe(event: string, variant: number, pan = 0): Sound
   if (event === "fork" || event === "double-check") { n(.06, 2400, .035, .1 + offset, "highpass", "punch", -.65); n(.06, 2400, .035, .22 + offset, "highpass", "punch", .65); }
   else if (v === 1 || v === 3) n(.06, 2100, short ? .012 : .032, .14 + offset, "bandpass");
   if (v === 2) t(root * .5, root * .4, duration * .6, short ? .01 : .028, .16, .7, 1000, "punch", "brass");
+  const material=event==='castle'?'mechanical':event==='promotion'?'glass':event==='escape'||event==='en-passant'?'void':warning?'brass':'choir';
+  const eventIndex=seed%7;
+  for(const [i,layer] of layers.entries()){
+    layer.room=closing?.3:.1;
+    if(layer.kind==='tone'){layer.texture=material;layer.offset+=i*(eventIndex*.006);}
+  }
   return layers;
 }
 
@@ -160,9 +188,41 @@ export function combatSoundRecipe(piece: PieceSymbol, skin: SkinId, cue: CombatS
   }
   if (cue === "counter") for (const layer of recipe) { layer.pan *= -1; layer.level *= .74; layer.duration *= .8; }
   if (cue === "finisher") for (const layer of recipe) { layer.level *= 1.12; if (layer.kind === "tone") layer.fm *= 1.35; }
-  return applySkinSoundProfile(recipe, skin, cue, ultimate, piece);
+  return applySkinSoundProfile(recipe, skin, cue, ultimate, piece, variant);
 }
-function applySkinSoundProfile(recipe: SoundRecipe, skin: SkinId, cue: string, ultimate: boolean, piece: PieceSymbol): SoundRecipe {
+function applySkinSoundProfile(recipe: SoundRecipe, skin: SkinId, cue: string, ultimate: boolean, piece: PieceSymbol, variant=0): SoundRecipe {
+  if(['nova','phantom','dragon'].includes(skin)) {
+    const c=composer(0),v=variant%4,root=identities[piece].root;
+    const charging=cue==='charge'||cue==='finisher',hit=cue==='impact'||cue==='clash',death=cue==='death'||cue==='disintegrate';
+    const duration=charging?.45:death?.65:.24;
+    if(skin==='nova'){
+      c.noise(charging?duration:.06,2400,.065,0,'bandpass',charging?'rise':'punch');
+      c.tone(charging?root*.5:root*2,charging?root*2.3:root*.55,duration,.07,v*.009,.8,3200,charging?'rise':'punch','plasma');
+      c.tone(root*1.5,root*1.51,.28,.026,.055+v*.014,.2,3600,'swell','glass');
+      if(hit)c.tone(160,52,.28,.12,.005,.3,1100,'punch','brass');
+    }else if(skin==='phantom'){
+      c.noise(duration,1700,.055,0,'bandpass','swell');
+      c.tone(root*.7,charging?root*.8:root*.35,duration,.055,.016+v*.011,1.1,1900,'swell','void',-.5);
+      c.noise(.1,3200,.07,charging?.3:.08+v*.013,'highpass','punch',.5);
+      if(hit)c.tone(140,60,.18,.085,.04,.1,1000,'punch','mechanical');
+    }else{
+      c.tone(root*.55,root*.3,duration,.085,0,2.3,1600,charging?'rise':'punch','brass');
+      c.noise(.14,1000,.075,.01+v*.012,'lowpass','punch');
+      c.tone(root*1.4,root*.65,.24,.045,.07,3.2,2300,'punch','metal');
+      if(hit){c.noise(.04,3600,.1,0,'highpass');c.tone(180,48,.35,.12,.012,.6,1100,'punch','brass');}
+    }
+    if(v===1||v===3)c.noise(.045,2200,.026,.15+v*.012,'bandpass');
+    if(v===2)c.tone(root*1.9,root*1.3,.11,.022,.13,.7,2800,'swell','glass');
+    // One class accent survives the skin score: a spear, blade, spell or artillery body.
+    if(piece==='p')c.noise(.055,3000,.022,.035,'highpass');
+    else if(piece==='n')c.noise(.09,2600,.028,.11+v*.009,'bandpass','swell');
+    else if(piece==='b')c.tone(root*1.5,root*1.49,.32,.025,.08,.3,2800,'swell','choir');
+    else if(piece==='r')c.tone(95,80,.18,.038,.045,.1,900,'punch','mechanical');
+    else if(piece==='q')c.tone(root*2.756,root*2,.22,.024,.095,.2,3600,'swell','glass');
+    else c.tone(75,45,.3,.04,.02,.3,950,'punch','brass');
+    recipe=c.layers;
+    for(const layer of recipe)layer.room=skin==='phantom'?.45:skin==='dragon'?.16:.23;
+  }
   const signature = combatProfile(piece, skin).sound;
   const weight = Math.max(.88, Math.min(1.12, 1 + (signature.body - .8) * .12));
   const pitch = 1 + (signature.pitch - 1) * .2;
@@ -203,7 +263,9 @@ function applySkinSoundProfile(recipe: SoundRecipe, skin: SkinId, cue: string, u
   return recipe;
 }
 
-type Voice = { source: AudioBufferSourceNode; gain: GainNode; stereo?: StereoPannerNode; bus: Exclude<AudioBus, "master">; key: string; buffer: AudioBuffer; ended: boolean };
+export function soundPriority(key:string,bus:string){return bus==="music"||bus==="ambience"?0:/event:(mate|check|defeat|timer-low|double-check|queen-fallen|discovered-check)/.test(key)?100:/:check:/.test(key)?100:/:(impact|finisher):/.test(key)?90:bus==="cinematic"?70:/event:ui/.test(key)?20:50;}
+
+type Voice = { priority:number; source: AudioBufferSourceNode; gain: GainNode; stereo?: StereoPannerNode; bus: Exclude<AudioBus, "master">; key: string; buffer: AudioBuffer; ended: boolean };
 type CacheEntry = { buffer: AudioBuffer; bytes: number };
 type MusicJob = { state?: MusicState; ambience?: AmbiencePreset; recipe?: SoundRecipe; key: string; resolve: () => void };
 const clamp = (value: number) => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
@@ -218,9 +280,12 @@ export class SpaceAudio {
   private pauseGate: GainNode;
   private mix: GainNode;
   private musicDuck: GainNode;
+  private ambienceDuck: GainNode;
+  private dimension=false;
+  private feedbackAt=-Infinity;
   private nodes: AudioNode[] = [];
   private buses = {} as Record<Exclude<AudioBus, "master">, GainNode>;
-  private levels: Record<AudioBus, number> = { master: .35, music: .55, ambience: .5, sfx: .85, cinematic: .92 };
+  private levels: Record<AudioBus, number> = { master: .35, music: .38, ambience: .28, sfx: .82, cinematic: .9 };
   private sources = new Map<AudioBufferSourceNode, Voice>();
   private cache = new Map<string, CacheEntry>();
   private bytes = 0;
@@ -247,7 +312,7 @@ export class SpaceAudio {
   constructor(context: BaseAudioContext, random: () => number = Math.random) {
     this.context = context; this.variants = new SoundVariantBag(random);
     const c = context;
-    this.mix = c.createGain(); this.output = c.createGain(); this.gate = c.createGain(); this.pauseGate = c.createGain(); this.musicDuck = c.createGain();
+    this.mix = c.createGain(); this.output = c.createGain(); this.gate = c.createGain(); this.pauseGate = c.createGain(); this.musicDuck = c.createGain(); this.ambienceDuck=c.createGain();
     const highpass = c.createBiquadFilter(); highpass.type = "highpass"; highpass.frequency.value = 28; highpass.Q.value = .7;
     const compressor = c.createDynamicsCompressor();
     compressor.threshold.value = -14; compressor.knee.value = 8; compressor.ratio.value = 5;
@@ -263,10 +328,10 @@ export class SpaceAudio {
     this.output.gain.value = this.levels.master;
     for (const id of busIds) {
       const bus = c.createGain(); bus.gain.value = this.levels[id];
-      if (id === "music") bus.connect(this.musicDuck).connect(this.mix); else bus.connect(this.mix);
+      if (id === "music") bus.connect(this.musicDuck).connect(this.mix); else if(id === "ambience")bus.connect(this.ambienceDuck).connect(this.mix); else bus.connect(this.mix);
       this.buses[id] = bus;
     }
-    this.nodes.push(highpass, compressor, this.mix, this.output, this.gate, this.pauseGate, this.musicDuck, ...Object.values(this.buses));
+    this.nodes.push(highpass, compressor, this.mix, this.output, this.gate, this.pauseGate, this.musicDuck,this.ambienceDuck, ...Object.values(this.buses));
   }
   get activeVoices() { return this.sources.size; }
   get diagnostics() {
@@ -276,7 +341,7 @@ export class SpaceAudio {
       voices: this.activeVoices, voiceLimit: AUDIO_VOICE_LIMIT, cacheBytes: this.bytes, cacheEntries: this.cache.size,
       residentBytes: [...unique].reduce((sum, buffer) => sum + buffer.length * buffer.numberOfChannels * 4, 0),
       cacheLimit: AUDIO_CACHE_LIMIT, musicState: this.state, ambiencePreset: this.ambiencePreset,
-      busLevels: { ...this.levels }, muted: this.muted, paused: this.paused, duckDb: this.duckDb,
+      dimension:this.dimension, busLevels: { ...this.levels }, muted: this.muted, paused: this.paused, duckDb: this.duckDb,
       worker: !!this.worker, maxSynthesisMs: this.maxSynthesisMs,
     };
   }
@@ -304,10 +369,15 @@ export class SpaceAudio {
     try { voice.source.stop(now + fade); } catch {}
   }
   private stopVoices(predicate: (voice: Voice) => boolean) { for (const voice of this.sources.values()) if (predicate(voice)) this.stopVoice(voice); }
+  setDimension(active:boolean){
+    if(this.disposed||this.dimension===active)return;this.dimension=active;
+    this.ambienceDuck.gain.setTargetAtTime(active?.28:1,this.context.currentTime,.045);
+    this.playEvent(active?'portal-enter':'portal-exit');
+  }
   anticipateImpact() {
     if(this.disposed||this.paused||this.muted)return;
     // Make a short space before contact; following impact restores normal cue gain.
-    this.stopVoices(v=>v.bus==="cinematic"||v.bus==="sfx");
+    this.stopVoices(v=>(v.bus==="cinematic"||v.bus==="sfx")&&v.priority<95);
     this.duckMusic(18,.15);
   }
   cancelCinematic() {
@@ -327,6 +397,7 @@ export class SpaceAudio {
     this.restoreDuck();
   }
   cancel() {
+    this.dimension=false;this.ambienceDuck.gain.setTargetAtTime(1,this.context.currentTime,.04);
     this.cancelEffects();
     this.stopVoices(() => true); this.musicVoice = null; this.ambienceVoice = null; this.state = null; this.closingPlayed = null;
     this.restoreDuck();
@@ -365,7 +436,9 @@ export class SpaceAudio {
     if (this.disposed || this.muted || this.levels[bus] === 0 || this.paused && bus !== "music" && bus !== "ambience") return null;
     // Fade the oldest expendable effect. Beds are never evicted by a loud attack.
     if (this.sources.size >= AUDIO_VOICE_LIMIT) {
-      const oldest = [...this.sources.values()].find((voice) => voice.bus === "sfx" || voice.bus === "cinematic");
+      const priority=soundPriority(key,bus);
+      const oldest = [...this.sources.values()].filter(voice=>voice.bus==='sfx'||voice.bus==='cinematic').sort((a,b)=>a.priority-b.priority)[0];
+      if(oldest&&oldest.priority>priority)return null;
       if (oldest) {
         // Disconnect before admitting a replacement: the cap also bounds live nodes,
         // rather than merely hiding still-fading voices from the diagnostics.
@@ -380,7 +453,7 @@ export class SpaceAudio {
     gain.gain.setValueAtTime(0, now); gain.gain.linearRampToValueAtTime(1, now + fade);
     const stereo = this.context.createStereoPanner(); stereo.pan.value = Math.max(-.75, Math.min(.75, pan));
     source.connect(gain).connect(stereo).connect(this.buses[bus]);
-    const voice: Voice = { source, gain, stereo, bus, key, buffer, ended: false };
+    const voice: Voice = { priority:soundPriority(key,bus),source, gain, stereo, bus, key, buffer, ended: false };
     this.sources.set(source, voice);
     source.onended = () => {
       voice.ended = true; this.sources.delete(source); source.disconnect(); gain.disconnect(); stereo.disconnect();
@@ -408,11 +481,14 @@ export class SpaceAudio {
     const key = `${piece}:${canonicalPhase(phase)}${skin === "classic" ? "" : `:${skin}`}`, variant = this.variants.next(key);
     this.lastVariant = { key, variant };
     const quantized = Math.round(duration * 20) / 20;
-    const recipe = applySkinSoundProfile(pieceSoundRecipe(piece, phase, variant, quantized, capture, 0), skin, canonicalPhase(phase), ultimate, piece);
+    const recipe = applySkinSoundProfile(pieceSoundRecipe(piece, phase, variant, quantized, capture, 0), skin, canonicalPhase(phase), ultimate, piece, variant);
     this.render(recipe, `${key}:${variant}:${quantized}:${capture}:${ultimate}`, "sfx", pan);
     return variant;
   }
   playEvent(event: string, pan = 0) {
+    if(event==='ui'||event.startsWith('ui-')){
+      const now=this.context.currentTime;if(now-this.feedbackAt<.065)return -1;this.feedbackAt=now;
+    }
     const key = `event:${event}`, variant = this.variants.next(key);
     this.lastVariant = { key, variant };
     this.render(eventSoundRecipe(event, variant, 0), `${key}:${variant}`, "sfx", pan);
@@ -433,7 +509,7 @@ export class SpaceAudio {
     const chosen = ((Math.floor(variant) % SOUND_VARIANTS) + SOUND_VARIANTS) % SOUND_VARIANTS;
     const key = `${piece}:${canonicalPhase(phase)}${skin === "classic" ? "" : `:${skin}`}`;
     const quantized = Math.round(duration * 20) / 20;
-    const recipe = applySkinSoundProfile(pieceSoundRecipe(piece, phase, chosen, quantized, true, 0), skin, canonicalPhase(phase), false, piece);
+    const recipe = applySkinSoundProfile(pieceSoundRecipe(piece, phase, chosen, quantized, true, 0), skin, canonicalPhase(phase), false, piece, chosen);
     this.lastVariant = { key, variant: chosen };
     this.render(recipe, `${key}:${chosen}:${quantized}:true:false`, "sfx");
     return chosen;

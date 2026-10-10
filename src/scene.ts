@@ -1,3 +1,5 @@
+import {CombatDimension,dimensionWindow,dimensionTransition} from './combat-dimension';
+import {shopCatalog} from '../shared/economy.js';
 import * as THREE from "three";
 import { BattleOverlay, cinematicFrame } from "./cinematic";
 import { useDramaticCamera, type CinematicScope } from "./gameplay";
@@ -287,6 +289,39 @@ export class ChessScene {
   readonly groundAuras = new THREE.Group();
   readonly groundScars = new THREE.Group();
   readonly environment = new ArenaEnvironment();
+  readonly combatDimension=new CombatDimension();
+  onDimension=(_active:boolean)=>{};
+  private presentation:Partial<Record<'dimension'|'finisher'|'frame',string>>={};
+  private dimensionSaved?:{visibility:[THREE.Object3D,boolean][];background:THREE.Scene['background'];fog:THREE.Scene['fog']};
+  private dimensionCurtain?:HTMLElement;
+  private dimensionLabel?:HTMLElement;
+  setPresentation(equipped:Partial<Record<'dimension'|'finisher'|'frame',string>>){this.presentation={...equipped};}
+  private leaveDimension(){
+    if(this.dimensionSaved){for(const [object,visible] of this.dimensionSaved.visibility)object.visible=visible;
+      this.scene.background=this.dimensionSaved.background;this.scene.fog=this.dimensionSaved.fog;this.dimensionSaved=undefined;
+      if(this.scene.fog instanceof THREE.Fog){const distance=this.camera.position.distanceTo(this.controls.target);this.scene.fog.near=distance+6;this.scene.fog.far=distance+24;}
+      this.onDimension(false);}
+    this.combatDimension.root.visible=false;delete this.stage.dataset.combatDimension;
+    if(this.dimensionCurtain)this.dimensionCurtain.style.opacity='0';
+  }
+  private updateDimension(a:Animation,t:number){
+    const active=!!a.move.captured&&a.dramatic&&dimensionWindow(t,this.reduced);
+    if(active&&!this.dimensionSaved){
+      const objects=[this.board,this.pieces,this.markers,this.aim,this.groundAuras,this.groundScars,this.environment.root];
+      this.dimensionSaved={visibility:objects.map(object=>[object,object.visible]),background:this.scene.background,fog:this.scene.fog};
+      objects.forEach(object=>object.visible=false);this.onDimension(true);this.scene.background=new THREE.Color('#02040b');this.scene.fog=null;
+    } else if(!active&&this.dimensionSaved)this.leaveDimension();
+    if(a.move.captured&&a.dramatic&&!this.reduced){
+      this.dimensionCurtain!.style.opacity=String(dimensionTransition(t));
+      if(active){
+        const equipped=shopCatalog.find(item=>item.id===this.presentation.dimension),finish=shopCatalog.find(item=>item.id===this.presentation.finisher);
+        const theme=equipped?.cosmetic||({nova:'solar',phantom:'veil',dragon:'wyrm',frost:'glacier',storm:'machine',royal:'sanctum',void:'abyss'} as Record<string,string>)[a.skin]||'nebula';
+        this.stage.dataset.combatDimension=theme;this.dimensionLabel!.textContent=equipped?.label||'BATTLE DOMAIN / IAHCARUS';
+        const centre=a.stop.clone().lerp(a.victimOrigin||a.to,.5);
+        this.combatDimension.root.visible=true;this.combatDimension.update(t,centre,theme,finish?.cosmetic);
+      }
+    }
+  }
   private arenaSun?: THREE.DirectionalLight;
   private arenaSky?: THREE.HemisphereLight;
   private arenaRim?: THREE.PointLight;
@@ -514,6 +549,9 @@ export class ChessScene {
     rim.position.set(-5, 3, -4);
     this.scene.add(rim);
     this.arenaRim = rim;
+    this.scene.add(this.combatDimension.root);
+    this.dimensionCurtain=document.createElement('div');this.dimensionCurtain.className='dimension-transition';this.dimensionCurtain.setAttribute('aria-hidden','true');this.stage.append(this.dimensionCurtain);
+    this.dimensionLabel=document.createElement('div');this.dimensionLabel.className='dimension-label';this.dimensionLabel.setAttribute('aria-hidden','true');this.stage.append(this.dimensionLabel);
     this.scene.add(this.board, this.pieces, this.markers, this.aim, this.fx, this.groundAuras, this.groundScars, this.environment.root);
     const tileGeometry = new THREE.BoxGeometry(0.98, 0.16, 0.98);
     const plate = document.createElement("canvas"); plate.width = plate.height = 256;
@@ -1018,6 +1056,7 @@ export class ChessScene {
       const distance = this.camera.position.distanceTo(this.controls.target);
       this.scene.fog.near = distance + 6; this.scene.fog.far = distance + 18;
     }
+    this.leaveDimension();
     this.animation = null;
     if (!preserveField) this.environment.resetReaction();
     this.overlay.clear();
@@ -1471,9 +1510,9 @@ export class ChessScene {
     // their weapons, even when the phone's portrait viewport narrows the frame.
     const dolly = capture ? 1 + 0.045 * Math.sin(capture.opening * Math.PI) + 0.025 * counterArc : 1;
     shot.position.sub(shot.focus).multiplyScalar(dolly).add(shot.focus);
-    const entering = smooth(t / (capture ? (0.4 / 2.6) / a.profile.camera.entry : 0.1));
+    const entering = this.dimensionSaved?1:smooth(t / (capture ? (0.4 / 2.6) / a.profile.camera.entry : 0.1));
     const returnAt = capture ? CAPTURE_DEATH : 0.82;
-    const returning = smooth((t - returnAt) / (1 - returnAt));
+    const returning = this.dimensionSaved?0:smooth((t - returnAt) / (1 - returnAt));
     const position = a.camera.clone().lerp(shot.position, entering).lerp(a.camera, returning);
     const focus = a.target.clone().lerp(shot.focus, entering).lerp(a.target, returning);
     const contact = a.move.captured ? CAPTURE_CONTACT : 0.52;
@@ -1515,6 +1554,7 @@ export class ChessScene {
     const a = this.animation;
     if (a) {
       const t = Math.max(0, Math.min((now - a.start) / a.duration, 1));
+      this.updateDimension(a,t);
       const choreography = cinematicFrame(t);
       const short = moveFrame(t);
       const capture = a.move.captured && !this.reduced ? captureFrame(t) : null;

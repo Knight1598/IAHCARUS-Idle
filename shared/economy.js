@@ -1,3 +1,4 @@
+import {presentationCatalog} from './presentation.js';
 // Browser-owned play credits. Account storage backs these up; it does not verify them.
 export const economicModes = [
   { id: "open", name: "Open Arena", label: "สนามเปิดหาเครดิต", base: "bot", entry: 0, prize: 500, description: "เข้าฟรี · เลือกฝ่ายและบอต · เล่นเต็มกระดานเพื่อสะสมเครดิต", rules: "ชนะรับ 500 เครดิต · เสมอรับ 180 เมื่อเดินรวมอย่างน้อย 24 ตา · แพ้รับ 80 เมื่อเดินรวมอย่างน้อย 24 ตา · ออกก่อนจบไม่ได้รางวัล · ไม่มีพรีเมียมจากการเล่น" },
@@ -23,6 +24,11 @@ const validId = id => typeof id === "string" && id.length > 0 && id.length <= 12
 export function readEconomy(raw) {
   const existing = raw && typeof raw === "object" && !Array.isArray(raw);
   return { version: 2, premium: integer(raw?.premium), credits: existing ? integer(raw.credits) : 750, shards: integer(raw?.shards),
+    inventory: Array.isArray(raw?.inventory) ? [...new Set(raw.inventory.filter(id=>presentationCatalog.some(item=>item.id===id)))] : [],
+    equipped: Object.fromEntries(['dimension','finisher','frame'].flatMap(kind=>{
+      const id=raw?.equipped?.[kind],item=presentationCatalog.find(item=>item.id===id&&item.kind===kind);
+      return item&&Array.isArray(raw?.inventory)&&raw.inventory.includes(id)?[[kind,id]]:[];
+    })),
     pulls: integer(raw?.pulls), pity: Math.min(pityLimit - 1, integer(raw?.pity)),
     owned: Array.isArray(raw?.owned) ? [...new Set(raw.owned.filter(id => skinIds.includes(id)))] : [],
     claimed: Array.isArray(raw?.claimed) ? [...new Set(raw.claimed.filter(validId))] : [],
@@ -92,6 +98,7 @@ export function forgeSkin(wallet, skin, unlocked = []) {
 
 // Trial shop: balances are local saves, not real-money entitlements.
 export const shopCatalog = [
+  ...presentationCatalog,
   ...[["nova",1200,"credits"],["phantom",220,"premium"],["dragon",280,"premium"]].map(([skin,price,currency])=>({id:`skin-${skin}`,kind:"skin",skin,price,currency,shards:0,credits:0})),
   ...[["nova",1500,"credits",70],["phantom",270,"premium",100],["dragon",350,"premium",120]].map(([skin,price,currency,shards])=>({id:`bundle-${skin}`,kind:"bundle",skin,price,currency,shards,credits:0})),
   ...[ ["ember",350,"credits"], ["frost",350,"credits"], ["storm",500,"credits"], ["astral",900,"credits"], ["royal",180,"premium"], ["void",220,"premium"], ["prism",300,"premium"] ].map(([skin,price,currency])=>({id:`skin-${skin}`,kind:"skin",skin,price,currency,shards:0,credits:0})),
@@ -110,11 +117,20 @@ export function trialPremium(wallet) {
 export function buyShopItem(wallet,id,unlocked=[]) {
   const item=shopCatalog.find(item=>item.id===id);
   if(!item)throw Error("ไม่พบสินค้า");
+  if(item.cosmetic&&wallet.inventory.includes(item.id))throw Error("มีสินค้านี้แล้ว");
   if(item.skin&&(wallet.owned.includes(item.skin)||unlocked.includes(item.skin)))throw Error("มีสกินนี้แล้ว");
   if(wallet[item.currency]<item.price)throw Error(item.currency==="premium"?"พรีเมียมไม่พอ":"เครดิตไม่พอ");
   if(wallet.shards+item.shards>10000000||wallet.credits+item.credits>10000000)throw Error("ยอดเงินหรือวัสดุถึงขีดจำกัดแล้ว");
   const label=item.label||`${item.kind==='bundle'?'ชุดธีม':'สกิน'} ${item.skin}`;
   const log=[...wallet.log,{id:`shop:${id}`,label,delta:-item.price,...(item.currency==='premium'?{currency:'premium'}:{})}];
   if(item.credits)log.push({id:`supply:${id}`,label:"เครดิตจากแพ็กเสบียง",delta:item.credits});
-  return {...wallet,[item.currency]:wallet[item.currency]-item.price,credits:wallet.credits-(item.currency==='credits'?item.price:0)+item.credits,shards:wallet.shards+item.shards,owned:item.skin?[...wallet.owned,item.skin]:wallet.owned,log:log.slice(-40)};
+  return {...wallet,inventory:item.cosmetic?[...wallet.inventory,item.id]:wallet.inventory,[item.currency]:wallet[item.currency]-item.price,credits:wallet.credits-(item.currency==='credits'?item.price:0)+item.credits,shards:wallet.shards+item.shards,owned:item.skin?[...wallet.owned,item.skin]:wallet.owned,log:log.slice(-40)};
+}
+
+export function equipShopItem(wallet,id) {
+  const item=presentationCatalog.find(item=>item.id===id);
+  if(!item||!wallet.inventory.includes(id))throw Error('ยังไม่มีสินค้านี้');
+  const equipped={...wallet.equipped};
+  if(equipped[item.kind]===id)delete equipped[item.kind];else equipped[item.kind]=id;
+  return {...wallet,equipped};
 }

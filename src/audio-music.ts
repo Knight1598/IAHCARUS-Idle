@@ -34,10 +34,10 @@ export function renderMusic(state: MusicState, seed = 7163, sampleRate = 12000):
     for (let note = 0; note < 3; note++) {
       const f = chords[section][note], previous = chords[(section + 3) % 4][note];
       const breathing = 0.7 + 0.3 * Math.sin(TAU * u * (2 + note) + note);
-      const currentL = Math.sin(TAU * f * t + Math.sin(t * 0.15 + note) * 0.3) + Math.sin(TAU * f * 2.002 * t) * 0.2;
-      const previousL = Math.sin(TAU * previous * t + Math.sin(t * 0.15 + note) * 0.3) + Math.sin(TAU * previous * 2.002 * t) * 0.2;
-      const currentR = Math.sin(TAU * (f + 0.045) * t + Math.sin(t * 0.14 + note) * 0.3) + Math.sin(TAU * f * 1.998 * t) * 0.2;
-      const previousR = Math.sin(TAU * (previous + 0.045) * t + Math.sin(t * 0.14 + note) * 0.3) + Math.sin(TAU * previous * 1.998 * t) * 0.2;
+      const currentL = Math.tanh(1.3*Math.sin(TAU * f * t + Math.sin(t * 0.15 + note) * 0.3))*.82 + air*Math.sin(TAU*f*t)*.8 + Math.sin(TAU * f * 2.002 * t) * 0.2;
+      const previousL = Math.tanh(1.3*Math.sin(TAU * previous * t + Math.sin(t * 0.15 + note) * 0.3))*.82 + air*Math.sin(TAU*f*t)*.8 + Math.sin(TAU * previous * 2.002 * t) * 0.2;
+      const currentR = Math.tanh(1.3*Math.sin(TAU * (f + 0.045) * t + Math.sin(t * 0.14 + note) * 0.3))*.82 + air*Math.sin(TAU*f*t)*.8 + Math.sin(TAU * f * 1.998 * t) * 0.2;
+      const previousR = Math.tanh(1.3*Math.sin(TAU * (previous + 0.045) * t + Math.sin(t * 0.14 + note) * 0.3))*.82 + air*Math.sin(TAU*f*t)*.8 + Math.sin(TAU * previous * 1.998 * t) * 0.2;
       padL += (currentL * blend + previousL * (1 - blend)) * breathing * 0.014;
       padR += (currentR * blend + previousR * (1 - blend)) * breathing * 0.014;
     }
@@ -54,8 +54,12 @@ export function renderMusic(state: MusicState, seed = 7163, sampleRate = 12000):
     }
     for (let bell = 0; bell < bellTimes.length; bell++) {
       const age = t - bellTimes[bell];
-      if (age >= 0 && age < 5) bells += (Math.sin(TAU * bellPitches[bell] * age) + Math.sin(TAU * bellPitches[bell] * 2.756 * age) * 0.26) * Math.exp(-age * 0.95) * Math.min(1, age / 0.025) * 0.011;
+      if (age >= 0 && age < 5) bells += (Math.sin(TAU * bellPitches[bell] * age) + Math.sin(TAU * bellPitches[bell] * 2.756 * age) * 0.26) * Math.exp(-age * 0.95) * Math.min(1, age / 0.3) * 0.007;
     }
+    // Evolving pressure swells leave room for game cues instead of another lead melody.
+    const barPhase=(t%(beatDuration*8))/(beatDuration*8);
+    const pressure=air*(energy?.12:tension?.07:.018)*Math.sin(barPhase*Math.PI)**3;
+    padL+=pressure;padR+=pressure*.83;
     let ending = 1;
     if (closing) {
       const shape = Math.sin(Math.PI * u) ** 0.65;

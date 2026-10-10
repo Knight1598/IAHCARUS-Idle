@@ -1,0 +1,4 @@
+.dimension-transition{position:absolute;inset:0;background:#030611;z-index:4;pointer-events:none;opacity:0}
+.dimension-label{position:absolute;top:14%;left:50%;transform:translateX(-50%);font-size:10px;letter-spacing:.3em;color:#b9d6f7;z-index:3;pointer-events:none;text-align:center;white-space:nowrap;opacity:0}
+[data-combat-dimension] .dimension-label{opacity:.65}
+@media(prefers-reduced-motion:reduce){.dimension-transition,.dimension-label{display:none}}

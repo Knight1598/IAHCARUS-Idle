@@ -27,7 +27,8 @@ export function renderSoundRecipe(recipe: SoundRecipe, sampleRate = 24000, seed 
   }
   
   const bodyDuration = Math.max(...recipe.map((layer) => layer.offset + layer.duration));
-  const tail = 0.3, length = Math.ceil((bodyDuration + tail) * sampleRate);
+  const room = Math.max(0,Math.min(.6,recipe.reduce((sum,l)=>sum+(l.room??.18),0)/Math.max(1,recipe.length)));
+  const tail = room<.06?.06:.3, length = Math.ceil((bodyDuration + tail) * sampleRate);
   const left = new Float32Array(length), right = new Float32Array(length);
   for (const layer of recipe) {
     const start = Math.floor(layer.offset * sampleRate), count = Math.ceil(layer.duration * sampleRate);
@@ -50,6 +51,15 @@ export function renderSoundRecipe(recipe: SoundRecipe, sampleRate = 24000, seed 
         for (let h = 0; h < partials.length; h++) {
           const ratio = layer.texture === "metal" ? [2.756, 4.071, 5.43][h % 3] : h + 2;
           value += partials[h] * Math.sin(phase * ratio + Math.sin(modulation * 0.73) * index * 0.3);
+        }
+        if(layer.texture==='mechanical') {
+          value=0;
+          for(const [h,ratio] of [1,2.41,3.87,5.19].entries())value+=Math.sin(phase*ratio)*Math.exp(-t*(18+h*9))*(1/(h+1));
+          value+=air*Math.exp(-t*55)*.18;
+        } else if(layer.texture==='glass') {
+          value=Math.sin(phase)+Math.sin(phase*2.756)*.28*Math.exp(-t*8)+Math.sin(phase*5.43)*.12*Math.exp(-t*14);
+        } else if(layer.texture==='void') {
+          value=(Math.sin(phase)+Math.sin(phase*1.009)*.6)*(.55+.45*Math.sin(t*17+u*8)) + air*.08;
         }
         if (layer.texture === "choir") value += Math.sin(phase * 2.001 + Math.sin(t * 4.2) * 0.08) * 0.24;
         if (layer.texture === "plasma") value = Math.tanh(value * 1.65) * 0.82 + air * 0.11;
@@ -75,8 +85,8 @@ export function renderSoundRecipe(recipe: SoundRecipe, sampleRate = 24000, seed 
   for (const [seconds, amount] of reflections) {
     const delay = Math.floor(seconds * sampleRate);
     for (let i = delay; i < length; i++) {
-      left[i] += dryR[i - delay] * amount;
-      right[i] += dryL[i - delay] * amount * 0.93;
+      left[i] += dryR[i - delay] * amount*(room/.18);
+      right[i] += dryL[i - delay] * amount * 0.93*(room/.18);
     }
   }
   for (let i = 0; i < length; i++) {
@@ -115,9 +125,15 @@ export function renderAmbience(seed = 417, sampleRate = 12000, duration = 31.7, 
     const air = (wind - cloud) * config.air * breathing;
     const harmonic = Math.sin(TAU * config.root * 2.756 * t + Math.sin(t * .6)) * config.metal * (.6 + .4 * Math.sin(t * .37));
     const pressure = Math.sin(TAU * config.root * .5 * t) * config.pulse * .006 * Math.max(0, Math.sin(t * .85));
+    const gust=Math.max(0,Math.sin(t*(preset==='storm'?.19:.09)+1))**4;
+    const crackle=preset==='ember'?(wind-cloud)*Math.max(0,Math.sin(t*17))*0.012:
+      preset==='reactor'?Math.sin(TAU*config.root*3*t)*Math.exp(-(t%3.7)*12)*.005:
+      preset==='frost'?Math.sin(TAU*config.root*4.071*t)*Math.sin(t*.6)**8*.002:
+      preset==='astral'||preset==='eclipse'?Math.sin(TAU*config.root*t+wind*12)*gust*.004:
+      preset==='storm'?(wind+cloud)*gust*.045:preset==='grove'?(wind-cloud)*Math.sin(t*.7)*.009:cloud*.008;
     const seam = Math.min(1, t / 0.8, (duration - t) / 0.8);
-    left[i] = (drone + air + harmonic + pressure + Math.sin(TAU * 110 * t) * 0.005) * seam;
-    right[i] = (drone + air * 0.91 - harmonic * .7 + pressure + Math.sin(TAU * 110.09 * t) * 0.005) * seam;
+    left[i] = (drone + air + harmonic + pressure + crackle + Math.sin(TAU * 110 * t) * 0.005) * seam;
+    right[i] = (drone + air * 0.91 - harmonic * .7 + pressure + crackle*.87 + Math.sin(TAU * 110.09 * t) * 0.005) * seam;
   }
   return { left, right, sampleRate, duration: length / sampleRate };
 }

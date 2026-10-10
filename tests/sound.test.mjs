@@ -165,7 +165,7 @@ test("rapid preview cancellation resolves obsolete preparation and never starts 
 
 test('new skin combat cues produce finite, audible PCM with bounded levels and distinct takes', async () => {
   const { renderSoundRecipe } = await import('../src/audio-synthesis.ts');
-  for (const skin of ['storm','void','prism']) for (const piece of pieces) {
+  for (const skin of ['storm','void','prism','nova','phantom','dragon']) for (const piece of pieces) {
     const fingerprints=new Set();
     for (const cue of ['charge','release','clash','impact','disintegrate']) for (let take=0;take<SOUND_VARIANTS;take++) {
       const pcm=renderSoundRecipe(combatSoundRecipe(piece,skin,cue,take),12000,417+take);
@@ -176,4 +176,30 @@ test('new skin combat cues produce finite, audible PCM with bounded levels and d
     }
     assert.equal(fingerprints.size,SOUND_VARIANTS,`${skin}:${piece} repeats identical takes`);
   }
+});
+
+test('new skins change actual instruments and rhythms beyond pitch, with four takes and class accents',()=>{
+ for(const skin of ['nova','phantom','dragon'])for(const piece of pieces)for(const cue of ['charge','release','impact','disintegrate']){
+  const recipes=Array.from({length:4},(_,v)=>combatSoundRecipe(piece,skin,cue,v));
+  assert.equal(new Set(recipes.map(structure)).size,4,`${skin}:${piece}:${cue}`);
+  assert.ok(recipes.every(r=>r.length<=8&&r.every(l=>Number.isFinite(l.level)&&l.level<=.24)));
+ }
+ const signatures=['nova','phantom','dragon'].map(skin=>structure(combatSoundRecipe('n',skin,'impact',0)));
+ assert.equal(new Set(signatures).size,3);
+});
+test('modern interface feedback stays short and dry; portal transitions have a separate room',()=>{
+ for(const event of ['ui-select','ui-confirm','ui-error','purchase','ready','portal-enter','portal-exit']){
+  const recipes=Array.from({length:4},(_,v)=>eventSoundRecipe(event,v));assert.equal(new Set(recipes.map(structure)).size,4,event);
+  for(const recipe of recipes)assert.ok(recipe.every(l=>l.room<=.5&&l.duration+l.offset<1));
+ }
+ assert.ok(eventSoundRecipe('ui-select',0).every(l=>l.room<.05));
+ assert.ok(eventSoundRecipe('portal-enter',0).some(l=>l.texture==='void'));
+});
+test('low priority feedback cannot steal important danger voices when the voice budget is full',()=>{
+ const context=audioContext(),sound=new SpaceAudio(context);
+ for(let i=0;i<AUDIO_VOICE_LIMIT;i++)sound.playEvent('check');
+ assert.equal(sound.activeVoices,AUDIO_VOICE_LIMIT);const prior=context.scheduled.length;
+ sound.playEvent('ui');assert.equal(context.scheduled.length,prior);
+ const stops=context.scheduled.map(v=>v.stopped);sound.anticipateImpact();assert.deepEqual(context.scheduled.map(v=>v.stopped),stops,'king warnings should survive the combat hush');
+ sound.dispose();
 });

@@ -9,7 +9,7 @@ import {
 import { ChessScene, type GraphicsQuality } from "./scene";
 import { Battleground } from "./battleground";
 import { TitleScreen, type LaunchSettings } from "./title";
-import { economicDefinition, isEconomicMode, enterContract, settleContract, contractAmount, claimCredits, dailyCredits, rollSkin, forgeSkin, buyShopItem, trialPremium, shopCatalog, type Contract } from "../shared/economy.js";
+import { economicDefinition, isEconomicMode, enterContract, settleContract, contractAmount, claimCredits, dailyCredits, rollSkin, forgeSkin, buyShopItem, equipShopItem, trialPremium, shopCatalog, type Contract } from "../shared/economy.js";
 import type { EconomyAction } from "./economy-ui";
 import { arenas, arenaOptions, isArena, type ArenaId } from "./arenas";
 import { SpaceAudio, type MusicState, type SoundPhase } from "./sound";
@@ -275,7 +275,7 @@ function syncMusic() {
   spaceAudio.setMusicState(music);
 }
 let profile = readProfile(storage.get("special-chess-profile"));
-function saveProfile() { storage.set("special-chess-profile", JSON.stringify(profile)); }
+function saveProfile() { scene?.setPresentation(profile.economy.equipped); storage.set("special-chess-profile", JSON.stringify(profile)); }
 const duelSignals=new DuelSignals($('#stage'),send,()=>soundEngine()?.playEvent('ui'));
 const duelLobby=new DuelLobby(onlinePanel,send,()=>profile,(color,army)=>{
   profile={...profile,skin:army.skin,loadouts:{...profile.loadouts,[color]:{...army.loadout}}};saveProfile();title.refresh(profile);
@@ -294,6 +294,9 @@ function changeEconomy(action: EconomyAction) {
       message = reward.added ? "รับเสบียง +100 เครดิตแล้ว" : "รับเสบียงวันนี้แล้ว";
     } else if(action.type === "premium-demo") {
       const reward=trialPremium(profile.economy);profile={...profile,economy:reward.wallet};message=reward.added?"รับพรีเมียมทดลอง +300 แล้ว · ไม่มีการจ่ายเงินจริง":"รับพรีเมียมทดลองไปแล้ว";
+    } else if(action.type === "equip") {
+      profile={...profile,economy:equipShopItem(profile.economy,action.product)};
+      message=profile.economy.equipped[shopCatalog.find(item=>item.id===action.product)!.kind as 'dimension'|'finisher'|'frame']===action.product?'สวมใช้งานแล้ว':'ถอดออกแล้ว';
     } else if(action.type === "buy") {
       profile={...profile,economy:buyShopItem(profile.economy,action.product,unlocked)};
       const item=shopCatalog.find(item=>item.id===action.product)!;message=`ซื้อ ${item.skin?skins[item.skin].name:item.label} สำเร็จ${item.skin?' · สวมได้ในคลังแสง':''}`;
@@ -302,7 +305,7 @@ function changeEconomy(action: EconomyAction) {
       message = `หลอม ${skins[action.skin].name} สำเร็จ · สวมได้ในคลังแสง`;
     }
     saveProfile(); title.refresh(profile);
-    if (action.type !== "daily") { try { soundEngine()?.playEvent("promotion"); } catch { /* The completed transaction does not depend on audio. */ } }
+    if (action.type !== "daily") { try { soundEngine()?.playEvent(action.type==="equip"?"ui-select":action.type==="buy"?"purchase":"promotion"); } catch { /* The completed transaction does not depend on audio. */ } }
     return message;
   } catch (error) { return error instanceof Error ? error.message : "ทำรายการไม่สำเร็จ"; }
 }
@@ -1077,6 +1080,7 @@ function finishAnimation() {
   $("#stage").classList.remove("cinematic");
   scene?.select(game, null, lastMove);
   updateUI();
+  if(!menuOpen&&!game.isGameOver()&&game.turn()===humanColor&&mode==='bot')soundEngine()?.playEvent('turn');
   // Let finish/reset/settings handlers complete before starting another animation.
   queueMicrotask(scheduleBot);
 }
@@ -1088,6 +1092,7 @@ if (scene) {
   scene.onDeath = deathSound;
   scene.onDash = dashSound;
   scene.onCancel = stopSounds;
+  scene.onDimension=active=>soundEngine()?.setDimension(active);
   scene.onAnticipation=()=>soundEngine()?.anticipateImpact();
   scene.onCombatCue = (move, _event, cue, actor, skin) => {
     const piece = actor === "defender" ? move.captured || move.piece : move.piece;
@@ -1113,7 +1118,7 @@ function commitMove(from: Square, to: Square, promotion: PieceSymbol = "q", ulti
   try {
     move = game.move({ from, to, promotion, ...(ultimate ? { ultimate: true } : {}), ...(portal ? { portal:true } : {}) });
   } catch {
-    notice("เดินผิดกติกา");
+    soundEngine()?.playEvent("ui-error");notice("เดินผิดกติกา");
     return;
   }
   saveLocal();
@@ -1372,6 +1377,8 @@ function receiveState(next: State) {
   if (changed || presenceChanged) updateUI();
   else updateClocks();
 }
+let clockWarningTurn='';
+const clockWarnings=new Set<number>();
 function updateClocks() {
   for (const color of ["w", "b"] as const) {
     let ms = state?.clocks[color] || 0;
@@ -1383,6 +1390,11 @@ function updateClocks() {
       ws?.readyState === 1
     )
       ms = Math.max(0, ms - (Date.now() - serverStamp));
+    if(mode==='online'&&state?.started&&!state.result&&game.turn()===color&&session?.color===color&&!menuOpen&&!document.hidden){
+      const key=`${session.code}:${game.fen()}`;if(key!==clockWarningTurn){clockWarningTurn=key;clockWarnings.clear();}
+      const threshold=ms>0&&ms<=3000?3:ms<=10000&&ms>0?10:0;
+      if(threshold&&!clockWarnings.has(threshold)){clockWarnings.add(threshold);soundEngine()?.playEvent('timer-low');}
+    }
     $(`#${color === "w" ? "white" : "black"}-clock`).textContent =
       mode === "online" && state
         ? `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`
@@ -1706,6 +1718,7 @@ arenaInput.onchange = () => {
 $("#arena-name").textContent = arenas[profile.arena].name;
 scene?.setArena(profile.arena);
 scene?.setSkin(profile.skin);
+scene?.setPresentation(profile.economy.equipped);
 renderGameBoard();
 scene?.resetView((mode === "bot" || (specialDuel || !!activeVariant) && mode === "local") && humanColor === "b");
 updateUI();
@@ -2075,3 +2088,12 @@ if(sharedReplay)replayStudio?.open(sharedReplay);
 
 const bgInvitation=new URLSearchParams(location.search).get('bg');
 if(bgInvitation&&/^[A-Fa-f0-9]{6}$/.test(bgInvitation))openBattleground(bgInvitation.toUpperCase());
+
+// Feedback follows semantic UI actions and respects the player's explicit audio switch.
+document.addEventListener('click',event=>{
+  const target=event.target instanceof Element?event.target.closest('button'):null;
+  if(!(target instanceof HTMLButtonElement)||target.disabled)return;
+  const id=target.id,back=/back|close|cancel/.test(id),confirm=/lock|ready|confirm|launch|connect|join/.test(id);
+  soundEngine()?.playEvent(back?'ui-back':confirm?'ui-confirm':'ui-select');
+});
+document.addEventListener('change',event=>{if(event.target instanceof HTMLSelectElement)soundEngine()?.playEvent('ui-select');});

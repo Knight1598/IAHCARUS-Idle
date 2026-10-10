@@ -33,7 +33,7 @@ try {
     const { SpaceAudio, SOUND_VARIANTS } = await import("/src/sound.ts");
     const pieces = ["p", "n", "b", "r", "q", "k"];
     const phases = ["lock", "charge", "dash", "impact", "death", "check"];
-    const events = ["check", "fork", "mate", "double-check", "discovered-check", "promotion", "rescue", "escape", "block", "castle", "en-passant", "first-blood", "recapture", "queen-fallen", "comeback", "capture-streak", "endgame", "mission", "intro", "victory", "defeat", "ui"];
+    const events = ["check", "fork", "mate", "double-check", "discovered-check", "promotion", "rescue", "escape", "block", "castle", "en-passant", "first-blood", "recapture", "queen-fallen", "comeback", "capture-streak", "endgame", "mission", "intro", "victory", "defeat", "ui", "ui-select", "ui-confirm", "ui-error", "purchase", "ready", "portal-enter", "portal-exit"];
     const results = [];
     function metrics(buffer) {
       let peak = 0, energy = 0, fingerprint = 0, finite = true;
@@ -112,7 +112,7 @@ try {
       return powers;
     }
     const combat = [], synthesisStart = performance.now();
-    for (const piece of pieces) for (const skin of ["classic", "ember", "frost", "astral", "royal"])
+    for (const piece of pieces) for (const skin of ["classic", "ember", "frost", "astral", "royal", "storm", "void", "prism", "nova", "phantom", "dragon"])
       for (const cue of ["draw", "charge", "release", "clash", "counter", "finisher", "impact", "armor", "disintegrate"])
         for (let variant = 0; variant < SOUND_VARIANTS; variant++) {
           const pcm = renderSoundRecipe(combatSoundRecipe(piece, skin, cue, variant, .3), 24000, 613 + variant);
@@ -157,7 +157,7 @@ try {
     return { results, mixes, cancellation, combat, music, ambience, synthesisMs: performance.now() - synthesisStart,
       soundtrack: { ducked, afterSkip, disposed, mixedMetrics, silentMetrics } };
   });
-  assert.equal(audio.results.length, 144 + 88);
+  assert.equal(audio.results.length, 144 + 116);
   for (const result of audio.results) {
     const label = `${result.key} variant ${result.variant}`;
     assert.equal(result.selected, result.variant, label);
@@ -179,14 +179,14 @@ try {
   assert.equal(audio.cancellation.voicesBeforeCancel, 3, "three layered cues own exactly three PCM sources");
   assert.equal(audio.cancellation.voices, 0);
   assert.ok(audio.cancellation.tail < 0.0001, `Canceled PCM/reflections remain audible (${audio.cancellation.tail})`);
-  assert.equal(audio.combat.length, 1080);
+  assert.equal(audio.combat.length, 2376);
   for (const cue of audio.combat) {
     assert.equal(cue.finite, true); assert.ok(cue.peak < .9 && cue.rms > .00005, JSON.stringify(cue));
     assert.ok(cue.duration > .1 && cue.duration < 2.6);
   }
   for (const piece of ["p", "n", "b", "r", "q", "k"]) for (const cue of ["draw", "charge", "release", "clash", "counter", "finisher", "impact", "armor", "disintegrate"]) {
     const group = audio.combat.filter(result => result.piece === piece && result.cue === cue);
-    assert.equal(new Set(group.map(result => result.fingerprint.toFixed(8))).size, 20, `${piece}:${cue}: skins/takes must differ`);
+    assert.equal(new Set(group.map(result => result.fingerprint.toFixed(8))).size, 44, `${piece}:${cue}: skins/takes must differ`);
   }
   for (const music of audio.music) {
     assert.equal(music.finite, true); assert.ok(music.rms > .002 && music.peak < .3);
@@ -207,9 +207,9 @@ try {
   assert.deepEqual(errors, []);
   mkdirSync("test-results", { recursive: true });
   writeFileSync("test-results/audio-v2-analysis.json", JSON.stringify(audio, null, 2));
-  console.log(`PASS: ${audio.results.length} rendered variations (144 piece / 88 event), four distinct waveforms per action, cleanup and full-volume combat mix headroom`);
+  console.log(`PASS: ${audio.results.length} rendered variations (144 piece / 116 event), four distinct waveforms per action, cleanup and full-volume combat mix headroom`);
   console.log(`PASS: cancel stops PCM/stereo/event tails; silent tail ${audio.cancellation.tail.toExponential(2)}`);
-  console.log(`PASS: 1080 combat takes (30 class/skin profiles), nine modal music states, eight arena beds, worker preparation, duck/restoration, independent bus silence and disposal`);
+  console.log(`PASS: 2376 combat takes (66 class/skin profiles), nine modal music states, eight arena beds, worker preparation, duck/restoration, independent bus silence and disposal`);
   console.log(`Audio peaks: individual ${Math.max(...audio.results.map(({ peak }) => peak)).toFixed(3)}, combined at full volume ${Math.max(...audio.mixes.map(({ peak }) => peak)).toFixed(3)}`);
 } finally {
   await browser?.close();

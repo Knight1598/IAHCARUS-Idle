@@ -1,6 +1,6 @@
 import type { SkinId } from "../src/profile.ts";
 export type EconomicMode = "open" | "bounty" | "vault" | "broker" | "stakes" | "payday";
-export interface Economy { version: 2; premium: number; credits: number; shards: number; pulls: number; pity: number; owned: SkinId[]; claimed: string[]; log: { id: string; label: string; delta: number; currency?: "premium" }[] }
+export interface Economy { version: 2; inventory:string[]; equipped:Partial<Record<'dimension'|'finisher'|'frame',string>>; premium: number; credits: number; shards: number; pulls: number; pity: number; owned: SkinId[]; claimed: string[]; log: { id: string; label: string; delta: number; currency?: "premium" }[] }
 export interface Contract { id: string; mode: EconomicMode }
 export interface ContractResult { won: boolean; draw: boolean; plies?: number; solved?: number; capturedValue?: number; controlScore?: number; unusedBudget?: number }
 export const economicModes: { id: EconomicMode; name: string; label: string; base: "bot" | "score" | "control" | "draft" | "rush"; entry: number; prize: number; description: string; rules: string }[];
@@ -19,7 +19,9 @@ export function contractAmount(mode: EconomicMode, result: ContractResult): numb
 export function rollSkin(wallet: Economy, unlocked?: SkinId[], random?: () => number): { wallet: Economy; skin: SkinId; duplicate: boolean; shards: number; guaranteed: boolean };
 export function forgeSkin(wallet: Economy, skin: SkinId, unlocked?: SkinId[]): Economy;
 
-export interface ShopItem {id:string;kind:"skin"|"bundle"|"supplies";skin?:SkinId;label?:string;price:number;currency:"credits"|"premium";shards:number;credits:number;}
+export interface ShopItem {id:string;kind:"skin"|"bundle"|"supplies"|"dimension"|"finisher"|"frame";cosmetic?:string;color?:string;pattern?:number;description?:string;skin?:SkinId;label?:string;price:number;currency:"credits"|"premium";shards:number;credits:number;}
 export const shopCatalog: ShopItem[];
 export function trialPremium(wallet:Economy):ReturnType<typeof claimCredits>;
 export function buyShopItem(wallet:Economy,id:string,unlocked?:SkinId[]):Economy;
+
+export function equipShopItem(wallet:Economy,id:string):Economy;
